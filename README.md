@@ -56,14 +56,20 @@ newsletter:
 
 ### 🚀 Usage
 
-#### Local Development
+#### infrastructure Deployment
+```bash
+# Deploy infrastructure
+python scripts/deploy_infra.py
+```
+
+#### Development
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
 # Set up environment
 cp .env.template .env
-# Edit .env with your AWS configuration
+# Edit .env with your configuration
 
 # Run locally
 python app/main.py --end-date 2024-01-01 --language ko --recipients email@example.com
@@ -71,26 +77,3 @@ python app/main.py --end-date 2024-01-01 --language ko --recipients email@exampl
 # Submit batch job
 python app/run_batch.py --end-date 2024-01-01 --language ko --recipients email@example.com
 ```
-
-#### Deployment
-```bash
-# Deploy infrastructure
-python scripts/deploy_infra.py
-```
-
-### 📁 Project Structure
-
-```
-tech-digest/
-├── app/
-│   ├── src/                    # Core modules
-│   ├── configs/                # YAML configurations
-│   ├── templates/              # Email templates
-│   ├── assets/                 # Company logos
-│   ├── main.py                 # Lambda handler
-│   └── run_batch.py           # Batch job runner
-├── scripts/
-│   └── deploy_infra.py        # CDK deployment
-└── requirements.txt
-```
-
