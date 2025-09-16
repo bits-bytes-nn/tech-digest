@@ -56,7 +56,7 @@ newsletter:
 
 ### 🚀 Usage
 
-#### infrastructure Deployment
+#### Infrastructure Deployment
 ```bash
 # Deploy infrastructure
 python scripts/deploy_infra.py
