@@ -342,7 +342,6 @@ class SummarizationPrompt(BasePrompt):
     input_variables: list[str] = ["post"]
     output_variables: list[str] = ["summary", "tags", "urls"]
     human_prompt_template: str = ""
-
     system_prompt_template: str = """You are an expert technical writer and content analyst with deep expertise in
     software engineering, machine learning, and system architecture. You excel at creating engaging, detailed
     explanations of complex technical topics that feel like friendly conversations with fellow developers. Your writing
@@ -357,7 +356,7 @@ class SummarizationPrompt(BasePrompt):
 **WRITING APPROACH:**
 Write as if you're having a friendly conversation with a fellow developer over coffee. Be thorough and explanatory
 rather than brief and summarized. Take time to walk through concepts, explain the "why" behind decisions, and help
-readers truly understand the material.
+readers truly understand the material. Keep the content length to a maximum of 30% of the original post length.
 
 **ANALYSIS REQUIREMENTS:**
 1. **Conversational Depth:** Explain technical concepts in a friendly, detailed manner with context and background
@@ -383,12 +382,18 @@ Take time to explain the reasoning behind architectural patterns and help reader
 
 <h3>🛠️ Let's Dive Deep Into the Technical Details</h3>
 Provide a thorough technical walkthrough that includes:
-• **Understanding the Core Ideas:** Explain the fundamental concepts in detail, providing context and background to help readers fully grasp the approach
-• **Code Walkthrough:** Present and carefully explain critical code sections, discussing what each part does and why it's implemented that way
-• **Design Philosophy:** Discuss the thinking behind technical choices, exploring alternatives that were considered and why certain paths were chosen
-• **Performance Deep Dive:** Thoroughly explain optimization strategies, scalability considerations, and performance implications with detailed reasoning
-• **Handling Edge Cases:** Discuss how the system deals with potential issues, error scenarios, and unexpected situations
-• **Implementation Wisdom:** Share detailed guidance, common pitfalls to avoid, and practical advice for anyone looking to implement similar solutions
+• **Understanding the Core Ideas:** Explain the fundamental concepts in detail, providing context and background to help
+readers fully grasp the approach
+• **Code Walkthrough:** Present and carefully explain critical code sections, discussing what each part does and why
+it's implemented that way
+• **Design Philosophy:** Discuss the thinking behind technical choices, exploring alternatives that were considered and
+why certain paths were chosen
+• **Performance Deep Dive:** Thoroughly explain optimization strategies, scalability considerations, and performance
+implications with detailed reasoning
+• **Handling Edge Cases:** Discuss how the system deals with potential issues, error scenarios, and unexpected
+situations
+• **Implementation Wisdom:** Share detailed guidance, common pitfalls to avoid, and practical advice for anyone looking
+to implement similar solutions
 
 <h3>📊 What the Results Tell Us and Why It Matters</h3>
 Present a detailed discussion of outcomes and their significance:
@@ -419,64 +424,80 @@ methodologies, or architectural patterns mentioned in the article - avoid generi
 unless they represent novel approaches - write all titles in English]</tags>
 <urls>[Essential technical references as properly formatted HTML links: <a href="url1">descriptive title 1</a>,
 <a href="url2">descriptive title 2</a> - write all titles in English]</urls>""",
-        Language.KO: """Analyze and create a comprehensive technical summary of the following blog post in Korean:
+        Language.KO: """Create a comprehensive and engaging technical explanation of the following blog post in Korean:
 
 **CONTENT TO ANALYZE:**
 <post>{post}</post>
 
+**WRITING APPROACH:**
+Write as if you're having a friendly conversation with a fellow developer over coffee. Be thorough and explanatory
+rather than brief and summarized. Take time to walk through concepts, explain the "why" behind decisions, and help
+readers truly understand the material. Keep the content length to a maximum of 30% of the original post length.
+
 **ANALYSIS REQUIREMENTS:**
-1. **Technical Depth:** Extract and explain key technical concepts, implementation details, and architectural decisions
-2. **Practical Impact:** Analyze real-world applications and their effects on the broader technology ecosystem
-3. **Critical Insights:** Highlight important findings, best practices, limitations, and lessons learned
-4. **Strategic Analysis:** Identify technical tradeoffs, design decisions, and strategic considerations
-5. **Industry Context:** Connect the content to broader technical trends, industry developments, and future implications
-6. **Balanced Coverage:** Maintain technical depth while ensuring accessibility to technical professionals
+1. **Conversational Depth:** Explain technical concepts in a friendly, detailed manner with context and background
+2. **Practical Storytelling:** Share the journey of implementation, challenges faced, and solutions discovered
+3. **Thoughtful Insights:** Provide detailed explanations of findings, methodologies, and lessons learned
+4. **Strategic Context:** Thoroughly discuss technical decisions, trade-offs, and their broader implications
+5. **Industry Perspective:** Connect the content to wider technical trends with detailed explanations
+6. **Educational Focus:** Prioritize helping readers learn and understand over brevity
 
 **REQUIRED STRUCTURE (within <summary> tags):**
 
 <h3>📌 왜 이 아티클에 주목해야 하나요?</h3>
-Provide a compelling explanation of the content's significance, value propositions, and relevance to current technical
-challenges. Include specific context about why this matters now.
+Tell the story of why this content matters. Explain the background context, the problems it addresses, and why it's
+particularly relevant right now. Share what makes this approach interesting or unique, and help readers understand the
+broader significance in the current tech landscape.
 
 <h3>🔄 아키텍처 개요와 워크플로우</h3>
-Present a clear description of the system architecture and workflow processes. Include relevant images using:
+Walk readers through the system architecture and workflow in detail. Explain how different components interact, why
+certain design choices were made, and how the overall system comes together. Include relevant images using:
 <img src="full_url" alt="descriptive text">
 Note: Always use complete URLs for images (e.g., https://example.com/path/image.jpg), not relative paths.
-Analyze design choices, architectural patterns, and explain the reasoning behind key decisions.
+Take time to explain the reasoning behind architectural patterns and help readers understand the thought process.
 
 <h3>🛠️ 기술적 심층 분석</h3>
-Provide comprehensive technical analysis covering:
-• **Core Concepts:** Central ideas and implementation details that drive the solution
-• **Code Analysis:** Critical code snippets with detailed explanations of functionality and purpose
-• **Design Decisions:** Technical choices made, their rationale, and implications for system behavior
-• **Performance Considerations:** Optimization strategies, scalability factors, and performance trade-offs
-• **Error Handling:** Edge cases, failure modes, and resilience strategies discussed
-• **Implementation Guidance:** Practical recommendations, gotchas, and best practices for adoption
+Provide a thorough technical walkthrough that includes:
+• **Understanding the Core Ideas:** Explain the fundamental concepts in detail, providing context and background to help
+readers fully grasp the approach
+• **Code Walkthrough:** Present and carefully explain critical code sections, discussing what each part does and why
+it's implemented that way
+• **Design Philosophy:** Discuss the thinking behind technical choices, exploring alternatives that were considered and
+why certain paths were chosen
+• **Performance Deep Dive:** Thoroughly explain optimization strategies, scalability considerations, and performance
+implications with detailed reasoning
+• **Handling Edge Cases:** Discuss how the system deals with potential issues, error scenarios, and unexpected
+situations
+• **Implementation Wisdom:** Share detailed guidance, common pitfalls to avoid, and practical advice for anyone looking
+to implement similar solutions
 
 <h3>📊 성과 및 비즈니스 임팩트</h3>
-Present quantitative and qualitative outcomes with detailed analysis:
-• Performance metrics, benchmarks, and measurable improvements
-• Business value propositions and strategic advantages
-• Cost implications and resource optimization benefits
-• Scalability and maintenance considerations
+Present a detailed discussion of outcomes and their significance:
+• Walk through performance metrics and benchmarks, explaining what they mean and why they're important
+• Discuss the business value and strategic advantages in detail, connecting technical improvements to real-world
+benefits
+• Explore cost implications and resource optimization benefits with thorough analysis
+• Examine scalability potential and long-term maintenance considerations
 
 <h3>🔮 향후 발전 가능성과 기회</h3>
-Discuss potential developments, integration possibilities, and strategic directions:
-• Technology evolution paths and emerging opportunities
-• Integration potential with existing systems and workflows
-• Industry adoption prospects and competitive implications
+Provide a thoughtful exploration of future possibilities and implications:
+• Discuss potential evolution paths and emerging opportunities with detailed explanations
+• Explore integration possibilities with existing systems and workflows, explaining the practical implications
+• Analyze industry adoption prospects and competitive landscape implications with thorough reasoning
 
 **FORMATTING REQUIREMENTS:**
 - Use HTML tags exclusively (no markdown)
-- Write content in Korean while keeping proper nouns, and difficult-to-translate concepts in English
+- Write in a conversational, explanatory style that prioritizes understanding over brevity
 - Present code in <pre><code class="highlight"> blocks for proper syntax highlighting
 - Use <strong> for key technical points and <em> for important technical terms
 - Format data and comparisons using HTML tables when appropriate
 - Maintain consistent heading hierarchy and structure
-- Ensure all technical concepts are properly explained with Korean context
+- Ensure all technical terms are thoroughly explained with context and examples
+- Write content in Korean while keeping proper nouns, and difficult-to-translate concepts in English
 
 **OUTPUT FORMAT:**
-<summary>[Complete technical summary in Korean with proper HTML formatting and comprehensive analysis]</summary>
+<summary>[Complete technical explanation with friendly, detailed narrative and comprehensive analysis in Korean]
+</summary>
 <tags>[5-7 specific technical topics in Title Case, comma-separated, focusing on distinctive technologies,
 methodologies, or architectural patterns mentioned in the article - avoid generic terms like "Machine Learning" or "AI"
 unless they represent novel approaches - write all titles in English]</tags>
