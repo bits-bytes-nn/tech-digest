@@ -26,6 +26,7 @@ from .feed_parser import (
     QwenBlogScraper,
     RssFetcher,
     SourceType,
+    XAIBlogScraper,
 )
 from .greeter import Greeter
 from .logger import is_running_in_aws, logger
@@ -60,6 +61,7 @@ __all__ = [
     "SSMParams",
     "SourceType",
     "Summarizer",
+    "XAIBlogScraper",
     "check_and_download_from_s3",
     "get_account_id",
     "get_date_range",

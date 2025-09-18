@@ -45,6 +45,8 @@ class NewsletterConfig:
         "openai": "openai.png",
         "palantir": "palantir.png",
         "pinterest": "pinterest.png",
+        "qwen": "qwen.png",
+        "xai": "xai.png",
         "unknown": "unknown.png",
     }
     DATE_FORMATS: tuple[str, ...] = (

@@ -32,6 +32,7 @@ scraping:
     - "https://medium.com/feed/@palantir"
     - "https://medium.com/feed/@Pinterest_Engineering"
     - "https://qwenlm.github.io/blog/"
+    - "https://x.ai/news"
     - "https://eugeneyan.com/rss/"
     - "https://huyenchip.com/feed.xml"
     - "http://sebastianraschka.com/rss_feed.xml"
@@ -77,4 +78,5 @@ newsletter:
     palantir: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/palantir.png"
     pinterest: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/pinterest.png"
     qwen: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/qwen.png"
+    xai: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/xai.png"
     unknown: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/unknown.png"

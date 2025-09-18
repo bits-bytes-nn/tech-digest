@@ -15,6 +15,7 @@ from app.src import (
     PostCollector,
     PostFetcher,
     RssFetcher,
+    XAIBlogScraper,
     get_date_range,
     logger,
 )
@@ -28,25 +29,29 @@ if __name__ == "__main__":
 
     fetchers: list[PostFetcher] = []
     for url in config.scraping.rss_urls:
-        if AppConstants.External.ANTHROPIC_NEWS.value in url:
+        if AppConstants.External.ANTHROPIC_ENGINEERING.value in url:
             logger.info("Using AnthropicBlogScraper for URL: '%s'", url)
             fetchers.append(AnthropicBlogScraper(page_url=url, source="anthropic"))
 
-        elif AppConstants.External.GOOGLE_RESEARCH_BLOG.value in url:
+        elif AppConstants.External.GOOGLE_RESEARCH.value in url:
             logger.info("Using GoogleBlogScraper for URL: '%s'", url)
             fetchers.append(GoogleBlogScraper(page_url=url, source="google"))
 
-        elif AppConstants.External.LINKEDIN_ENGINEERING_BLOG.value in url:
+        elif AppConstants.External.LINKEDIN_ENGINEERING.value in url:
             logger.info("Using LinkedInBlogScraper for URL: '%s'", url)
             fetchers.append(LinkedInBlogScraper(page_url=url, source="linkedin"))
 
-        elif AppConstants.External.META_AI_BLOG.value in url:
+        elif AppConstants.External.META_AI.value in url:
             logger.info("Using MetaAIBlogScraper for URL: '%s'", url)
             fetchers.append(MetaAIBlogScraper(page_url=url, source="meta"))
 
-        elif AppConstants.External.QWEN_BLOG.value in url:
+        elif AppConstants.External.QWEN.value in url:
             logger.info("Using QwenBlogScraper for URL: '%s'", url)
             fetchers.append(QwenBlogScraper(page_url=url, source="qwen"))
+
+        elif AppConstants.External.XAI.value in url:
+            logger.info("Using XAIBlogScraper for URL: '%s'", url)
+            fetchers.append(XAIBlogScraper(page_url=url, source="xai"))
 
         else:
             fetchers.append(RssFetcher(url))

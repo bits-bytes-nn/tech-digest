@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 import feedparser
 import requests
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Tag
 from feedparser.exceptions import CharacterEncodingOverride
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 from requests.exceptions import RequestException
@@ -34,6 +34,7 @@ SourceType: TypeAlias = Literal[
     "palantir",
     "pinterest",
     "qwen",
+    "xai",
     "unknown",
 ]
 
@@ -68,6 +69,7 @@ class ScraperConfig:
         "blog.palantir.com": "palantir",
         "pinterest-engineering": "pinterest",
         "qwenlm.github.io": "qwen",
+        "x.ai": "xai",
     }
     MIN_CONTENT_LENGTH: ClassVar[int] = 3000
     MAX_TAGS: ClassVar[int] = 5
@@ -369,97 +371,117 @@ class AnthropicBlogScraper(BasePageScraper):
     DATE_PATTERN: ClassVar[re.Pattern] = re.compile(
         r"\b([A-Z][a-z]{2,8} \d{1,2}, \d{4})\b"
     )
-    MARKDOWN_PATTERN: ClassVar[re.Pattern] = re.compile(r"\[([^]]+)]\(/news/([^)]+)\)")
 
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
+        logger.info(
+            f"Anthropic: Fetching posts from '{start_date.date()}' to '{end_date.date()}'"
+        )
+
         soup = self._fetch_page()
         if not soup:
             return []
-        posts = self._extract_from_links(soup, start_date, end_date)
-        if not posts:
-            posts.extend(self._extract_from_text_patterns(soup, start_date, end_date))
+
+        posts = []
+        seen_urls = set()
+
+        for link in soup.find_all("a", href=re.compile(r"/engineering/")):
+            if post := self._extract_post_from_link(link, start_date, end_date):
+                if post.link not in seen_urls:
+                    posts.append(post)
+                    seen_urls.add(post.link)
+
         return posts
 
-    def _create_post(self, title: str, url: str, pub_date: datetime) -> Post:
-        return Post.from_entry(
-            feedparser.FeedParserDict(
-                title=title.strip(),
-                link=url,
-                published=pub_date.isoformat(),
-                source=self.source,
+    def _extract_post_from_link(
+        self, link: Tag, start_date: datetime, end_date: datetime
+    ) -> Post | None:
+        try:
+            href = link.get("href")
+            if not href:
+                return None
+
+            if isinstance(href, list):
+                href = href[0] if href else None
+            if not href:
+                return None
+
+            title = self._extract_title(link)
+            if not title:
+                return None
+
+            date_text = self._find_date_near_element(link)
+            if not date_text:
+                return None
+
+            pub_date = parse_published_date(date_text)
+            if not is_date_in_range(pub_date, start_date, end_date):
+                return None
+
+            return Post.from_entry(
+                feedparser.FeedParserDict(
+                    title=title.strip(),
+                    link=urljoin(self.page_url, href),
+                    published=pub_date.isoformat(),
+                    source=self.source,
+                )
             )
+
+        except Exception as e:
+            logger.error(f"Error processing link: {e}")
+            return None
+
+    def _extract_title(self, link: Tag) -> str:
+        heading_elements = link.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
+        if heading_elements:
+            for heading in heading_elements:
+                text = heading.get_text(strip=True)
+                if 10 <= len(text) <= 120 and not text.endswith("."):
+                    return text
+            return heading_elements[0].get_text(strip=True)
+
+        title_selectors = [
+            '[class*="title"]',
+            '[class*="heading"]',
+            '[class*="headline"]',
+        ]
+
+        for selector in title_selectors:
+            title_elements = link.select(selector)
+            for elem in title_elements:
+                text = elem.get_text(strip=True)
+                if 10 <= len(text) <= 120 and not text.endswith("."):
+                    return text
+
+        full_text = link.get_text(strip=True)
+
+        lines = [line.strip() for line in full_text.split("\n") if line.strip()]
+        for line in lines:
+            if (
+                10 <= len(line) <= 120
+                and not line.endswith(".")
+                and not line.startswith("This is")
+                and not line.startswith("A ")
+                and "blog post" not in line.lower()
+                and "technical report" not in line.lower()
+            ):
+                return line
+
+        if lines and 5 <= len(lines[0]) <= 120:
+            return lines[0]
+
+        return full_text[:120].rsplit(" ", 1)[0] + (
+            "..." if len(full_text) > 120 else ""
         )
 
-    def _extract_from_links(
-        self, soup: BeautifulSoup, start_date: datetime, end_date: datetime
-    ) -> list[Post]:
-        posts = []
-        for link in soup.find_all("a", href=re.compile(r"/news/")):
-            try:
-                potential_elements = link.find_all(["h2", "h3", "h4", "p"])
-                if not potential_elements:
-                    continue
-
-                title = max(
-                    (elem.get_text(strip=True) for elem in potential_elements), key=len
-                )
-                href = link.get("href")
-                date_text = self._find_date_near_element(link)
-
-                if not (title and href and date_text):
-                    continue
-
-                pub_date = parse_published_date(date_text)
-                if is_date_in_range(pub_date, start_date, end_date):
-                    posts.append(
-                        self._create_post(title, urljoin(self.page_url, href), pub_date)
-                    )
-                    logger.info(f"Added post: '{title}' ({date_text})")
-            except Exception as e:
-                logger.error(f"Error processing Anthropic news link: {e}")
-        return posts
-
-    def _find_date_near_element(self, element) -> str | None:
+    def _find_date_near_element(self, element: Tag) -> str | None:
         current = element
         for _ in range(5):
-            if current is None:
+            if not current:
                 break
-            if date_match := self.DATE_PATTERN.search(str(current)):
-                return date_match.group(1)
-            for sibling in getattr(current, "next_siblings", []):
-                if isinstance(sibling, NavigableString) and (
-                    date_match := self.DATE_PATTERN.search(str(sibling))
-                ):
-                    return date_match.group(1)
+            if match := self.DATE_PATTERN.search(str(current)):
+                return match.group(1)
             current = current.parent
         return None
-
-    def _extract_from_text_patterns(
-        self, soup: BeautifulSoup, start_date: datetime, end_date: datetime
-    ) -> list[Post]:
-        posts = []
-        full_text = soup.get_text()
-        for match in self.MARKDOWN_PATTERN.finditer(full_text):
-            try:
-                context = full_text[
-                    max(0, match.start() - 200) : min(len(full_text), match.end() + 200)
-                ]
-                if not (date_match := self.DATE_PATTERN.search(context)):
-                    continue
-                date_str = date_match.group(1)
-                pub_date = parse_published_date(date_str)
-                if is_date_in_range(pub_date, start_date, end_date):
-                    path = match.group(2)
-                    title = match.group(1)
-                    posts.append(
-                        self._create_post(
-                            title, urljoin(self.page_url, f"/news/{path}"), pub_date
-                        )
-                    )
-                    logger.info(f"Added post from text pattern: '{title}' ({date_str})")
-            except Exception as e:
-                logger.error(f"Error processing text pattern match: {e}")
-        return posts
 
 
 class GoogleBlogScraper(GenericPageScraper):
@@ -751,6 +773,97 @@ class QwenBlogScraper(GenericPageScraper):
             published=date_text or datetime.now(timezone.utc).isoformat(),
             source=self.source,
         )
+
+
+class XAIBlogScraper(BasePageScraper):
+    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
+        logger.info(
+            f"XAI: Fetching posts from '{start_date.date()}' to '{end_date.date()}'"
+        )
+
+        soup = self._fetch_page()
+        if not soup:
+            return []
+
+        posts = []
+        seen_urls = set()
+
+        news_links = soup.find_all("a", href=re.compile(r"/news/[^/]+/?$"))
+
+        for link in news_links:
+            try:
+                href = link.get("href")
+                if not href or href in seen_urls or href.endswith("/news/"):
+                    continue
+
+                seen_urls.add(href)
+
+                title = self._extract_title(link)
+                if not title or len(title) < 5:
+                    continue
+
+                date_text = self._find_date_near_element(link)
+                if not date_text:
+                    continue
+
+                pub_date = parse_published_date(date_text)
+                if not is_date_in_range(pub_date, start_date, end_date):
+                    continue
+
+                full_url = f"https://x.ai{href}" if href.startswith("/") else href
+
+                post = Post.from_entry(
+                    feedparser.FeedParserDict(
+                        title=title.strip(),
+                        link=full_url,
+                        published=pub_date.isoformat(),
+                        source="xai",
+                    )
+                )
+                posts.append(post)
+                logger.info(f"XAI: Added '{title}' ({pub_date.date()})")
+
+            except Exception as e:
+                logger.error(f"XAI: Error processing link: {e}")
+
+        return posts
+
+    def _extract_title(self, link: Tag) -> str:
+        title = link.get_text(strip=True)
+
+        if not title or len(title) < 5:
+            parent = link.parent
+            for _ in range(3):
+                if parent:
+                    heading = parent.select_one("h1, h2, h3, h4, h5, h6")
+                    if heading:
+                        title = heading.get_text(strip=True)
+                        break
+                    parent = parent.parent
+                else:
+                    break
+
+        return title
+
+    def _find_date_near_element(self, element: Tag) -> str:
+        date_patterns = [
+            re.compile(r"\b([A-Z][a-z]+ \d{1,2}, \d{4})\b"),
+            re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b"),
+            re.compile(r"\b(\d{4}-\d{2}-\d{2})\b"),
+        ]
+
+        current = element
+        for _ in range(4):
+            if current:
+                element_text = str(current)
+                for pattern in date_patterns:
+                    if match := pattern.search(element_text):
+                        return match.group(1)
+                current = current.parent
+            else:
+                break
+
+        return ""
 
 
 class PostCollector:

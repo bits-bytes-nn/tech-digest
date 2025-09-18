@@ -52,9 +52,10 @@ class AppConstants:
     NULL_STRING: str = "null"
 
     class External(str, Enum):
-        ANTHROPIC_NEWS = "www.anthropic.com/news"
-        GOOGLE_RESEARCH_BLOG = "research.google/blog"
-        LINKEDIN_ENGINEERING_BLOG = "www.linkedin.com/blog/engineering"
-        META_AI_BLOG = "ai.meta.com/blog"
+        ANTHROPIC_ENGINEERING = "www.anthropic.com/engineering"
+        GOOGLE_RESEARCH = "research.google/blog"
+        LINKEDIN_ENGINEERING = "www.linkedin.com/blog/engineering"
+        META_AI = "ai.meta.com/blog"
         MEDIUM_DOMAIN = "medium.com"
-        QWEN_BLOG = "qwenlm.github.io/blog"
+        QWEN = "qwenlm.github.io/blog"
+        XAI = "x.ai/news"
