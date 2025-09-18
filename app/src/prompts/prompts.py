@@ -356,7 +356,7 @@ class SummarizationPrompt(BasePrompt):
 **WRITING APPROACH:**
 Write as if you're having a friendly conversation with a fellow developer over coffee. Be thorough and explanatory
 rather than brief and summarized. Take time to walk through concepts, explain the "why" behind decisions, and help
-readers truly understand the material. Keep the content length to a maximum of 30% of the original post length.
+readers truly understand the material. Keep the content length to a maximum of 20% of the original post length.
 
 **ANALYSIS REQUIREMENTS:**
 1. **Conversational Depth:** Explain technical concepts in a friendly, detailed manner with context and background
@@ -432,7 +432,7 @@ unless they represent novel approaches - write all titles in English]</tags>
 **WRITING APPROACH:**
 Write as if you're having a friendly conversation with a fellow developer over coffee. Be thorough and explanatory
 rather than brief and summarized. Take time to walk through concepts, explain the "why" behind decisions, and help
-readers truly understand the material. Keep the content length to a maximum of 30% of the original post length.
+readers truly understand the material. Keep the content length to a maximum of 20% of the original post length.
 
 **ANALYSIS REQUIREMENTS:**
 1. **Conversational Depth:** Explain technical concepts in a friendly, detailed manner with context and background
