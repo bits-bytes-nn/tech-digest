@@ -373,7 +373,7 @@ Tell the story of why this content matters. Explain the background context, the 
 particularly relevant right now. Share what makes this approach interesting or unique, and help readers understand the
 broader significance in the current tech landscape.
 
-<h3>🔄 Understanding the Architecture and How It All Works</h3>
+<h3>🔄 Understanding the Idea, Architecture, or Workflow</h3>
 Walk readers through the system architecture and workflow in detail. Explain how different components interact, why
 certain design choices were made, and how the overall system comes together. Include relevant images using:
 <img src="full_url" alt="descriptive text">
@@ -449,7 +449,7 @@ Tell the story of why this content matters. Explain the background context, the 
 particularly relevant right now. Share what makes this approach interesting or unique, and help readers understand the
 broader significance in the current tech landscape.
 
-<h3>🔄 아키텍처 개요와 워크플로우</h3>
+<h3>🔄 아이디어, 아키텍처, 또는 워크플로우 개요</h3>
 Walk readers through the system architecture and workflow in detail. Explain how different components interact, why
 certain design choices were made, and how the overall system comes together. Include relevant images using:
 <img src="full_url" alt="descriptive text">
