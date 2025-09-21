@@ -57,22 +57,6 @@ def main(job_prefix: str, **kwargs: Any) -> None:
         raise RuntimeError(f"Batch job '{job_id}' failed or timed out.")
 
 
-def sanitize_parameters(params: dict[str, Any]) -> dict[str, str]:
-    result = {}
-    for key, value in params.items():
-        if value is None:
-            result[key] = AppConstants.NULL_STRING
-        elif (
-            key == "recipients"
-            and isinstance(value, str)
-            and value != AppConstants.NULL_STRING
-        ):
-            result[key] = value.replace(" ", ",")
-        else:
-            result[key] = str(value)
-    return result
-
-
 def get_batch_job_names(
     boto3_session: boto3.Session, config: Config
 ) -> tuple[str | None, str | None]:
@@ -90,9 +74,20 @@ def get_batch_job_names(
         return None, None
 
 
-def validate_email(email: str) -> bool:
-    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    return bool(re.match(pattern, email.strip()))
+def sanitize_parameters(params: dict[str, Any]) -> dict[str, str]:
+    result = {}
+    for key, value in params.items():
+        if value is None:
+            result[key] = AppConstants.NULL_STRING
+        elif (
+            key == "recipients"
+            and isinstance(value, str)
+            and value != AppConstants.NULL_STRING
+        ):
+            result[key] = value.replace(" ", ",")
+        else:
+            result[key] = str(value)
+    return result
 
 
 def validate_date(date_str: str) -> bool:
@@ -103,6 +98,11 @@ def validate_date(date_str: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def validate_email(email: str) -> bool:
+    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    return bool(re.match(pattern, email.strip()))
 
 
 if __name__ == "__main__":

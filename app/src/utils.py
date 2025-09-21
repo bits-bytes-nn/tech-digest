@@ -22,63 +22,6 @@ from .constants import LanguageModelId
 from .logger import logger
 
 
-class HTMLTagOutputParser(BaseOutputParser):
-    tag_names: str | tuple[str, ...]
-
-    def parse(self, text: str) -> str | dict[str, str]:
-        if not text:
-            return {} if isinstance(self.tag_names, tuple) else ""
-        soup = BeautifulSoup(text, "html.parser")
-        parsed: dict[str, str] = {}
-        tag_list = (
-            self.tag_names if isinstance(self.tag_names, tuple) else (self.tag_names,)
-        )
-        for tag_name in tag_list:
-            if tag := soup.find(tag_name):
-                if hasattr(tag, "decode_contents"):
-                    parsed[tag_name] = str(tag.decode_contents(formatter=None)).strip()
-                else:
-                    parsed[tag_name] = str(tag).strip()
-        if isinstance(self.tag_names, tuple):
-            return parsed
-        return next(iter(parsed.values()), "")
-
-    @property
-    def _type(self) -> str:
-        return "html_tag_output_parser"
-
-
-def measure_execution_time(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        execution_time = time.time() - start_time
-        logger.info(
-            "'%s' execution time: %.2fs (%.2fmin)",
-            func.__name__,
-            execution_time,
-            execution_time / 60,
-        )
-        return result
-
-    return wrapper
-
-
-def get_date_range(
-    end_date_str: str | None, days_back: int
-) -> tuple[datetime, datetime]:
-    if end_date_str:
-        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(
-            tzinfo=timezone.utc
-        )
-    else:
-        end_date = datetime.now(timezone.utc)
-    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-    start_date = end_date - timedelta(days=days_back)
-    return start_date, end_date
-
-
 class LanguageModelInfo(BaseModel):
     context_window_size: int
     max_output_tokens: int
@@ -125,6 +68,7 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
     ),
 }
+
 ModelIdT = TypeVar("ModelIdT")
 ModelInfoT = TypeVar("ModelInfoT")
 WrapperT = TypeVar("WrapperT")
@@ -156,13 +100,16 @@ class BaseBedrockModelFactory(Generic[ModelIdT, ModelInfoT, WrapperT], ABC):
         )
 
     @abstractmethod
-    def _get_boto_service_name(self) -> str: ...
+    def _get_boto_service_name(self) -> str:
+        ...
 
     @abstractmethod
-    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]: ...
+    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]:
+        ...
 
     @abstractmethod
-    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT: ...
+    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT:
+        ...
 
     def get_model_info(self, model_id: ModelIdT) -> ModelInfoT | None:
         return self._get_model_info_dict().get(model_id)
@@ -238,7 +185,7 @@ class BedrockCrossRegionModelHelper:
             }
             return cross_region_id in available_profiles
         except Exception as e:
-            raise IOError(
+            raise RuntimeError(
                 f"Failed to check cross-region model availability: {e}"
             ) from e
 
@@ -649,3 +596,60 @@ class BatchProcessor(BaseModel):
             len(inputs),
         )
         return successful_results
+
+
+class HTMLTagOutputParser(BaseOutputParser):
+    tag_names: str | list[str]
+
+    def parse(self, text: str) -> str | dict[str, str]:
+        if not text:
+            return {} if isinstance(self.tag_names, list) else ""
+        soup = BeautifulSoup(text, "html.parser")
+        parsed: dict[str, str] = {}
+        tag_list = (
+            self.tag_names if isinstance(self.tag_names, list) else (self.tag_names,)
+        )
+        for tag_name in tag_list:
+            if tag := soup.find(tag_name):
+                if hasattr(tag, "decode_contents"):
+                    parsed[tag_name] = str(tag.decode_contents(formatter=None)).strip()
+                else:
+                    parsed[tag_name] = str(tag).strip()
+        if isinstance(self.tag_names, list):
+            return parsed
+        return next(iter(parsed.values()), "")
+
+    @property
+    def _type(self) -> str:
+        return "html_tag_output_parser"
+
+
+def get_date_range(
+    end_date_str: str | None, days_back: int
+) -> tuple[datetime, datetime]:
+    if end_date_str:
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        )
+    else:
+        end_date = datetime.now(timezone.utc)
+    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    start_date = end_date - timedelta(days=days_back)
+    return start_date, end_date
+
+
+def measure_execution_time(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        execution_time = time.time() - start_time
+        logger.info(
+            "'%s' execution time: %.2fs (%.2fmin)",
+            func.__name__,
+            execution_time,
+            execution_time / 60,
+        )
+        return result
+
+    return wrapper

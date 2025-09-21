@@ -20,6 +20,7 @@ from .utils import (
 
 class SummarizerConfig:
     CONVERT_MARKDOWN_TO_HTML: bool = True
+    DEFAULT_TAGS: list[str] = ["uncategorized"]
     HTML_REPLACEMENTS: dict[str, str] = {
         "<code>": '<code class="highlight">',
         "<table>": '<table class="table table-bordered">',
@@ -36,7 +37,6 @@ class SummarizerConfig:
         "tables",
         "toc",
     ]
-    DEFAULT_TAGS: list[str] = ["uncategorized"]
     MAX_TAGS: int = 5
 
 
@@ -124,7 +124,7 @@ class Summarizer:
         )
         self.llm_factory = BedrockLanguageModelFactory(boto_session=self.boto3_session)
         self.filter_chain = self._create_filter_chain(filtering_model_id)
-        self.summarize_chain = self._create_summarize_chain(
+        self.summarizer_chain = self._create_summarizer_chain(
             summarization_model_id, fixing_model_id
         )
 
@@ -141,7 +141,7 @@ class Summarizer:
             | HTMLTagOutputParser(tag_names=FilteringPrompt.output_variables)
         )
 
-    def _create_summarize_chain(
+    def _create_summarizer_chain(
         self, model_id: LanguageModelId, fixing_model_id: LanguageModelId | None
     ):
         summarization_info = self.llm_factory.get_model_info(model_id)
@@ -251,8 +251,8 @@ class Summarizer:
         summaries = self.batch_processor.execute_with_fallback(
             items_to_process=posts,
             prepare_inputs_func=prepare_inputs,
-            batch_func=self.summarize_chain.batch,
-            sequential_func=self.summarize_chain.invoke,
+            batch_func=self.summarizer_chain.batch,
+            sequential_func=self.summarizer_chain.invoke,
             task_name="summarization",
         )
         for post, summary_data in zip(posts, summaries):

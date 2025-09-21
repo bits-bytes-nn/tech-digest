@@ -159,6 +159,7 @@ ACCEPT if content has:
 - Mathematical/algorithmic innovations with proofs
 - Rigorous empirical evaluation with statistical analysis
 - Breakthrough findings or paradigm shifts
+- Major foundation model releases with technical depth and evaluation
 - Zero promotional content
 
 **Score 0.6-0.7 (Good):**
@@ -374,8 +375,8 @@ particularly relevant right now. Share what makes this approach interesting or u
 broader significance in the current tech landscape.
 
 <h3>🔄 Understanding the Idea, Architecture, or Workflow</h3>
-Walk readers through the core ideas, system architecture, and workflow in detail. Explain how different components 
-interact, why certain design choices were made, and how the overall system comes together. Include relevant images 
+Walk readers through the core ideas, system architecture, and workflow in detail. Explain how different components
+interact, why certain design choices were made, and how the overall system comes together. Include relevant images
 using: <img src="full_url" alt="descriptive text">
 Note: Always use complete URLs for images (e.g., https://example.com/path/image.jpg), not relative paths.
 Take time to explain the reasoning behind architectural patterns and help readers understand the thought process.
@@ -450,8 +451,8 @@ particularly relevant right now. Share what makes this approach interesting or u
 broader significance in the current tech landscape.
 
 <h3>🔄 아이디어, 아키텍처, 또는 워크플로우 개요</h3>
-Walk readers through the core ideas, system architecture, and workflow in detail. Explain how different components 
-interact, why certain design choices were made, and how the overall system comes together. Include relevant images 
+Walk readers through the core ideas, system architecture, and workflow in detail. Explain how different components
+interact, why certain design choices were made, and how the overall system comes together. Include relevant images
 using: <img src="full_url" alt="descriptive text">
 Note: Always use complete URLs for images (e.g., https://example.com/path/image.jpg), not relative paths.
 Take time to explain the reasoning behind architectural patterns and help readers understand the thought process.

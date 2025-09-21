@@ -49,6 +49,41 @@ class ScraperConfig:
         "div.blog-content",
         "div.article-content",
     ]
+    DATE_FORMATS: ClassVar[tuple[str, ...]] = (
+        "%a, %d %b %Y %H:%M:%S GMT",
+        "%a, %d %b %Y %H:%M:%S %z",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S",
+        "%b %d, %Y",
+        "%B %d, %Y",
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%d.%m.%Y",
+    )
+    DEFAULT_TAGS: ClassVar[list[str]] = ["uncategorized"]
+    MIN_CONTENT_LENGTH: ClassVar[int] = 3000
+    MARKDOWN_IMAGE_PATTERN: ClassVar[re.Pattern] = re.compile(r"!\[.*?]\((.*?)\)")
+    MAX_TAGS: ClassVar[int] = 5
+    REQUEST_HEADERS_OPTIONS: ClassVar[list[dict[str, str]]] = [
+        {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+        },
+        {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+        },
+        {"User-Agent": "curl/7.81.0", "Accept": "*/*"},
+        {
+            "User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+    ]
+    REQUEST_TIMEOUT: ClassVar[int] = 30
     SOURCE_MAPPING: ClassVar[dict[str, SourceType]] = {
         "airbnb-engineering": "airbnb",
         "amazon.science": "amazon",
@@ -71,41 +106,6 @@ class ScraperConfig:
         "qwenlm.github.io": "qwen",
         "x.ai": "xai",
     }
-    MIN_CONTENT_LENGTH: ClassVar[int] = 3000
-    MAX_TAGS: ClassVar[int] = 5
-    DEFAULT_TAGS: ClassVar[list[str]] = ["uncategorized"]
-    REQUEST_TIMEOUT: ClassVar[int] = 30
-    REQUEST_HEADERS_OPTIONS: ClassVar[list[dict[str, str]]] = [
-        {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
-            "Accept-Encoding": "gzip, deflate, br",
-        },
-        {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate",
-        },
-        {"User-Agent": "curl/7.81.0", "Accept": "*/*"},
-        {
-            "User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-    ]
-    DATE_FORMATS: ClassVar[tuple[str, ...]] = (
-        "%a, %d %b %Y %H:%M:%S GMT",
-        "%a, %d %b %Y %H:%M:%S %z",
-        "%Y-%m-%dT%H:%M:%S%z",
-        "%Y-%m-%d %H:%M:%S",
-        "%b %d, %Y",
-        "%B %d, %Y",
-        "%Y-%m-%d",
-        "%m/%d/%Y",
-        "%d.%m.%Y",
-    )
-    MARKDOWN_IMAGE_PATTERN: ClassVar[re.Pattern] = re.compile(r"!\[.*?]\((.*?)\)")
 
 
 def _make_robust_request(url: str) -> requests.Response | None:
@@ -165,20 +165,6 @@ class Post(BaseModel):
             ],
         )
 
-    @staticmethod
-    def _determine_source(url: str) -> SourceType:
-        if not url:
-            return "unknown"
-        parsed_url = urlparse(url)
-        domain = parsed_url.netloc.lower().removeprefix("www.")
-        if domain == AppConstants.External.MEDIUM_DOMAIN.value:
-            path_parts = parsed_url.path.strip("/").split("/")
-            if path_parts:
-                source = ScraperConfig.SOURCE_MAPPING.get(path_parts[0].lstrip("@"))
-                if source is not None:
-                    return source
-        return ScraperConfig.SOURCE_MAPPING.get(domain, "unknown")
-
     @classmethod
     def _extract_content_from_entry(
         cls, entry: feedparser.FeedParserDict, link: str
@@ -208,6 +194,20 @@ class Post(BaseModel):
         except Exception as e:
             logger.error(f"Error parsing content for '{url}': {e}")
             return ""
+
+    @staticmethod
+    def _determine_source(url: str) -> SourceType:
+        if not url:
+            return "unknown"
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc.lower().removeprefix("www.")
+        if domain == AppConstants.External.MEDIUM_DOMAIN.value:
+            path_parts = parsed_url.path.strip("/").split("/")
+            if path_parts:
+                source = ScraperConfig.SOURCE_MAPPING.get(path_parts[0].lstrip("@"))
+                if source is not None:
+                    return source
+        return ScraperConfig.SOURCE_MAPPING.get(domain, "unknown")
 
     @staticmethod
     def _extract_images(content_html: str, base_url: str) -> list[HttpUrl]:
@@ -247,6 +247,21 @@ def force_ipv4():
         socket.getaddrinfo = original_getaddrinfo
 
 
+def is_date_in_range(
+    target_date: datetime, start_date: datetime, end_date: datetime
+) -> bool:
+    target_utc = (
+        target_date.astimezone(timezone.utc)
+        if target_date.tzinfo
+        else target_date.replace(tzinfo=timezone.utc)
+    )
+    return (
+        start_date.astimezone(timezone.utc)
+        <= target_utc
+        <= end_date.astimezone(timezone.utc)
+    )
+
+
 def parse_published_date(date_str: str) -> datetime:
     if not isinstance(date_str, str) or not date_str:
         return datetime.now(timezone.utc)
@@ -270,23 +285,9 @@ def parse_published_date(date_str: str) -> datetime:
     return datetime.now(timezone.utc)
 
 
-def is_date_in_range(
-    target_date: datetime, start_date: datetime, end_date: datetime
-) -> bool:
-    target_utc = (
-        target_date.astimezone(timezone.utc)
-        if target_date.tzinfo
-        else target_date.replace(tzinfo=timezone.utc)
-    )
-    return (
-        start_date.astimezone(timezone.utc)
-        <= target_utc
-        <= end_date.astimezone(timezone.utc)
-    )
-
-
 class PostFetcher(Protocol):
-    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]: ...
+    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
+        ...
 
 
 class RssFetcher:
@@ -430,7 +431,8 @@ class AnthropicBlogScraper(BasePageScraper):
             logger.error(f"Error processing link: {e}")
             return None
 
-    def _extract_title(self, link: Tag) -> str:
+    @staticmethod
+    def _extract_title(link: Tag) -> str:
         heading_elements = link.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
         if heading_elements:
             for heading in heading_elements:
@@ -650,33 +652,6 @@ class MetaAIBlogScraper(BasePageScraper):
 
         return title
 
-    @staticmethod
-    def _normalize_title(title: str) -> str:
-        if not title:
-            return ""
-
-        normalized = re.sub(r"[^\w\s]", "", title.lower())
-        normalized = re.sub(r"\s+", " ", normalized).strip()
-        prefixes_to_remove = [
-            "a ",
-            "an ",
-            "facebook ",
-            "how ",
-            "meta ",
-            "meta ai ",
-            "the ",
-            "what ",
-            "when ",
-            "where ",
-            "why ",
-        ]
-        for prefix in prefixes_to_remove:
-            if normalized.startswith(prefix):
-                normalized = normalized[len(prefix) :].strip()
-                break
-
-        return normalized
-
     def _should_filter_title(self, title: str) -> bool:
         if not title:
             return True
@@ -828,7 +803,8 @@ class XAIBlogScraper(BasePageScraper):
 
         return posts
 
-    def _extract_title(self, link: Tag) -> str:
+    @staticmethod
+    def _extract_title(link: Tag) -> str:
         title = link.get_text(strip=True)
 
         if not title or len(title) < 5:
@@ -845,7 +821,8 @@ class XAIBlogScraper(BasePageScraper):
 
         return title
 
-    def _find_date_near_element(self, element: Tag) -> str:
+    @staticmethod
+    def _find_date_near_element(element: Tag) -> str:
         date_patterns = [
             re.compile(r"\b([A-Z][a-z]+ \d{1,2}, \d{4})\b"),
             re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b"),

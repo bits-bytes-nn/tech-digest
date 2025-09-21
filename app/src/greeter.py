@@ -24,18 +24,18 @@ class Greeter:
         self.boto3_session = boto3_session
         self.greeting_model_id = greeting_model_id
         self.language = language
-        factory = BedrockLanguageModelFactory(boto_session=self.boto3_session)
-        model_info = factory.get_model_info(greeting_model_id)
+        llm_factory = BedrockLanguageModelFactory(boto_session=self.boto3_session)
+        model_info = llm_factory.get_model_info(greeting_model_id)
         if not model_info:
             raise ValueError(f"Unsupported model ID: '{greeting_model_id.value}'")
-        greeting_llm = factory.get_model(
+        greeter_llm = llm_factory.get_model(
             model_id=greeting_model_id,
             max_tokens=model_info.max_output_tokens,
             temperature=0.4,
         )
-        self.chain = (
+        self.greeter_chain = (
             GreetingPrompt.for_language(language).get_prompt()
-            | greeting_llm
+            | greeter_llm
             | StrOutputParser()
         )
 
@@ -64,5 +64,5 @@ class Greeter:
 
     def greet(self, context: str | None = None) -> str:
         decorator = self._create_retry_decorator("greeting")
-        decorated_invoke = decorator(self.chain.invoke)
+        decorated_invoke = decorator(self.greeter_chain.invoke)
         return decorated_invoke({"context": context or ""})

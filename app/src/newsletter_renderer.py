@@ -21,6 +21,14 @@ from .logger import logger
 
 
 class NewsletterConfig:
+    DATE_FORMATS: tuple[str, ...] = (
+        "%Y-%m-%d",
+        "%a, %d %b %Y %H:%M:%S %z",
+        "%a, %d %b %Y %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S",
+        "%a, %d %b %Y %H:%M:%S GMT",
+    )
     DEFAULT_STYLES: dict[str, str] = {
         "header_title": "Weekly AI Tech Blog Digest",
         "header_description": "Stay ahead of the curve with our curated digest of the most impactful AI developments, research breakthroughs, and industry updates from leading tech companies and research institutions.",
@@ -49,14 +57,6 @@ class NewsletterConfig:
         "xai": "xai.png",
         "unknown": "unknown.png",
     }
-    DATE_FORMATS: tuple[str, ...] = (
-        "%Y-%m-%d",
-        "%a, %d %b %Y %H:%M:%S %z",
-        "%a, %d %b %Y %H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S%z",
-        "%Y-%m-%dT%H:%M:%S",
-        "%a, %d %b %Y %H:%M:%S GMT",
-    )
 
 
 def validate_date(v: str) -> str:
@@ -82,6 +82,10 @@ class Article(BaseModel):
     _validate_date = field_validator("published_date", mode="before")(validate_date)
 
 
+class Footer(BaseModel):
+    title: str
+
+
 class Header(BaseModel):
     title: str = Field(min_length=1)
     description: str
@@ -94,10 +98,6 @@ class Header(BaseModel):
 
 class Section(BaseModel):
     introduction: str
-
-
-class Footer(BaseModel):
-    title: str
 
 
 class NewsletterData(BaseModel):
@@ -118,11 +118,11 @@ class NewsletterRenderer:
         self.newsletter_template: Template = self.env.get_template("template.html")
         self.article_template: Template = self.env.get_template("article.html")
 
-    def render_newsletter(self, data: NewsletterData) -> str:
-        return self.newsletter_template.render(data=data.model_dump())
-
     def render_article(self, article: Article) -> str:
         return self.article_template.render(article=article.model_dump())
+
+    def render_newsletter(self, data: NewsletterData) -> str:
+        return self.newsletter_template.render(data=data.model_dump())
 
 
 class HtmlToImageConverter:
@@ -148,20 +148,6 @@ class HtmlToImageConverter:
         options.add_argument(f"--window-size={HtmlToImageConverter.DEFAULT_WIDTH},3000")
         return options
 
-    @contextmanager
-    def driver_session(self) -> Generator[webdriver.Chrome, None, None]:
-        driver = None
-        try:
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=self.chrome_options)
-            yield driver
-        except WebDriverException as e:
-            logger.error("WebDriver initialization failed: %s", e)
-            raise
-        finally:
-            if driver:
-                driver.quit()
-
     def convert(self, html_path: Path) -> list[Path]:
         if not html_path.exists():
             raise FileNotFoundError(f"HTML file not found: '{html_path}'")
@@ -179,6 +165,20 @@ class HtmlToImageConverter:
                     self._capture_split_pages(driver, html_path, total_height)
                 )
         return output_paths
+
+    @contextmanager
+    def driver_session(self) -> Generator[webdriver.Chrome, None, None]:
+        driver = None
+        try:
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=self.chrome_options)
+            yield driver
+        except WebDriverException as e:
+            logger.error("WebDriver initialization failed: %s", e)
+            raise
+        finally:
+            if driver:
+                driver.quit()
 
     def _capture_single_page(
         self, driver: webdriver.Chrome, html_path: Path, height: int
@@ -212,6 +212,21 @@ class HtmlToImageConverter:
             y_offset += self.max_height - self.overlap
             page_num += 1
         return paths
+
+
+class BuildConfiguration(BaseModel):
+    stage: str = "dev"
+    date_suffix: str = Field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d")
+    )
+    language: Language = Language.KO
+    header_title: str = NewsletterConfig.DEFAULT_STYLES["header_title"]
+    header_description: str = NewsletterConfig.DEFAULT_STYLES["header_description"]
+    header_thumbnail: str = NewsletterConfig.DEFAULT_STYLES["header_thumbnail"]
+    first_section_intro: str = NewsletterConfig.DEFAULT_STYLES["first_section_intro"]
+    footer_title: str = NewsletterConfig.DEFAULT_STYLES["footer_title"]
+    save_individual_articles: bool = False
+    convert_to_images: bool = False
 
 
 class NewsletterBuilder:
@@ -277,6 +292,22 @@ class NewsletterBuilder:
                 logger.error("Failed to process article file '%s': %s", file_path, e)
         return sorted(articles, key=lambda a: a.published_date, reverse=True)
 
+    def _save_individual_articles(
+        self, articles: list[Article], config: "BuildConfiguration"
+    ):
+        for i, article in enumerate(articles):
+            article_html = self.renderer.render_article(article)
+            article_path = self._save_html(article_html, "article", config, index=i + 1)
+            self.article_filenames.append(article_path.name)
+            logger.info("Saved individual article: '%s'", article_path)
+            if config.convert_to_images:
+                try:
+                    self.image_converter.convert(article_path)
+                except Exception as e:
+                    logger.error(
+                        "Failed to convert '%s' to image: %s", article_path.name, e
+                    )
+
     def _save_html(
         self,
         content: str,
@@ -298,34 +329,3 @@ class NewsletterBuilder:
         if index is not None:
             parts.append(f"a{str(index).zfill(2)}")
         return "-".join(parts) + ".html"
-
-    def _save_individual_articles(
-        self, articles: list[Article], config: "BuildConfiguration"
-    ):
-        for i, article in enumerate(articles):
-            article_html = self.renderer.render_article(article)
-            article_path = self._save_html(article_html, "article", config, index=i + 1)
-            self.article_filenames.append(article_path.name)
-            logger.info("Saved individual article: '%s'", article_path)
-            if config.convert_to_images:
-                try:
-                    self.image_converter.convert(article_path)
-                except Exception as e:
-                    logger.error(
-                        "Failed to convert '%s' to image: %s", article_path.name, e
-                    )
-
-
-class BuildConfiguration(BaseModel):
-    stage: str = "dev"
-    date_suffix: str = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d")
-    )
-    language: Language = Language.KO
-    header_title: str = NewsletterConfig.DEFAULT_STYLES["header_title"]
-    header_description: str = NewsletterConfig.DEFAULT_STYLES["header_description"]
-    header_thumbnail: str = NewsletterConfig.DEFAULT_STYLES["header_thumbnail"]
-    first_section_intro: str = NewsletterConfig.DEFAULT_STYLES["first_section_intro"]
-    footer_title: str = NewsletterConfig.DEFAULT_STYLES["footer_title"]
-    save_individual_articles: bool = False
-    convert_to_images: bool = False
