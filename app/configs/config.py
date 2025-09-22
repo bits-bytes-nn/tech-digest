@@ -18,30 +18,6 @@ class AutoNamedEnum(str, Enum):
         return name.lower()
 
 
-class EnvVars(str, Enum):
-    AWS_PROFILE_NAME = "AWS_PROFILE_NAME"
-    BEDROCK_REGION_NAME = "BEDROCK_REGION_NAME"
-    CONFIG_FILE_SUFFIX = "CONFIG_FILE_SUFFIX"
-    DEFAULT_REGION_NAME = "DEFAULT_REGION_NAME"
-    LANGCHAIN_API_KEY = "LANGCHAIN_API_KEY"
-    LANGCHAIN_TRACING_V2 = "LANGCHAIN_TRACING_V2"
-    LANGCHAIN_ENDPOINT = "LANGCHAIN_ENDPOINT"
-    LANGCHAIN_PROJECT = "LANGCHAIN_PROJECT"
-    LOG_LEVEL = "LOG_LEVEL"
-    TOPIC_ARN = "TOPIC_ARN"
-
-
-class LocalPaths(str, Enum):
-    ARTICLES_DIR = "articles"
-    ASSETS_DIR = "assets"
-    INPUTS_DIR = "inputs"
-    TEMPLATES_DIR = "templates"
-    OUTPUTS_DIR = "outputs"
-    CONFIG_FILE = "config.yaml"
-    GREETING_FILE = "greeting.txt"
-    RECIPIENTS_FILE = "recipients.txt"
-
-
 class BaseModelWithDefaults(BaseModel):
     @model_validator(mode="before")
     def set_defaults_for_none_fields(cls, values: dict[str, Any]) -> dict[str, Any]:
@@ -122,8 +98,8 @@ class Config(BaseModelWithDefaults):
     @classmethod
     def load(cls) -> "Config":
         load_dotenv()
-        config_suffix = os.environ.get(str(EnvVars.CONFIG_FILE_SUFFIX.value), "dev")
-        filename, extension = LocalPaths.CONFIG_FILE.value.split(".")
+        config_suffix = os.environ.get(str("CONFIG_FILE_SUFFIX"), "dev")
+        filename, extension = "config", "yaml"
         suffix = f"-{config_suffix}" if config_suffix else ""
         config_file = (
             Path(filename).with_name(f"{filename}{suffix}").with_suffix(f".{extension}")

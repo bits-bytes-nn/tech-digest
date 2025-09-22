@@ -10,9 +10,10 @@ import boto3
 from pytz import timezone
 
 sys.path.append(str(Path(__file__).parent.parent))
-from configs import Config, EnvVars
+from configs import Config
 from src import (
     AppConstants,
+    EnvVars,
     SSMParams,
     is_running_in_aws,
     logger,

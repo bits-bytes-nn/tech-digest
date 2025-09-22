@@ -16,7 +16,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
-from .constants import Language
+from .constants import Language, LocalPaths
 from .logger import logger
 
 
@@ -115,8 +115,12 @@ class NewsletterRenderer:
             lstrip_blocks=True,
             autoescape=True,
         )
-        self.newsletter_template: Template = self.env.get_template("template.html")
-        self.article_template: Template = self.env.get_template("article.html")
+        self.newsletter_template: Template = self.env.get_template(
+            LocalPaths.TEMPLATE_FILE.value
+        )
+        self.article_template: Template = self.env.get_template(
+            LocalPaths.ARTICLE_FILE.value
+        )
 
     def render_article(self, article: Article) -> str:
         return self.article_template.render(article=article.model_dump())
@@ -240,7 +244,7 @@ class NewsletterBuilder:
         self.inputs_dir = inputs_dir
         self.outputs_dir = outputs_dir
         self.renderer = NewsletterRenderer(templates_dir)
-        self.articles_dir = self.outputs_dir / "articles"
+        self.articles_dir = self.outputs_dir / LocalPaths.ARTICLES_DIR.value
         self.image_converter = HtmlToImageConverter(self.articles_dir)
         self.logos = logos
         self.newsletter_filename: str | None = None

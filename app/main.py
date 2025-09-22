@@ -11,14 +11,16 @@ from typing import Any
 import boto3
 
 sys.path.append(str(Path(__file__).parent.parent))
-from configs import Config, EnvVars, LocalPaths
+from configs import Config
 from src import (
     AnthropicBlogScraper,
     AppConstants,
     BuildConfiguration,
+    EnvVars,
     GoogleBlogScraper,
     Greeter,
     Language,
+    LocalPaths,
     LinkedInBlogScraper,
     MetaAIBlogScraper,
     NewsletterBuilder,

@@ -23,8 +23,8 @@ from aws_cdk.aws_events_targets import BatchJob, LambdaFunction
 from constructs import Construct
 
 sys.path.append(str(Path(__file__).parent.parent))
-from app.configs import Config, EnvVars
-from app.src import AppConstants, SSMParams, get_account_id, logger
+from app.configs import Config
+from app.src import AppConstants, EnvVars, SSMParams, get_account_id, logger
 
 
 class NewsletterStack(Stack):

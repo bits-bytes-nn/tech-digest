@@ -3,6 +3,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from .constants import LocalPaths
+
 
 def is_running_in_aws() -> bool:
     aws_env_vars = [
@@ -39,9 +41,9 @@ def _add_console_handler(
 
 
 def _add_file_handler(logger_obj: logging.Logger, formatter: logging.Formatter) -> None:
-    logs_dir = Path(__file__).resolve().parent.parent.parent / "logs"
+    logs_dir = Path(__file__).resolve().parent.parent.parent / LocalPaths.LOGS_DIR.value
     logs_dir.mkdir(parents=True, exist_ok=True)
-    base_filename = "logs.txt"
+    base_filename = LocalPaths.LOGS_FILE.value
     name, ext = base_filename.rsplit(".", 1)
     timestamp = datetime.now().strftime("%Y-%m-%d")
     log_filename = f"{name}_{timestamp}.{ext}"

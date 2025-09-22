@@ -607,7 +607,7 @@ class HTMLTagOutputParser(BaseOutputParser):
         soup = BeautifulSoup(text, "html.parser")
         parsed: dict[str, str] = {}
         tag_list = (
-            self.tag_names if isinstance(self.tag_names, list) else (self.tag_names,)
+            self.tag_names if isinstance(self.tag_names, list) else [self.tag_names]
         )
         for tag_name in tag_list:
             if tag := soup.find(tag_name):

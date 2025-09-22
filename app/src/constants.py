@@ -9,6 +9,19 @@ class AutoNamedEnum(str, Enum):
         return name.lower()
 
 
+class EnvVars(str, Enum):
+    AWS_PROFILE_NAME = "AWS_PROFILE_NAME"
+    BEDROCK_REGION_NAME = "BEDROCK_REGION_NAME"
+    CONFIG_FILE_SUFFIX = "CONFIG_FILE_SUFFIX"
+    DEFAULT_REGION_NAME = "DEFAULT_REGION_NAME"
+    LANGCHAIN_API_KEY = "LANGCHAIN_API_KEY"
+    LANGCHAIN_TRACING_V2 = "LANGCHAIN_TRACING_V2"
+    LANGCHAIN_ENDPOINT = "LANGCHAIN_ENDPOINT"
+    LANGCHAIN_PROJECT = "LANGCHAIN_PROJECT"
+    LOG_LEVEL = "LOG_LEVEL"
+    TOPIC_ARN = "TOPIC_ARN"
+
+
 class FilteringCriteria(AutoNamedEnum):
     ALL = auto()
     AMAZON = auto()
@@ -31,9 +44,19 @@ class LanguageModelId(str, Enum):
     CLAUDE_V4_OPUS = "anthropic.claude-opus-4-20250514-v1:0"
     CLAUDE_V4_1_OPUS = "anthropic.claude-opus-4-1-20250805-v1:0"
 
-    @property
-    def provider(self) -> str:
-        return self.value.split(".")[0]
+
+class LocalPaths(str, Enum):
+    ARTICLES_DIR = "articles"
+    ASSETS_DIR = "assets"
+    INPUTS_DIR = "inputs"
+    LOGS_DIR = "logs"
+    OUTPUTS_DIR = "outputs"
+    TEMPLATES_DIR = "templates"
+    ARTICLE_FILE = "article.html"
+    GREETING_FILE = "greeting.txt"
+    LOGS_FILE = "logs.txt"
+    RECIPIENTS_FILE = "recipients.txt"
+    TEMPLATE_FILE = "template.html"
 
 
 class SSMParams(str, Enum):
