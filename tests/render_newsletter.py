@@ -3,10 +3,11 @@ from pathlib import Path
 from typing import Final
 
 sys.path.append(str(Path(__file__).parent.parent))
-from app.configs import Config, LocalPaths
+from app.configs import Config
 from app.src import (
     BuildConfiguration,
     Language,
+    LocalPaths,
     NewsletterBuilder,
     get_date_range,
     logger,

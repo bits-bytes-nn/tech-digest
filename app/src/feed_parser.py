@@ -9,7 +9,7 @@ import feedparser
 import requests
 from bs4 import BeautifulSoup, Tag
 from feedparser.exceptions import CharacterEncodingOverride
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import RequestException
 
 from .constants import AppConstants
@@ -130,10 +130,10 @@ def _make_robust_request(url: str) -> requests.Response | None:
 
 class Post(BaseModel):
     title: str
-    link: HttpUrl
+    link: str
     published_date: datetime
     content: str = ""
-    images: list[HttpUrl] = Field(default_factory=list)
+    images: list[str] = Field(default_factory=list)
     source: SourceType = "unknown"
     summary: str = ""
     tags: list[str] = Field(default_factory=list)
@@ -154,7 +154,7 @@ class Post(BaseModel):
         content_html = cls._extract_content_from_entry(entry, link_str)
         return cls(
             title=getattr(entry, "title", "No Title").strip(),
-            link=HttpUrl(link_str),
+            link=link_str,
             published_date=parse_published_date(getattr(entry, "published", "")),
             source=cls._determine_source(link_str),
             content=content_html,
@@ -210,7 +210,7 @@ class Post(BaseModel):
         return ScraperConfig.SOURCE_MAPPING.get(domain, "unknown")
 
     @staticmethod
-    def _extract_images(content_html: str, base_url: str) -> list[HttpUrl]:
+    def _extract_images(content_html: str, base_url: str) -> list[str]:
         if not content_html:
             return []
         try:
@@ -223,7 +223,7 @@ class Post(BaseModel):
             image_urls.update(
                 ScraperConfig.MARKDOWN_IMAGE_PATTERN.findall(content_html)
             )
-            return [HttpUrl(url) for url in image_urls if url.startswith("http")]
+            return [url for url in image_urls if url.startswith("http")]
         except Exception as e:
             logger.warning(f"Failed to extract images from '{base_url}': {e}")
             return []
@@ -286,8 +286,7 @@ def parse_published_date(date_str: str) -> datetime:
 
 
 class PostFetcher(Protocol):
-    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
-        ...
+    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]: ...
 
 
 class RssFetcher:

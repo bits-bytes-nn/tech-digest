@@ -6,8 +6,8 @@ from typing import Final
 import boto3
 
 sys.path.append(str(Path(__file__).parent.parent))
-from app.configs import Config, EnvVars, LocalPaths
-from app.src import Language, get_date_range, logger, send_email
+from app.configs import Config
+from app.src import EnvVars, Language, LocalPaths, get_date_range, logger, send_email
 
 END_DATE: Final[str | None] = None
 RECIPIENTS: Final[list[str] | None] = None

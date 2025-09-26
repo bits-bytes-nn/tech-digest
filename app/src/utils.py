@@ -10,7 +10,7 @@ import math
 import boto3
 import tenacity
 from botocore.config import Config as BotoConfig
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from langchain.schema import BaseOutputParser
 from langchain_aws import ChatBedrock, ChatBedrockConverse
 from langchain_core.runnables import RunnableConfig
@@ -100,16 +100,13 @@ class BaseBedrockModelFactory(Generic[ModelIdT, ModelInfoT, WrapperT], ABC):
         )
 
     @abstractmethod
-    def _get_boto_service_name(self) -> str:
-        ...
+    def _get_boto_service_name(self) -> str: ...
 
     @abstractmethod
-    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]:
-        ...
+    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]: ...
 
     @abstractmethod
-    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT:
-        ...
+    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT: ...
 
     def get_model_info(self, model_id: ModelIdT) -> ModelInfoT | None:
         return self._get_model_info_dict().get(model_id)
@@ -611,7 +608,7 @@ class HTMLTagOutputParser(BaseOutputParser):
         )
         for tag_name in tag_list:
             if tag := soup.find(tag_name):
-                if hasattr(tag, "decode_contents"):
+                if isinstance(tag, Tag) and hasattr(tag, "decode_contents"):
                     parsed[tag_name] = str(tag.decode_contents(formatter=None)).strip()
                 else:
                     parsed[tag_name] = str(tag).strip()

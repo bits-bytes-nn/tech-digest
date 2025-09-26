@@ -43,12 +43,14 @@ class BasePrompt(ABC):
     ) -> ChatPromptTemplate:
         system_template = cls.system_prompt_template
         human_template = cls.human_prompt_template
+
         instance = cls(
             input_variables=cls.input_variables,
             output_variables=cls.output_variables,
             system_prompt_template=system_template,
             human_prompt_template=human_template,
         )
+
         if enable_prompt_cache:
             messages = cls._create_cached_messages(instance)
         else:

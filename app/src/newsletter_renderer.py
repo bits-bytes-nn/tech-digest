@@ -9,7 +9,7 @@ from typing import Any
 import json
 from jinja2 import Environment, FileSystemLoader, Template
 from PIL import Image
-from pydantic import BaseModel, Field, field_validator, HttpUrl
+from pydantic import BaseModel, Field, field_validator
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.chrome.options import Options
@@ -72,7 +72,7 @@ def validate_date(v: str) -> str:
 
 class Article(BaseModel):
     title: str = Field(min_length=1)
-    link: HttpUrl
+    link: str
     published_date: str
     thumbnail: str
     summary: str = Field(min_length=1)
