@@ -14,7 +14,7 @@ DEFAULT_BATCH_TIMEOUT: int = 3600
 
 
 def check_and_download_from_s3(
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
     s3_bucket_name: str,
     s3_key: str,
     local_path: Path,
@@ -22,7 +22,7 @@ def check_and_download_from_s3(
     if not all([s3_bucket_name, s3_key]):
         logger.error("S3 bucket name and key are required.")
         return False
-    s3_client = boto3_session.client("s3")
+    s3_client = boto_session.client("s3")
     try:
         s3_client.head_object(Bucket=s3_bucket_name, Key=s3_key)
     except ClientError as e:
@@ -46,9 +46,9 @@ def check_and_download_from_s3(
         return False
 
 
-def get_account_id(boto3_session: boto3.Session) -> str:
+def get_account_id(boto_session: boto3.Session) -> str:
     try:
-        sts_client = boto3_session.client("sts")
+        sts_client = boto_session.client("sts")
         return sts_client.get_caller_identity()["Account"]
     except ClientError as e:
         logger.error("Failed to get AWS Account ID: %s", e)
@@ -66,7 +66,7 @@ def get_ssm_param_value(boto_session: boto3.Session, param_name: str) -> str:
 
 
 def send_email(
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
     subject: str,
     sender: str,
     recipients: list[str],
@@ -75,7 +75,7 @@ def send_email(
     if not recipients:
         logger.warning("No recipients provided for email, skipping send.")
         return False
-    ses_client = boto3_session.client("ses")
+    ses_client = boto_session.client("ses")
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = sender
@@ -106,13 +106,13 @@ def send_email(
 
 
 def submit_batch_job(
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
     job_name: str,
     job_queue: str,
     job_definition: str,
     parameters: dict[str, str] | None = None,
 ) -> str | None:
-    batch_client = boto3_session.client("batch")
+    batch_client = boto_session.client("batch")
     try:
         response = batch_client.submit_job(
             jobName=job_name,
@@ -131,7 +131,7 @@ def submit_batch_job(
 
 
 def upload_to_s3(
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
     local_path: Path,
     s3_bucket_name: str,
     s3_prefix: str = "",
@@ -144,7 +144,7 @@ def upload_to_s3(
         return False
     prefix = s3_prefix.strip("/")
     s3_key = f"{prefix}/{local_path.name}" if prefix else local_path.name
-    s3_client = boto3_session.client("s3")
+    s3_client = boto_session.client("s3")
     try:
         s3_client.upload_file(str(local_path), s3_bucket_name, s3_key)
         logger.info(
@@ -160,12 +160,12 @@ def upload_to_s3(
 
 
 def wait_for_batch_job_completion(
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
     job_id: str,
     poll_interval_seconds: int = DEFAULT_BATCH_POLL_INTERVAL,
     timeout_seconds: int = DEFAULT_BATCH_TIMEOUT,
 ) -> bool:
-    batch_client = boto3_session.client("batch")
+    batch_client = boto_session.client("batch")
     start_time = time.time()
     logger.info("Waiting for Batch job '%s' to complete...", job_id)
     while time.time() - start_time < timeout_seconds:

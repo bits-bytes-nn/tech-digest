@@ -45,10 +45,10 @@ from src import (
 ROOT_DIR: Path = (
     Path("/tmp") if is_running_in_aws() else Path(__file__).resolve().parent.parent
 )
-DEFAULT_BOTO3_SESSION: boto3.Session = boto3.Session(
+DEFAULT_BOTO_SESSION: boto3.Session = boto3.Session(
     region_name=os.environ.get(EnvVars.DEFAULT_REGION_NAME.value)
 )
-BEDROCK_BOTO3_SESSION: boto3.Session = boto3.Session(
+BEDROCK_BOTO_SESSION: boto3.Session = boto3.Session(
     region_name=os.environ.get(EnvVars.BEDROCK_REGION_NAME.value)
 )
 
@@ -60,28 +60,28 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         if is_running_in_aws()
         else config.resources.profile_name
     )
-    default_boto3_session = (
-        DEFAULT_BOTO3_SESSION
+    default_boto_session = (
+        DEFAULT_BOTO_SESSION
         if is_running_in_aws()
         else boto3.Session(
             region_name=config.resources.default_region_name, profile_name=profile_name
         )
     )
-    bedrock_boto3_session = (
-        BEDROCK_BOTO3_SESSION
+    bedrock_boto_session = (
+        BEDROCK_BOTO_SESSION
         if is_running_in_aws()
         else boto3.Session(
             region_name=config.resources.bedrock_region_name, profile_name=profile_name
         )
     )
     try:
-        _setup_aws_env(config, default_boto3_session)
+        _setup_aws_env(config, default_boto_session)
         end_date_str = event.get("END_DATE")
         language = event.get("LANGUAGE")
         recipients = event.get("RECIPIENTS")
         posts, date_suffix, filtered_out_posts = _fetch_and_filter_posts(
             config,
-            bedrock_boto3_session,
+            bedrock_boto_session,
             end_date_str=end_date_str,
             language=Language(language) if language else Language.KO,
         )
@@ -89,20 +89,20 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
             logger.info("No posts to process. Exiting gracefully.")
             return {"statusCode": 200, "body": "No posts found to process."}
         newsletter_path = _process_posts_and_create_newsletter(
-            posts, date_suffix, config, default_boto3_session, bedrock_boto3_session
+            posts, date_suffix, config, default_boto_session, bedrock_boto_session
         )
         if config.newsletter.send_emails:
             success, failed, total = _process_newsletter_emails(
                 newsletter_path,
                 date_suffix,
                 config,
-                default_boto3_session,
+                default_boto_session,
                 None if recipients is None else recipients.split(","),
             )
             topic_arn = os.environ.get(EnvVars.TOPIC_ARN.value)
             if is_running_in_aws() and topic_arn:
                 _send_success_notification(
-                    default_boto3_session,
+                    default_boto_session,
                     topic_arn,
                     success,
                     total,
@@ -114,17 +114,17 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         logger.error("An error occurred: %s", e, exc_info=True)
         topic_arn = os.environ.get(EnvVars.TOPIC_ARN.value)
         if is_running_in_aws() and topic_arn:
-            _send_failure_notification(default_boto3_session, topic_arn, str(e))
+            _send_failure_notification(default_boto_session, topic_arn, str(e))
         return {"statusCode": 500, "body": f"An error occurred: {e}"}
 
 
-def _setup_aws_env(config: Config, boto3_session: boto3.Session) -> None:
+def _setup_aws_env(config: Config, boto_session: boto3.Session) -> None:
     if not is_running_in_aws():
         return
     try:
         base_path = f"/{config.resources.project_name}/{config.resources.stage}"
         param_name = f"{base_path}/{SSMParams.LANGCHAIN_API_KEY.value}"
-        param_value = get_ssm_param_value(boto3_session, param_name)
+        param_value = get_ssm_param_value(boto_session, param_name)
         if param_value:
             os.environ[EnvVars.LANGCHAIN_API_KEY.value] = param_value
             logger.info(
@@ -137,7 +137,7 @@ def _setup_aws_env(config: Config, boto3_session: boto3.Session) -> None:
 
 def _fetch_and_filter_posts(
     config: Config,
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
     end_date_str: str | None = None,
     language: Language = Language.KO,
 ) -> tuple[list[Post], str, list[tuple[Post, str]]]:
@@ -186,7 +186,7 @@ def _fetch_and_filter_posts(
     logger.debug(pformat(posts))
 
     summarizer = Summarizer(
-        boto3_session,
+        boto_session,
         config.summarization.filtering_model_id,
         config.summarization.summarization_model_id,
         filtering_criteria=config.summarization.filtering_criteria,
@@ -228,13 +228,13 @@ def _process_posts_and_create_newsletter(
     posts: list[Post],
     date_suffix: str,
     config: Config,
-    default_boto3_session: boto3.Session,
-    bedrock_boto3_session: boto3.Session,
+    default_boto_session: boto3.Session,
+    bedrock_boto_session: boto3.Session,
     language: Language = Language.KO,
 ) -> Path:
     inputs_dir = _prepare_and_save_posts(posts, date_suffix)
     first_section_intro = _generate_greeting(
-        posts, date_suffix, config, bedrock_boto3_session, language
+        posts, date_suffix, config, bedrock_boto_session, language
     )
     outputs_dir = ROOT_DIR / LocalPaths.OUTPUTS_DIR.value
     outputs_dir.mkdir(parents=True, exist_ok=True)
@@ -242,7 +242,7 @@ def _process_posts_and_create_newsletter(
         inputs_dir, outputs_dir, date_suffix, first_section_intro, config, language
     )
     _upload_files_to_s3(
-        newsletter_path, S3Paths.NEWSLETTERS.value, config, default_boto3_session
+        newsletter_path, S3Paths.NEWSLETTERS.value, config, default_boto_session
     )
     if article_filenames:
         article_paths = [
@@ -250,7 +250,7 @@ def _process_posts_and_create_newsletter(
             for filename in article_filenames
         ]
         _upload_files_to_s3(
-            article_paths, S3Paths.ARTICLES.value, config, default_boto3_session
+            article_paths, S3Paths.ARTICLES.value, config, default_boto_session
         )
     return newsletter_path
 
@@ -282,10 +282,10 @@ def _generate_greeting(
     posts: list[Post],
     date_suffix: str,
     config: Config,
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
     language: Language,
 ) -> str:
-    greeter = Greeter(boto3_session, config.summarization.greeting_model_id, language)
+    greeter = Greeter(boto_session, config.summarization.greeting_model_id, language)
     titles = [post.title for post in posts]
     context = f"Today is {date_suffix}. Today's articles include: {', '.join(titles)}"
     greeting = greeter.greet(context=context)
@@ -339,7 +339,7 @@ def _upload_files_to_s3(
     local_paths: Path | list[Path],
     s3_prefix: str,
     config: Config,
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
 ) -> None:
     s3_destination = (
         f"{config.resources.s3_prefix}/{s3_prefix}"
@@ -350,7 +350,7 @@ def _upload_files_to_s3(
     for path in paths_to_upload:
         if path.exists():
             upload_to_s3(
-                boto3_session,
+                boto_session,
                 path,
                 config.resources.s3_bucket_name,
                 s3_prefix=s3_destination,
@@ -363,10 +363,10 @@ def _process_newsletter_emails(
     newsletter_path: Path,
     date_suffix: str,
     config: Config,
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
     recipients: list[str] | None = None,
 ) -> tuple[int, list[str], int]:
-    recipients = _get_recipients(config, boto3_session, recipients)
+    recipients = _get_recipients(config, boto_session, recipients)
     if not recipients:
         logger.warning("No recipients found, skipping email sending.")
         return 0, [], 0
@@ -375,19 +375,19 @@ def _process_newsletter_emails(
         logger.error("Failed to read newsletter content, skipping email sending.")
         return 0, recipients, len(recipients)
     success_count, failed_recipients = _send_emails_to_recipients(
-        recipients, newsletter_content, date_suffix, config, boto3_session
+        recipients, newsletter_content, date_suffix, config, boto_session
     )
     return success_count, failed_recipients, len(recipients)
 
 
 def _get_recipients(
-    config: Config, boto3_session: boto3.Session, recipients: list[str] | None = None
+    config: Config, boto_session: boto3.Session, recipients: list[str] | None = None
 ) -> list[str]:
     if recipients:
         return _validate_emails(recipients)
     filename = _generate_recipients_filename(config)
     recipients_path = ROOT_DIR / LocalPaths.ASSETS_DIR.value / filename
-    if _download_recipients_file(boto3_session, config, filename, recipients_path):
+    if _download_recipients_file(boto_session, config, filename, recipients_path):
         return _validate_emails(
             recipients_path.read_text(encoding="utf-8").splitlines()
         )
@@ -412,13 +412,13 @@ def _generate_recipients_filename(config: Config) -> str:
 
 
 def _download_recipients_file(
-    boto3_session: boto3.Session, config: Config, filename: str, recipients_path: Path
+    boto_session: boto3.Session, config: Config, filename: str, recipients_path: Path
 ) -> bool:
     s3_key = f"{config.resources.s3_prefix or ''}/{S3Paths.RECIPIENTS.value}/{filename}".lstrip(
         "/"
     )
     return check_and_download_from_s3(
-        boto3_session, config.resources.s3_bucket_name, s3_key, recipients_path
+        boto_session, config.resources.s3_bucket_name, s3_key, recipients_path
     )
 
 
@@ -435,14 +435,14 @@ def _send_emails_to_recipients(
     content: str,
     date_suffix: str,
     config: Config,
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
 ) -> tuple[int, list[str]]:
     subject = f"[{date_suffix}] {config.newsletter.header_title}"
     success_count = 0
     failed_recipients = []
     for recipient in recipients:
         if send_email(
-            boto3_session, subject, str(config.newsletter.sender), [recipient], content
+            boto_session, subject, str(config.newsletter.sender), [recipient], content
         ):
             success_count += 1
         else:
@@ -454,14 +454,14 @@ def _send_emails_to_recipients(
 
 
 def _send_success_notification(
-    boto3_session: boto3.Session,
+    boto_session: boto3.Session,
     topic_arn: str,
     success_count: int,
     total_recipients: int,
     failed_recipients: list[str],
     filtered_out_posts: list[tuple[Post, str]],
 ) -> None:
-    sns_client = boto3_session.client("sns")
+    sns_client = boto_session.client("sns")
     filtered_out_info = "\n\nFiltered out posts:\n"
     for post, reason in filtered_out_posts:
         filtered_out_info += f"- {post.title} ({post.link})\n  Reason:\n{reason}\n\n"
@@ -480,9 +480,9 @@ def _send_success_notification(
 
 
 def _send_failure_notification(
-    boto3_session: boto3.Session, topic_arn: str, error_message: str
+    boto_session: boto3.Session, topic_arn: str, error_message: str
 ) -> None:
-    sns_client = boto3_session.client("sns")
+    sns_client = boto_session.client("sns")
     sns_client.publish(
         TopicArn=topic_arn,
         Subject="Newsletter Delivery - Failed",

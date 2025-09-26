@@ -105,7 +105,7 @@ class SummaryOutput(BaseModel):
 class Summarizer:
     def __init__(
         self,
-        boto3_session: boto3.Session,
+        boto_session: boto3.Session,
         filtering_model_id: LanguageModelId,
         summarization_model_id: LanguageModelId,
         fixing_model_id: LanguageModelId | None = None,
@@ -114,7 +114,7 @@ class Summarizer:
         max_concurrency: int = 10,
         min_score: float = 0.7,
     ) -> None:
-        self.boto3_session = boto3_session
+        self.boto_session = boto_session
         self.filtering_criteria = filtering_criteria
         self.language = language
         self.min_score = min_score
@@ -122,7 +122,7 @@ class Summarizer:
         self.batch_processor = BatchProcessor(
             max_concurrency=max_concurrency, batch_size=max_concurrency
         )
-        self.llm_factory = BedrockLanguageModelFactory(boto_session=self.boto3_session)
+        self.llm_factory = BedrockLanguageModelFactory(boto_session=self.boto_session)
         self.filter_chain = self._create_filter_chain(filtering_model_id)
         self.summarizer_chain = self._create_summarizer_chain(
             summarization_model_id, fixing_model_id

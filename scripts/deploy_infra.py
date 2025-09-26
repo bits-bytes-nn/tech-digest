@@ -407,10 +407,10 @@ def main() -> None:
             config.resources.stage,
         )
 
-        boto3_session = boto3.Session(
+        boto_session = boto3.Session(
             region_name=config.resources.default_region_name, profile_name=profile_name
         )
-        account_id = get_account_id(boto3_session)
+        account_id = get_account_id(boto_session)
 
         env_vars = {
             key.value: os.environ.get(key.value, default)

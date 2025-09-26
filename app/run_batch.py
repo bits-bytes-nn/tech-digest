@@ -30,10 +30,10 @@ def main(job_prefix: str, **kwargs: Any) -> None:
         if is_running_in_aws()
         else config.resources.profile_name
     )
-    boto3_session = boto3.Session(
+    boto_session = boto3.Session(
         region_name=config.resources.default_region_name, profile_name=profile_name
     )
-    job_queue_name, job_definition_name = get_batch_job_names(boto3_session, config)
+    job_queue_name, job_definition_name = get_batch_job_names(boto_session, config)
     if not job_queue_name or not job_definition_name:
         raise ValueError(
             "Batch job queue or definition name not found in SSM parameters"
@@ -45,7 +45,7 @@ def main(job_prefix: str, **kwargs: Any) -> None:
         "Submitting batch job '%s' with parameters: %s", job_name, sanitized_params
     )
     job_id = submit_batch_job(
-        boto3_session,
+        boto_session,
         job_name,
         job_queue_name,
         job_definition_name,
@@ -54,20 +54,20 @@ def main(job_prefix: str, **kwargs: Any) -> None:
     if not job_id:
         raise RuntimeError("Failed to submit batch job")
     logger.info("Batch job submitted with ID '%s'", job_id)
-    if not wait_for_batch_job_completion(boto3_session, job_id):
+    if not wait_for_batch_job_completion(boto_session, job_id):
         raise RuntimeError(f"Batch job '{job_id}' failed or timed out.")
 
 
 def get_batch_job_names(
-    boto3_session: boto3.Session, config: Config
+    boto_session: boto3.Session, config: Config
 ) -> tuple[str | None, str | None]:
     base_path = f"/{config.resources.project_name}/{config.resources.stage}"
     try:
         queue = get_ssm_param_value(
-            boto3_session, f"{base_path}/{SSMParams.BATCH_JOB_QUEUE.value}"
+            boto_session, f"{base_path}/{SSMParams.BATCH_JOB_QUEUE.value}"
         )
         definition = get_ssm_param_value(
-            boto3_session, f"{base_path}/{SSMParams.BATCH_JOB_DEFINITION.value}"
+            boto_session, f"{base_path}/{SSMParams.BATCH_JOB_DEFINITION.value}"
         )
         return queue, definition
     except Exception as e:
