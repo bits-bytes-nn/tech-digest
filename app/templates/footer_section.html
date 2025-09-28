@@ -1,0 +1,79 @@
+{% macro footer(footer) %}
+<tr>
+  <td
+    width="100%"
+    valign="top"
+    align="center"
+    class="padding-container"
+    style="padding-bottom: 20px"
+  >
+    <table
+      width="600"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+      align="center"
+      class="wrapper"
+    >
+      <tr>
+        <td>
+          <table cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td
+                class="card-1"
+                width="100%"
+                valign="top"
+                align="center"
+                style="
+                  border-radius: 8px;
+                  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                "
+              >
+                <table
+                  width="600"
+                  cellpadding="0"
+                  cellspacing="0"
+                  border="0"
+                  align="center"
+                  class="wrapper"
+                  style="border-radius: 8px; background-color: #ffffff"
+                >
+                  <tr>
+                    <td align="center">
+                      <table
+                        width="500"
+                        cellpadding="0"
+                        cellspacing="0"
+                        border="0"
+                        class="container"
+                      >
+                        <tr>
+                          <td
+                            class="td-padding"
+                            align="center"
+                            style="
+                              font-family: 'Pretendard', 'Inter', system-ui,
+                                sans-serif;
+                              color: #000000;
+                              font-size: 0.875rem;
+                              line-height: 1.5;
+                              padding: 24px 20px;
+                              font-weight: 400;
+                            "
+                          >
+                            {{ footer.title | safe }}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+{% endmacro %}

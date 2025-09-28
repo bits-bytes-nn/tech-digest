@@ -1,0 +1,10 @@
+FROM public.ecr.aws/lambda/python:3.10-x86_64
+
+COPY main.py requirements.txt ./
+COPY configs/ configs/
+COPY templates/ templates/
+COPY src/ src/
+
+RUN python3.10 -m pip install --no-cache-dir -r requirements.txt -t .
+
+CMD ["main.handler"]

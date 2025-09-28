@@ -1,0 +1,88 @@
+{% macro title(title_section) %}
+<tr>
+  <td
+    width="100%"
+    valign="top"
+    align="center"
+    class="padding-container"
+    style="padding-top: 0px !important; padding-bottom: 18px !important"
+  >
+    <table
+      width="600"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+      align="center"
+      class="wrapper"
+    >
+      <tr>
+        <td>
+          <table cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td
+                class="card-1"
+                width="100%"
+                valign="top"
+                align="center"
+                style="
+                  border-radius: 8px;
+                  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                "
+              >
+                <table
+                  width="600"
+                  cellpadding="0"
+                  cellspacing="0"
+                  border="0"
+                  align="center"
+                  class="wrapper"
+                  style="
+                    border-radius: 8px;
+                    background: linear-gradient(
+                      135deg,
+                      #ffffff 0%,
+                      #f8f9fa 100%
+                    );
+                  "
+                >
+                  <tr>
+                    <td align="center">
+                      <table
+                        width="500"
+                        cellpadding="0"
+                        cellspacing="0"
+                        border="0"
+                        class="container"
+                      >
+                        <tr>
+                          <td
+                            class="td-padding"
+                            align="center"
+                            style="
+                              font-family: 'Pretendard', 'Inter', system-ui,
+                                sans-serif;
+                              color: #000000 !important;
+                              -webkit-text-fill-color: #000000;
+                              font-size: 1rem;
+                              line-height: 1.7;
+                              letter-spacing: -0.009em;
+                              padding: 30px 25px;
+                              font-weight: 700;
+                            "
+                          >
+                            {{ title_section.introduction | safe }}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+{% endmacro %}

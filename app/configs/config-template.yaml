@@ -1,0 +1,82 @@
+resources:
+  project_name: tech-digest
+  stage: dev # dev or prod
+  profile_name: # profile name (if you want to use a specific profile)
+  default_region_name: ap-northeast-2
+  bedrock_region_name: us-west-2
+  s3_bucket_name: # s3 bucket name
+  s3_prefix: tech-digest
+  vpc_id: # vpc id (if you want to use a specific vpc)
+  subnet_ids: # list of subnet ids (if you want to use a specific subnet)
+  lambda_or_batch: batch # lambda or batch
+  cron_expression: "cron(0 1 ? * 6 *)"
+
+scraping:
+  rss_urls:
+    - "https://medium.com/feed/airbnb-engineering"
+    - "https://www.amazon.science/index.rss"
+    - "https://www.anthropic.com/news"
+    - "https://aws.amazon.com/blogs/amazon-ai/feed/"
+    - "https://www.deepmind.com/blog/rss.xml"
+    - "https://research.google/blog"
+    - "https://huggingface.co/blog/feed.xml"
+    - "https://tech.kakao.com/feed/"
+    - "https://www.linkedin.com/blog/engineering"
+    - "https://ai.meta.com/blog/"
+    - "https://code.facebook.com/posts/rss"
+    - "http://research.microsoft.com/rss/news.xml"
+    - "https://ncsoft.github.io/ncresearch/feed.xml"
+    - "http://techblog.netflix.com/feeds/posts/default"
+    - "http://developer.nvidia.com/blog/feed"
+    - "https://openai.com/news/rss.xml"
+    - "https://medium.com/feed/@palantir"
+    - "https://medium.com/feed/@Pinterest_Engineering"
+    - "https://qwenlm.github.io/blog/"
+    - "https://x.ai/news"
+    - "https://eugeneyan.com/rss/"
+    - "https://huyenchip.com/feed.xml"
+    - "http://sebastianraschka.com/rss_feed.xml"
+    - "https://www.philschmid.de/rss"
+  days_back: 7
+
+summarization:
+  use_filtering: True
+  filtering_criteria: all
+  included_topics: # list of included topics
+  excluded_topics: # list of excluded topics
+  filtering_model_id: anthropic.claude-sonnet-4-20250514-v1:0
+  summarization_model_id: anthropic.claude-sonnet-4-20250514-v1:0
+  greeting_model_id: anthropic.claude-3-5-haiku-20241022-v1:0
+  max_concurrency: 5
+  min_score: 0.8
+  max_posts: 5
+
+newsletter:
+  send_emails: True
+  save_articles: False
+  convert_to_images: False
+  sender: "example@example.com" # email address of the sender
+  header_title: "Weekly AI Tech Blog Digest"
+  header_description: '$ cron weekly-digest | grep "AI tech" | sort -by relevance > your-inbox 🔮'
+  header_thumbnail: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/peccy.png"
+  footer_title: "Thank you for becoming a subscriber to Weekly AI Tech Blog Digest.<br>If you have any questions or feedback, please send them to <a href='mailto:example@example.com' style='color: #007bff; text-decoration: none;'>example@example.com</a>." # footer title
+  logos:
+    airbnb: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/airbnb.png"
+    amazon: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/amazon.png"
+    anthropic: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/anthropic.png"
+    aws: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/aws.png"
+    google: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/google.png"
+    huggingface: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/huggingface.png"
+    kakao: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/kakao.png"
+    linkedin: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/linkedin.png"
+    meta: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/meta.png"
+    microsoft: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/microsoft.png"
+    ncsoft: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/ncsoft.png"
+    netflix: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/netflix.png"
+    nvidia: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/nvidia.png"
+    openai: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/openai.png"
+    palantir: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/palantir.png"
+    pinterest: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/pinterest.png"
+    qwen: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/qwen.png"
+    xai: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/xai.png"
+    unknown: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/unknown.png"
