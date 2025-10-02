@@ -44,8 +44,8 @@ summarization:
   filtering_criteria: all
   included_topics: # list of included topics
   excluded_topics: # list of excluded topics
-  filtering_model_id: anthropic.claude-sonnet-4-20250514-v1:0
-  summarization_model_id: anthropic.claude-sonnet-4-20250514-v1:0
+  filtering_model_id: anthropic.claude-sonnet-4-5-20250929-v1:0
+  summarization_model_id: anthropic.claude-sonnet-4-5-20250929-v1:0
   greeting_model_id: anthropic.claude-3-5-haiku-20241022-v1:0
   max_concurrency: 5
   min_score: 0.8
@@ -80,3 +80,4 @@ newsletter:
     qwen: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/qwen.png"
     xai: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/xai.png"
     unknown: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/unknown.png"
+    # NOTE: add new logos here

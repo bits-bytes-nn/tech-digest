@@ -402,7 +402,7 @@ def main() -> None:
         profile_name = os.environ.get(EnvVars.AWS_PROFILE_NAME.value)
 
         logger.info(
-            "Deploying infrastructure for %s in %s stage",
+            "Deploying infrastructure for '%s' in '%s' stage",
             config.resources.project_name,
             config.resources.stage,
         )

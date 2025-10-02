@@ -59,6 +59,12 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_prompt_caching=True,
         supports_thinking=True,
     ),
+    LanguageModelId.CLAUDE_V4_5_SONNET: LanguageModelInfo(
+        context_window_size=200000,
+        max_output_tokens=8192,
+        supports_prompt_caching=True,
+        supports_thinking=True,
+    ),
     LanguageModelId.CLAUDE_V4_OPUS: LanguageModelInfo(
         context_window_size=200000,
         max_output_tokens=8192,
@@ -71,6 +77,7 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_prompt_caching=True,
         supports_thinking=True,
     ),
+    # NOTE: add new models here
 }
 
 ModelIdT = TypeVar("ModelIdT")
@@ -198,7 +205,6 @@ class BedrockLanguageModelFactory(
 ):
     DEFAULT_TEMPERATURE: ClassVar[float] = 0.0
     DEFAULT_TOP_K: ClassVar[int] = 50
-    DEFAULT_TOP_P: ClassVar[float] = 0.95
     DEFAULT_THINKING_BUDGET_TOKENS: ClassVar[int] = 2048
     DEFAULT_LATENCY_MODE: ClassVar[str] = "normal"
 
@@ -276,7 +282,6 @@ class BedrockLanguageModelFactory(
         ):
             config["credentials_profile_name"] = self.boto_session.profile_name
         common_params = {
-            "top_p": kwargs.get("top_p", self.DEFAULT_TOP_P),
             "stop_sequences": ["\n\nHuman:"],
         }
         if is_cross_region:

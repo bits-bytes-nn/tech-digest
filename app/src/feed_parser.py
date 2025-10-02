@@ -1,3 +1,5 @@
+# NOTE: If there is no RSS feed available, you need to create a custom scraper here
+
 import re
 import socket
 from contextlib import contextmanager
@@ -36,6 +38,7 @@ SourceType: TypeAlias = Literal[
     "qwen",
     "xai",
     "unknown",
+    # NOTE: add new sources here
 ]
 
 
@@ -105,6 +108,7 @@ class ScraperConfig:
         "pinterest-engineering": "pinterest",
         "qwenlm.github.io": "qwen",
         "x.ai": "xai",
+        # NOTE: add new sources here
     }
 
 

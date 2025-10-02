@@ -170,6 +170,8 @@ def _fetch_and_filter_posts(
             logger.info("Using XAIBlogScraper for URL: '%s'", url)
             fetchers.append(XAIBlogScraper(page_url=url, source="xai"))
 
+        # NOTE: add new sources here
+
         else:
             fetchers.append(RssFetcher(url))
 
