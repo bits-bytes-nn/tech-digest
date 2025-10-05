@@ -34,7 +34,7 @@ Automated newsletter service that curates and delivers AI tech insights from lea
 
 ### 📋 Configuration
 
-Edit `app/configs/config-{stage}.yaml`:
+Create `app/configs/config-{stage}.yaml`:
 
 ```yaml
 resources:
@@ -44,8 +44,8 @@ resources:
   cron_expression: "cron(0 1 ? * 6 *)"
 
 summarization:
-  filtering_model_id: anthropic.claude-sonnet-4-20250514-v1:0
-  summarization_model_id: anthropic.claude-sonnet-4-20250514-v1:0
+  filtering_model_id: anthropic.claude-sonnet-4-5-20250929-v1:0
+  summarization_model_id: anthropic.claude-sonnet-4-5-20250929-v1:0
   min_score: 0.8
   max_posts: 5
 
@@ -72,7 +72,7 @@ cp .env.template .env
 # Edit .env with your configuration
 
 # Run locally
-python app/main.py --end-date 2024-01-01 --language ko --recipients email@example.com
+python app/main.py --end-date 2024-01-01 --recipients email@example.com
 
 # Submit batch job
 python app/run_batch.py --end-date 2024-01-01 --language ko --recipients email@example.com

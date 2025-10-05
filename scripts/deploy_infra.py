@@ -133,11 +133,6 @@ class NewsletterStack(Stack):
             description="Security group for Newsletter",
             security_group_name=self._get_resource_name("newsletter"),
         )
-        sg.add_egress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(443),
-            description="Allow HTTPS outbound traffic",
-        )
         return sg
 
     def _create_iam_role(self) -> iam.Role:
