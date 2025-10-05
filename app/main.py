@@ -43,6 +43,7 @@ from src import (
     upload_to_s3,
 )
 
+SEND_INTERVAL_SECONDS: Final[float] = 0.5
 ROOT_DIR: Path = (
     Path("/tmp") if is_running_in_aws() else Path(__file__).resolve().parent.parent
 )
@@ -443,8 +444,6 @@ def _send_emails_to_recipients(
     subject = f"[{date_suffix}] {config.newsletter.header_title}"
     success_count = 0
     failed_recipients = []
-
-    SEND_INTERVAL_SECONDS: Final[float] = 0.5
 
     for recipient in recipients:
         if send_email(
