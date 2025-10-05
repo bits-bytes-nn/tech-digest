@@ -4,9 +4,10 @@ import os
 import re
 import shutil
 import sys
+import time
 from pprint import pformat
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import boto3
 
@@ -442,6 +443,9 @@ def _send_emails_to_recipients(
     subject = f"[{date_suffix}] {config.newsletter.header_title}"
     success_count = 0
     failed_recipients = []
+
+    SEND_INTERVAL_SECONDS: Final[float] = 0.5
+
     for recipient in recipients:
         if send_email(
             boto_session, subject, str(config.newsletter.sender), [recipient], content
@@ -449,6 +453,9 @@ def _send_emails_to_recipients(
             success_count += 1
         else:
             failed_recipients.append(recipient)
+
+        time.sleep(SEND_INTERVAL_SECONDS)
+
     logger.info(
         "Email sending complete: %d/%d successful", success_count, len(recipients)
     )
