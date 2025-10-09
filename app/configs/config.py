@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, EmailStr, Field, FilePath, model_validator
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.src import FilteringCriteria, LanguageModelId
 
@@ -90,7 +90,7 @@ class Config(BaseModelWithDefaults):
     newsletter: Newsletter = Field(default_factory=Newsletter)
 
     @classmethod
-    def from_yaml(cls, file_path: FilePath) -> "Config":
+    def from_yaml(cls, file_path: str) -> "Config":
         with open(file_path, encoding="utf-8") as file:
             config_data = yaml.safe_load(file)
         return cls(**config_data)
@@ -105,4 +105,4 @@ class Config(BaseModelWithDefaults):
             Path(filename).with_name(f"{filename}{suffix}").with_suffix(f".{extension}")
         )
         config_path = Path(__file__).parent / config_file
-        return cls.from_yaml(config_path)
+        return cls.from_yaml(str(config_path))
