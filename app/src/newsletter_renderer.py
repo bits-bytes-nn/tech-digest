@@ -56,6 +56,7 @@ class NewsletterConfig:
         "qwen": "qwen.png",
         "xai": "xai.png",
         "unknown": "unknown.png",
+        # NOTE: add new logos here
     }
 
 

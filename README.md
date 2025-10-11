@@ -72,8 +72,8 @@ cp .env.template .env
 # Edit .env with your configuration
 
 # Run locally
-python app/main.py --end-date 2024-01-01 --recipients email@example.com
+python app/main.py --end-date 2024-01-01 --recipients aldente0630@gmail.com
 
 # Submit batch job
-python app/run_batch.py --end-date 2024-01-01 --language ko --recipients email@example.com
+python app/run_batch.py --end-date 2024-01-01 --language ko --recipients aldente0630@gmail.com
 ```

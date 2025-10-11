@@ -107,23 +107,23 @@ class FilteringPrompt(BasePrompt):
 
     _system_prompt_template: ClassVar[dict[FilteringCriteria, str]] = {
         FilteringCriteria.ALL: """You are an expert machine learning research evaluator with deep expertise in ML
-theory, algorithms, and research methodologies. Your role is to assess the quality and relevance of ML content with
-precision and consistency.
+theory, algorithms, and research methodologies.
 
-Key responsibilities:
-- Identify genuine ML research contributions vs. superficial content
-- Distinguish between theoretical advances and basic implementations
-- Filter out non-ML topics and promotional materials
-- Apply rigorous evaluation criteria consistently""",
+Your role:
+- Assess ML content quality and research value with precision
+- Distinguish theoretical advances from basic implementations
+- Filter non-ML topics and promotional materials
+- Apply evaluation criteria consistently
+- Prioritize content matching specified included topics""",
         FilteringCriteria.AMAZON: """You are an expert ML content evaluator specializing in Amazon/AWS machine learning
-services and cloud-based ML implementations. You have comprehensive knowledge of both ML research and Amazon's ML
-ecosystem.
+services and cloud-based ML implementations.
 
-Key responsibilities:
+Your role:
 - Evaluate ML content within Amazon/AWS context
-- Identify advanced technical implementations using AWS ML services
-- Assess research value in cloud-based ML environments
-- Filter content based on Amazon/AWS ML relevance""",
+- Assess technical depth of AWS ML service implementations
+- Identify research value in cloud-based ML environments
+- Filter based on Amazon/AWS ML relevance
+- Prioritize content matching specified included topics""",
     }
 
     _human_prompt_template: ClassVar[dict[FilteringCriteria, str]] = {
@@ -138,59 +138,107 @@ Key responsibilities:
 **INCLUDED TOPICS:** {included_topics}
 **EXCLUDED TOPICS:** {excluded_topics}
 
+---
+
 **EVALUATION PROCESS:**
 
 **STEP 1: TOPIC VALIDATION**
+
 REJECT if content contains:
-- Non-ML topics (data analytics, BI, visualization, databases, ETL, general software dev)
+- Non-ML topics (data analytics, BI, visualization, databases, ETL, general software development)
 - Excluded topics listed above
 - Pure implementation tutorials without research insights
 - Marketing/promotional materials
 - Hardware reviews or basic platform tutorials
 
+**EXCEPTION:** If content SUBSTANTIALLY covers any included topic (not just mentions), AUTO-ACCEPT and proceed to 
+scoring.
+
+**INCLUDED TOPIC MATCHING CRITERIA (STRICT):**
+- Topic must be a PRIMARY focus of the content (>30% of content)
+- NOT just mentioned in passing or as a minor example
+- Content must provide meaningful depth on the included topic
+- Simple mentions, brief examples, or tangential references DO NOT qualify
+
 ACCEPT if content has:
+- Included topics from the list above as PRIMARY focus (HIGHEST PRIORITY - automatic acceptance)
 - Core ML focus (theory, algorithms, model architectures, research methods)
-- Included topics from the list above
 - Novel research contributions or theoretical insights
 - Deep technical ML understanding
+- **High-quality practical guides with deep ML insights and proven best practices**
+
+---
 
 **STEP 2: QUALITY SCORING (0.0-1.0)**
 
-**Score 0.8-1.0 (Excellent):**
-- Novel theoretical ML contributions
-- Mathematical/algorithmic innovations with proofs
-- Rigorous empirical evaluation with statistical analysis
-- Breakthrough findings or paradigm shifts
-- Major foundation model releases with technical depth and evaluation
-- Zero promotional content
+**CRITICAL RULE: INCLUDED TOPICS AUTO-PASS**
 
-**Score 0.6-0.7 (Good):**
-- Solid empirical studies with moderate novelty
-- Incremental improvements with proper validation
-- Well-executed comparative studies
-- Mixed research/implementation with clear insights
+If content SUBSTANTIALLY covers ANY included topic (>30% as primary focus):
+- **AUTOMATIC SCORE: 0.8**
+- Skip all quality evaluation
+- Ignore all penalties
+- Content automatically passes filtering
 
-**Score 0.4-0.5 (Fair):**
-- Limited research novelty but solid execution
+**IMPORTANT:** Simple mentions or brief examples of included topics DO NOT qualify for auto-pass.
+
+**SCORING PATH A: INCLUDED TOPICS CONTENT**
+- Fixed score: **0.8**
+- Requires substantial coverage (>30% as primary focus)
+- No further evaluation needed
+- All penalties waived
+
+**SCORING PATH B: OTHER ML CONTENT**
+
+Start at 0.0 and evaluate (BE CONSERVATIVE):
+
+**Score 0.7-0.8 (Excellent):**
+- Truly novel theoretical ML contributions with rigorous proofs
+- Groundbreaking mathematical/algorithmic innovations
+- Exceptional empirical evaluation with comprehensive statistical analysis
+- Paradigm-shifting findings with broad impact
+- **High-quality practical guides with deep ML insights and battle-tested best practices**
+- **Comprehensive guides containing essence of real-world ML experience and expertise**
+- Zero promotional content, exceptional execution
+
+**Score 0.5-0.6 (Good):**
+- Solid empirical studies with clear novelty
+- Well-validated incremental improvements
+- Rigorous comparative studies with insights
+- Strong research contribution with minor limitations
+- **Well-structured practical guides with valuable ML best practices and actionable insights**
+
+**Score 0.3-0.4 (Fair):**
+- Limited novelty but decent execution
 - Educational content with some new perspectives
-- Implementation-heavy but with research context
+- Implementation-focused with research context
+- Acceptable quality but not exceptional
 
-**Score 0.0-0.3 (Poor):**
-- Pure implementation guides
-- Vendor-specific tutorials
+**Score 0.1-0.2 (Poor):**
+- Mostly implementation guides with minimal insights
+- Vendor-specific tutorials with some ML content
 - Superficial ML coverage
-- Promotional content
+- Weak research value
 
-**SCORING RULES:**
-1. Start at 0.0, add points for research value
-2. Deduct 0.4 for >10% non-ML content
-3. Deduct 0.3 for implementation-only content
-4. Deduct 0.3 for promotional content
-5. When uncertain, score conservatively (0.0)
+**Score 0.0 (Reject):**
+- Pure implementation without research value
+- Promotional/marketing content
+- Non-ML content
+- No meaningful contribution
+
+**Penalties (Path B only):**
+- Deduct 0.4 for >10% non-ML content
+- Deduct 0.3 for implementation-only content
+- Deduct 0.3 for promotional content
+- **When uncertain, default to lower end of range**
+- **When borderline, score 0.2 points lower**
+
+---
 
 **OUTPUT FORMAT:**
 <title>[Original title in proper title case]</title>
-<reason>[Explain: (1) Topic validation result, (2) Quality assessment, (3) Final score justification]</reason>
+<reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic? 
+(2) If yes: state "AUTO-PASS via substantial coverage of [topic name]", otherwise explain quality assessment with 
+conservative scoring rationale]</reason>
 <score>[Number between 0.0 and 1.0]</score>""",
         FilteringCriteria.AMAZON: """Evaluate this content for ML technical quality with focus on Amazon/AWS ML
 implementations.
@@ -204,9 +252,12 @@ implementations.
 **INCLUDED TOPICS:** {included_topics}
 **EXCLUDED TOPICS:** {excluded_topics}
 
+---
+
 **EVALUATION PROCESS:**
 
 **STEP 1: TOPIC VALIDATION**
+
 REJECT if content contains:
 - Non-ML topics (data analytics, BI, visualization, databases, ETL)
 - Excluded topics listed above
@@ -214,49 +265,89 @@ REJECT if content contains:
 - Competitor platform focus
 - Basic tutorials without technical depth
 
+**EXCEPTION:** If content SUBSTANTIALLY covers any included topic with AWS context (>30% as primary focus), AUTO-ACCEPT 
+and proceed to scoring.
+
+**INCLUDED TOPIC MATCHING CRITERIA (STRICT):**
+- Topic must be a PRIMARY focus with AWS/Amazon context (>30% of content)
+- NOT just mentioned in passing or as a minor example
+- Content must provide meaningful depth on the included topic within AWS ecosystem
+- Simple mentions, brief examples, or tangential references DO NOT qualify
+
 ACCEPT if content has:
+- Included topics from the list above as PRIMARY focus with AWS context (HIGHEST PRIORITY)
 - Core ML focus with Amazon/AWS context (80%+ of content)
-- Included topics from the list above
 - Technical depth in AWS ML services (SageMaker, Bedrock, etc.)
 - Advanced ML understanding within AWS ecosystem
+- **High-quality AWS ML practical guides with deep insights and proven best practices**
+
+---
 
 **STEP 2: QUALITY SCORING (0.0-1.0)**
 
-**Score 0.8-1.0 (Excellent):**
-- Novel ML contributions in AWS/Amazon context
-- Advanced AWS ML implementations with architectural innovations
-- Significant ML system design insights for cloud
-- Mathematical/algorithmic innovations on AWS platform
-- Deep technical analysis of ML performance on Amazon infrastructure
+**CRITICAL RULE: INCLUDED TOPICS AUTO-PASS**
 
-**Score 0.6-0.7 (Good):**
-- Solid ML studies using Amazon/AWS services
-- AWS ML implementations with good technical depth
-- Incremental improvements to AWS ML workflows
-- Comparative ML studies on Amazon platform
+If content SUBSTANTIALLY covers ANY included topic with Amazon/AWS context (>30% as primary focus):
+- **AUTOMATIC SCORE: 0.8**
+- Skip all quality evaluation
+- Ignore all penalties
+- Content automatically passes filtering
 
-**Score 0.4-0.5 (Fair):**
+**IMPORTANT:** Simple mentions or brief examples of included topics DO NOT qualify for auto-pass.
+
+**SCORING PATH A: INCLUDED TOPICS + AWS CONTENT**
+- Fixed score: **0.8**
+- Requires substantial coverage (>30% as primary focus with AWS context)
+- No further evaluation needed
+- All penalties waived
+
+**SCORING PATH B: OTHER AWS ML CONTENT**
+
+Start at 0.0 and evaluate (BE CONSERVATIVE):
+
+**Score 0.7-0.8 (Excellent):**
+- Truly novel ML contributions in AWS/Amazon context
+- Groundbreaking AWS ML architectural innovations
+- Exceptional mathematical/algorithmic innovations on AWS platform
+- Deep technical analysis with exceptional insights on Amazon infrastructure
+- **High-quality AWS ML practical guides with deep insights and battle-tested best practices**
+- **Comprehensive AWS ML guides containing essence of real-world experience and expertise**
+
+**Score 0.5-0.6 (Good):**
+- Solid ML studies using Amazon/AWS services with clear value
+- AWS ML implementations with strong technical depth
+- Well-validated incremental improvements to AWS ML workflows
+- **Well-structured AWS ML practical guides with valuable best practices and actionable insights**
+
+**Score 0.3-0.4 (Fair):**
 - Moderate technical depth in AWS ML services
 - Educational AWS ML content with some insights
-- Implementation-focused with AWS context
+- Acceptable quality but not exceptional
 
-**Score 0.0-0.3 (Poor):**
-- Basic AWS ML tutorials
-- Non-AWS vendor content
+**Score 0.1-0.2 (Poor):**
+- Basic AWS ML tutorials with minimal depth
 - Superficial Amazon ML service coverage
-- Marketing disguised as technical content
+- Weak technical contribution
 
-**SCORING RULES:**
-1. Start at 0.0, add points for ML research value and AWS insights
-2. Deduct 0.4 for >20% non-ML content
-3. Deduct 0.3 for non-AWS vendor mentions
-4. Deduct 0.2 for basic tutorials without advanced insights
-5. Prioritize content advancing ML understanding on Amazon/AWS platform
+**Score 0.0 (Reject):**
+- Non-AWS vendor content
+- Marketing disguised as technical content
+- No meaningful ML contribution
+
+**Penalties (Path B only):**
+- Deduct 0.4 for >20% non-ML content
+- Deduct 0.3 for non-AWS vendor mentions
+- Deduct 0.2 for basic tutorials without advanced insights
+- **When uncertain, default to lower end of range**
+- **When borderline, score 0.2 points lower**
+
+---
 
 **OUTPUT FORMAT:**
 <title>[Original title in proper title case]</title>
-<reason>[Explain: (1) Topic validation result, (2) AWS/Amazon ML depth assessment, (3) Final score with
-platform-specific insights]</reason>
+<reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic 
+with AWS context? (2) If yes: state "AUTO-PASS via substantial coverage of [topic name] with AWS context", otherwise 
+explain AWS/Amazon ML depth assessment with conservative scoring rationale]</reason>
 <score>[Number between 0.0 and 1.0]</score>""",
     }
 
