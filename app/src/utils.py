@@ -2,7 +2,7 @@ import functools
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, TypeVar
 from datetime import datetime, timedelta, timezone
 
 import asyncio
@@ -45,6 +45,11 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         context_window_size=200000,
         max_output_tokens=8192,
         supports_performance_optimization=True,
+        supports_prompt_caching=True,
+    ),
+    LanguageModelId.CLAUDE_V4_5_HAIKU: LanguageModelInfo(
+        context_window_size=200000,
+        max_output_tokens=64000,
         supports_prompt_caching=True,
     ),
     LanguageModelId.CLAUDE_V3_5_SONNET: LanguageModelInfo(
@@ -94,7 +99,7 @@ ModelInfoT = TypeVar("ModelInfoT")
 WrapperT = TypeVar("WrapperT")
 
 
-class BaseBedrockModelFactory(Generic[ModelIdT, ModelInfoT, WrapperT], ABC):
+class BaseBedrockModelFactory[ModelIdT, ModelInfoT, WrapperT](ABC):
     BOTO_READ_TIMEOUT: ClassVar[int] = 300
     BOTO_MAX_ATTEMPTS: ClassVar[int] = 3
 

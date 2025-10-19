@@ -70,10 +70,7 @@ class BasePrompt(ABC):
                 input_variables=instance.input_variables,
             ),
             HumanMessagePromptTemplate.from_template(
-                template=[
-                    {"type": "text", "text": instance.human_prompt_template},
-                    {"cachePoint": {"type": "default"}},
-                ],
+                template=instance.human_prompt_template,
                 input_variables=instance.input_variables,
             ),
         ]
@@ -169,77 +166,119 @@ ACCEPT if content has:
 
 ---
 
-**STEP 2: QUALITY SCORING (0.0-1.0)**
+**STEP 2: QUALITY SCORING (0.00-1.00, use TWO decimal places)**
 
-**CRITICAL RULE: INCLUDED TOPICS AUTO-PASS**
+**CRITICAL RULE: INCLUDED TOPICS - TIERED SCORING**
 
 If content SUBSTANTIALLY covers ANY included topic (>30% as primary focus):
-- **AUTOMATIC SCORE: 0.8**
-- Skip all quality evaluation
-- Ignore all penalties
-- Content automatically passes filtering
+- **BASE SCORE: 0.75-0.85** (determined by quality)
+- Apply quality modifiers below
+- Skip standard penalties
 
-**IMPORTANT:** Simple mentions or brief examples of included topics DO NOT qualify for auto-pass.
+**INCLUDED TOPIC QUALITY TIERS:**
+- **0.82-0.85:** Exceptional coverage with novel insights, comprehensive analysis, and expert-level depth
+- **0.78-0.81:** Strong coverage with good insights and solid technical depth
+- **0.75-0.77:** Adequate coverage meeting substantial threshold but with basic depth
 
-**SCORING PATH A: INCLUDED TOPICS CONTENT**
-- Fixed score: **0.8**
-- Requires substantial coverage (>30% as primary focus)
-- No further evaluation needed
-- All penalties waived
+**INCLUDED TOPIC MODIFIERS:**
+- +0.03: Multiple included topics covered substantially (each >30%)
+- +0.02: Exceptional clarity and organization
+- +0.02: Novel or unique perspective on the included topic
+- -0.02: Coverage is just above 30% threshold (borderline substantial)
+- -0.03: Some promotional content mixed in (<10% of content)
 
-**SCORING PATH B: OTHER ML CONTENT**
+**IMPORTANT:** Simple mentions or brief examples of included topics DO NOT qualify for included topic scoring.
 
-Start at 0.0 and evaluate (BE CONSERVATIVE):
+---
 
-**Score 0.7-0.8 (Excellent):**
-- Truly novel theoretical ML contributions with rigorous proofs
-- Groundbreaking mathematical/algorithmic innovations
+**SCORING PATH: OTHER ML CONTENT (Non-included topics)**
+
+**Base Score Ranges (select specific score within range):**
+
+**0.75-0.85 (Exceptional):**
+- Novel theoretical ML contributions with rigorous proofs
+- Groundbreaking mathematical/algorithmic innovations  
 - Exceptional empirical evaluation with comprehensive statistical analysis
-- Paradigm-shifting findings with broad impact
-- **High-quality practical guides with deep ML insights and battle-tested best practices**
-- **Comprehensive guides containing essence of real-world ML experience and expertise**
-- Zero promotional content, exceptional execution
+- High-quality practical guides with deep ML insights and battle-tested best practices
+- **Within tier:** 0.82-0.85 (groundbreaking), 0.78-0.81 (excellent), 0.75-0.77 (very good)
 
-**Score 0.5-0.6 (Good):**
+**0.60-0.70 (Strong):**
 - Solid empirical studies with clear novelty
 - Well-validated incremental improvements
 - Rigorous comparative studies with insights
-- Strong research contribution with minor limitations
-- **Well-structured practical guides with valuable ML best practices and actionable insights**
+- Well-structured practical guides with valuable ML best practices
+- **Within tier:** 0.67-0.70 (strong novelty), 0.63-0.66 (good execution), 0.60-0.62 (solid work)
 
-**Score 0.3-0.4 (Fair):**
+**0.45-0.55 (Moderate):**
 - Limited novelty but decent execution
 - Educational content with some new perspectives
 - Implementation-focused with research context
-- Acceptable quality but not exceptional
+- **Within tier:** 0.52-0.55 (good educational value), 0.48-0.51 (acceptable), 0.45-0.47 (basic)
 
-**Score 0.1-0.2 (Poor):**
+**0.30-0.40 (Weak):**
 - Mostly implementation guides with minimal insights
 - Vendor-specific tutorials with some ML content
 - Superficial ML coverage
-- Weak research value
+- **Within tier:** 0.37-0.40 (some value), 0.33-0.36 (limited value), 0.30-0.32 (minimal value)
 
-**Score 0.0 (Reject):**
-- Pure implementation without research value
-- Promotional/marketing content
-- Non-ML content
-- No meaningful contribution
+**0.00-0.25 (Reject/Very Poor):**
+- Pure implementation without research value (0.15-0.25)
+- Promotional/marketing content (0.05-0.15)
+- Non-ML content (0.00-0.05)
 
-**Penalties (Path B only):**
-- Deduct 0.4 for >10% non-ML content
-- Deduct 0.3 for implementation-only content
-- Deduct 0.3 for promotional content
-- **When uncertain, default to lower end of range**
-- **When borderline, score 0.2 points lower**
+---
+
+**FINE-TUNING MODIFIERS (apply after selecting base score):**
+
+**Positive Adjustments (+0.02 to +0.05 each):**
+- +0.05: Exceptional clarity and reproducibility
+- +0.03: Novel insights or unique perspective
+- +0.03: Comprehensive empirical validation
+- +0.02: Well-structured with clear takeaways
+- +0.02: Addresses important real-world problem
+
+**Negative Adjustments (-0.02 to -0.05 each):**
+- -0.05: Significant non-ML content (10-20%)
+- -0.04: Promotional elements (5-10% of content)
+- -0.03: Implementation-heavy without insights
+- -0.02: Limited scope or depth
+- -0.02: Unclear or poorly organized
+
+**Uncertainty Handling:**
+- When uncertain between two scores: choose the lower one
+- When borderline between tiers: subtract 0.03 from base score
+- Maximum total adjustments: ±0.10 from base score
+
+---
+
+**SCORING CALCULATION EXAMPLE:**
+
+Example 1 (Included Topic):
+- Base: 0.80 (strong coverage of "reinforcement learning" - included topic)
+- +0.02 (exceptional clarity)
+- +0.02 (novel perspective)
+- **Final: 0.84**
+
+Example 2 (Other ML Content):
+- Base: 0.65 (solid empirical study, mid-tier in "Strong" range)
+- +0.03 (comprehensive validation)
+- -0.02 (limited scope)
+- **Final: 0.66**
+
+Example 3 (Borderline):
+- Base: 0.48 (educational content, mid-tier in "Moderate" range)
+- -0.03 (borderline between tiers)
+- -0.02 (promotional elements)
+- **Final: 0.43**
 
 ---
 
 **OUTPUT FORMAT:**
 <title>[Original title in proper title case]</title>
 <reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic? 
-(2) If yes: state "AUTO-PASS via substantial coverage of [topic name]", otherwise explain quality assessment with 
-conservative scoring rationale]</reason>
-<score>[Number between 0.0 and 1.0]</score>""",
+If yes, state which included topic and coverage quality (exceptional/strong/adequate). (2) Base score selection and 
+tier reasoning (3) Applied modifiers with justification (4) Final score calculation]</reason>
+<score>[Number between 0.00 and 1.00, TWO decimal places, e.g., 0.67, 0.82, 0.43]</score>""",
         FilteringCriteria.AMAZON: """Evaluate this content for ML technical quality with focus on Amazon/AWS ML
 implementations.
 
@@ -283,72 +322,121 @@ ACCEPT if content has:
 
 ---
 
-**STEP 2: QUALITY SCORING (0.0-1.0)**
+**STEP 2: QUALITY SCORING (0.00-1.00, use TWO decimal places)**
 
-**CRITICAL RULE: INCLUDED TOPICS AUTO-PASS**
+**CRITICAL RULE: INCLUDED TOPICS - TIERED SCORING**
 
 If content SUBSTANTIALLY covers ANY included topic with Amazon/AWS context (>30% as primary focus):
-- **AUTOMATIC SCORE: 0.8**
-- Skip all quality evaluation
-- Ignore all penalties
-- Content automatically passes filtering
+- **BASE SCORE: 0.75-0.85** (determined by quality)
+- Apply quality modifiers below
+- Skip standard penalties
 
-**IMPORTANT:** Simple mentions or brief examples of included topics DO NOT qualify for auto-pass.
+**INCLUDED TOPIC QUALITY TIERS (with AWS context):**
+- **0.82-0.85:** Exceptional AWS coverage with novel insights, comprehensive analysis, and expert-level depth
+- **0.78-0.81:** Strong AWS coverage with good insights and solid technical depth
+- **0.75-0.77:** Adequate AWS coverage meeting substantial threshold but with basic depth
 
-**SCORING PATH A: INCLUDED TOPICS + AWS CONTENT**
-- Fixed score: **0.8**
-- Requires substantial coverage (>30% as primary focus with AWS context)
-- No further evaluation needed
-- All penalties waived
+**INCLUDED TOPIC MODIFIERS:**
+- +0.03: Multiple included topics covered substantially in AWS context (each >30%)
+- +0.02: Exceptional clarity and organization
+- +0.02: Novel or unique AWS implementation perspective
+- -0.02: Coverage is just above 30% threshold (borderline substantial)
+- -0.03: Some promotional AWS content mixed in (<10% of content)
 
-**SCORING PATH B: OTHER AWS ML CONTENT**
+**IMPORTANT:** Simple mentions or brief examples of included topics DO NOT qualify for included topic scoring.
 
-Start at 0.0 and evaluate (BE CONSERVATIVE):
+---
 
-**Score 0.7-0.8 (Excellent):**
-- Truly novel ML contributions in AWS/Amazon context
+**SCORING PATH: OTHER AWS ML CONTENT (Non-included topics)**
+
+**Base Score Ranges (select specific score within range):**
+
+**0.75-0.85 (Exceptional):**
+- Novel ML contributions in AWS/Amazon context
 - Groundbreaking AWS ML architectural innovations
 - Exceptional mathematical/algorithmic innovations on AWS platform
-- Deep technical analysis with exceptional insights on Amazon infrastructure
-- **High-quality AWS ML practical guides with deep insights and battle-tested best practices**
-- **Comprehensive AWS ML guides containing essence of real-world experience and expertise**
+- High-quality AWS ML practical guides with deep insights and battle-tested best practices
+- **Within tier:** 0.82-0.85 (groundbreaking AWS ML), 0.78-0.81 (excellent AWS ML), 0.75-0.77 (very good AWS ML)
 
-**Score 0.5-0.6 (Good):**
+**0.60-0.70 (Strong):**
 - Solid ML studies using Amazon/AWS services with clear value
 - AWS ML implementations with strong technical depth
 - Well-validated incremental improvements to AWS ML workflows
-- **Well-structured AWS ML practical guides with valuable best practices and actionable insights**
+- Well-structured AWS ML practical guides with valuable best practices
+- **Within tier:** 0.67-0.70 (strong AWS innovation), 0.63-0.66 (good AWS execution), 0.60-0.62 (solid AWS work)
 
-**Score 0.3-0.4 (Fair):**
+**0.45-0.55 (Moderate):**
 - Moderate technical depth in AWS ML services
 - Educational AWS ML content with some insights
-- Acceptable quality but not exceptional
+- Implementation-focused AWS guides with context
+- **Within tier:** 0.52-0.55 (good AWS educational value), 0.48-0.51 (acceptable AWS content), 0.45-0.47 (basic AWS 
+tutorial)
 
-**Score 0.1-0.2 (Poor):**
+**0.30-0.40 (Weak):**
 - Basic AWS ML tutorials with minimal depth
 - Superficial Amazon ML service coverage
-- Weak technical contribution
+- Limited AWS technical contribution
+- **Within tier:** 0.37-0.40 (some AWS value), 0.33-0.36 (limited AWS value), 0.30-0.32 (minimal AWS value)
 
-**Score 0.0 (Reject):**
-- Non-AWS vendor content
-- Marketing disguised as technical content
-- No meaningful ML contribution
+**0.00-0.25 (Reject/Very Poor):**
+- Non-AWS vendor content (0.00-0.05)
+- Marketing disguised as AWS technical content (0.05-0.15)
+- Minimal AWS ML focus (0.15-0.25)
 
-**Penalties (Path B only):**
-- Deduct 0.4 for >20% non-ML content
-- Deduct 0.3 for non-AWS vendor mentions
-- Deduct 0.2 for basic tutorials without advanced insights
-- **When uncertain, default to lower end of range**
-- **When borderline, score 0.2 points lower**
+---
+
+**FINE-TUNING MODIFIERS (apply after selecting base score):**
+
+**Positive Adjustments (+0.02 to +0.05 each):**
+- +0.05: Exceptional AWS implementation clarity and reproducibility
+- +0.03: Novel AWS ML insights or unique architectural perspective
+- +0.03: Comprehensive AWS empirical validation
+- +0.02: Well-structured AWS guide with clear takeaways
+- +0.02: Addresses important real-world AWS ML problem
+
+**Negative Adjustments (-0.02 to -0.05 each):**
+- -0.05: Significant non-ML content (10-20%)
+- -0.04: Non-AWS vendor mentions (5-10% of content)
+- -0.03: Implementation-heavy without AWS insights
+- -0.02: Limited AWS scope or depth
+- -0.02: Unclear or poorly organized AWS content
+
+**Uncertainty Handling:**
+- When uncertain between two scores: choose the lower one
+- When borderline between tiers: subtract 0.03 from base score
+- Maximum total adjustments: ±0.10 from base score
+
+---
+
+**SCORING CALCULATION EXAMPLE:**
+
+Example 1 (Included Topic with AWS):
+- Base: 0.80 (strong coverage of "SageMaker" - included topic with AWS context)
+- +0.02 (exceptional clarity)
+- +0.02 (novel AWS perspective)
+- **Final: 0.84**
+
+Example 2 (Other AWS ML Content):
+- Base: 0.65 (solid AWS empirical study, mid-tier in "Strong" range)
+- +0.03 (comprehensive AWS validation)
+- -0.02 (limited AWS scope)
+- **Final: 0.66**
+
+Example 3 (Borderline AWS):
+- Base: 0.48 (educational AWS content, mid-tier in "Moderate" range)
+- -0.03 (borderline between tiers)
+- -0.02 (promotional elements)
+- **Final: 0.43**
 
 ---
 
 **OUTPUT FORMAT:**
 <title>[Original title in proper title case]</title>
 <reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic 
-with AWS context? (2) If yes: state "AUTO-PASS via substantial coverage of [topic name] with AWS context", otherwise 
-explain AWS/Amazon ML depth assessment with conservative scoring rationale]</reason>
-<score>[Number between 0.0 and 1.0]</score>""",
+with AWS context? If yes, state which included topic and AWS coverage quality (exceptional/strong/adequate). 
+(2) Base score selection and tier reasoning (3) Applied modifiers with justification (4) Final score calculation]
+</reason>
+<score>[Number between 0.00 and 1.00, TWO decimal places, e.g., 0.67, 0.82, 0.43]</score>""",
     }
 
     @classmethod
@@ -424,167 +512,196 @@ class SummarizationPrompt(BasePrompt):
     input_variables: list[str] = ["post"]
     output_variables: list[str] = ["summary", "tags", "urls"]
     human_prompt_template: str = ""
-    system_prompt_template: str = """You are an expert technical writer and content analyst with deep expertise in
-    software engineering, machine learning, and system architecture. You excel at creating engaging, detailed
-    explanations of complex technical topics that feel like friendly conversations with fellow developers. Your writing
-    style is approachable yet thorough, making complex concepts accessible while maintaining technical accuracy and
-    depth."""
+    system_prompt_template: str = """You are an expert technical writer and content analyst specializing in software 
+engineering, machine learning, and system architecture. Your goal is to create clear, engaging, and accurate 
+explanations that make complex technical concepts accessible without sacrificing depth or precision."""
+
     _human_prompt_template: ClassVar[dict[Language, str]] = {
-        Language.EN: """Create a comprehensive and engaging technical explanation of the following blog post:
+        Language.EN: """Analyze and explain the following blog post in a comprehensive yet accessible manner:
 
 **CONTENT TO ANALYZE:**
 <post>{post}</post>
 
-**WRITING APPROACH:**
-Write as if you're having a friendly conversation with a fellow developer over coffee. Be thorough and explanatory
-rather than brief and summarized. Take time to walk through concepts, explain the "why" behind decisions, and help
-readers truly understand the material. Keep the content length to a maximum of 20% of the original post length.
+**CORE PRINCIPLES:**
 
-**ANALYSIS REQUIREMENTS:**
-1. **Conversational Depth:** Explain technical concepts in a friendly, detailed manner with context and background
-2. **Practical Storytelling:** Share the journey of implementation, challenges faced, and solutions discovered
-3. **Thoughtful Insights:** Provide detailed explanations of findings, methodologies, and lessons learned
-4. **Strategic Context:** Thoroughly discuss technical decisions, trade-offs, and their broader implications
-5. **Industry Perspective:** Connect the content to wider technical trends with detailed explanations
-6. **Educational Focus:** Prioritize helping readers learn and understand over brevity
+1. **Factual Accuracy First**
+   - Base your analysis ONLY on information explicitly stated in the source material
+   - Never speculate, assume, or infer information not present in the original content
+   - If details are unclear or missing, acknowledge the limitation rather than filling gaps with assumptions
+   - Clearly distinguish between what the article states and what can be objectively verified
 
-**REQUIRED STRUCTURE (within <summary> tags):**
+2. **Conversational Yet Precise**
+   - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
+   - Be thorough and explanatory, not brief or superficial
+   - Help readers understand the "why" behind technical decisions, not just the "what"
+   - Target length: Maximum 20% of the original post length
 
-<h3>📌 Why This Article Caught Our Attention</h3>
-Tell the story of why this content matters. Explain the background context, the problems it addresses, and why it's
-particularly relevant right now. Share what makes this approach interesting or unique, and help readers understand the
-broader significance in the current tech landscape.
+3. **Educational Focus**
+   - Prioritize clarity and understanding over brevity
+   - Explain concepts with appropriate context and background
+   - Connect technical details to practical implications
+   - Make complex ideas accessible without oversimplifying
 
-<h3>🔄 Understanding the Idea, Architecture, or Workflow</h3>
-Walk readers through the core ideas, system architecture, and workflow in detail. Explain how different components
-interact, why certain design choices were made, and how the overall system comes together. Include relevant images
-using: <img src="full_url" alt="descriptive text">
-Note: Always use complete URLs for images (e.g., https://example.com/path/image.jpg), not relative paths.
-Take time to explain the reasoning behind architectural patterns and help readers understand the thought process.
+**REQUIRED STRUCTURE:**
 
-<h3>🛠️ Let's Dive Deep Into the Technical Details</h3>
-Provide a thorough technical walkthrough that includes:
-• **Understanding the Core Ideas:** Explain the fundamental concepts in detail, providing context and background to help
-readers fully grasp the approach
-• **Code Walkthrough:** Present and carefully explain critical code sections, discussing what each part does and why
-it's implemented that way
-• **Design Philosophy:** Discuss the thinking behind technical choices, exploring alternatives that were considered and
-why certain paths were chosen
-• **Performance Deep Dive:** Thoroughly explain optimization strategies, scalability considerations, and performance
-implications with detailed reasoning
-• **Handling Edge Cases:** Discuss how the system deals with potential issues, error scenarios, and unexpected
-situations
-• **Implementation Wisdom:** Share detailed guidance, common pitfalls to avoid, and practical advice for anyone looking
-to implement similar solutions
+Provide your analysis within <summary> tags using this exact structure:
 
-<h3>📊 What the Results Tell Us and Why It Matters</h3>
-Present a detailed discussion of outcomes and their significance:
-• Walk through performance metrics and benchmarks, explaining what they mean and why they're important
-• Discuss the business value and strategic advantages in detail, connecting technical improvements to real-world benefits
-• Explore cost implications and resource optimization benefits with thorough analysis
-• Examine scalability potential and long-term maintenance considerations
+<h3>📌 Why This Matters</h3>
+Write a compelling narrative that explains the significance and relevance of this content. Discuss what problem or 
+challenge it addresses, why this approach is noteworthy or timely, what makes it relevant to the current technical 
+landscape, and who should care about this and why. Write as a flowing explanation without creating subsections.
 
-<h3>🔮 Looking Ahead: What This Means for the Future</h3>
-Provide a thoughtful exploration of future possibilities and implications:
-• Discuss potential evolution paths and emerging opportunities with detailed explanations
-• Explore integration possibilities with existing systems and workflows, explaining the practical implications
-• Analyze industry adoption prospects and competitive landscape implications with thorough reasoning
+<h3>🔄 Core Architecture and Workflow</h3>
+Provide a clear, flowing explanation of the system design and how it works. Describe the main components and their 
+interactions, explain the workflow or process flow in detail, and clarify design choices and architectural patterns 
+mentioned in the article. Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs 
+only: https://example.com/image.jpg). Write as a cohesive narrative without subsection headers.
+
+<h3>🛠️ Technical Deep Dive</h3>
+Deliver a comprehensive technical walkthrough in a natural narrative flow. Cover fundamental technical concepts and 
+their significance, provide background context needed to understand the approach, explain key terminology, describe 
+critical code sections with line-by-line explanations when provided, discuss technical decision rationale as stated in 
+the article, identify specific tools, frameworks, or methodologies used, explain optimization strategies mentioned, 
+present performance characteristics and benchmarks if provided, discuss scalability considerations, address edge cases 
+and error handling if mentioned, acknowledge known limitations or challenges, and share implementation guidance provided 
+by the author. Write as a cohesive story without using subsection labels. Use <pre><code class="highlight"> for code 
+blocks.
+
+<h3>📊 Results and Impact</h3>
+Present outcomes and impact in a natural narrative style. Include concrete metrics and benchmarks with specific numbers 
+when available, describe measured improvements or changes, discuss stated business value or practical benefits, and 
+mention cost implications or resource savings if quantified. Write as a flowing explanation without creating 
+subsections.
+
+<h3>🔮 Future Directions</h3>
+Explore forward-looking aspects in a conversational narrative. Discuss evolution paths or next steps explicitly 
+mentioned, describe integration possibilities or use cases discussed in the article, and acknowledge limitations or 
+future work mentioned by the author. Write as a cohesive narrative without subsection headers.
 
 **FORMATTING REQUIREMENTS:**
 - Use HTML tags exclusively (no markdown)
-- Write in a conversational, explanatory style that prioritizes understanding over brevity
-- Present code in <pre><code class="highlight"> blocks for proper syntax highlighting
-- Use <strong> for key technical points and <em> for important technical terms
-- Format data and comparisons using HTML tables when appropriate
-- Maintain consistent heading hierarchy and structure
-- Ensure all technical terms are thoroughly explained with context and examples
+- Apply <strong> for critical technical concepts
+- Use <em> for technical terms requiring emphasis
+- Format comparisons and data in HTML tables when appropriate
+- Maintain clear heading hierarchy
+- Ensure all code uses <pre><code class="highlight"> blocks
+- Make technical explanations accessible but accurate
+
+**CRITICAL REMINDERS:**
+❌ DO NOT speculate about information not in the article
+❌ DO NOT assume unstated technical details
+❌ DO NOT infer motivations or context not explicitly provided
+❌ DO NOT add examples or scenarios not in the original content
+❌ DO NOT include meta-commentary about following these instructions
+❌ DO NOT create subsection headers within the main sections (e.g., "Core Concepts:", "Integration Possibilities:", 
+"Known Limitations:")
+❌ DO NOT structure content with labels like "통합 가능성:", "한계점 인식:", "명시된 향후 계획:"
+✅ DO acknowledge when information is limited or unclear
+✅ DO stay faithful to the source material
+✅ DO explain only what is actually presented
+✅ DO write in a natural, flowing narrative style throughout all sections
 
 **OUTPUT FORMAT:**
-<summary>[Complete technical explanation with friendly, detailed narrative and comprehensive analysis]</summary>
-<tags>[5-7 specific technical topics in Title Case, comma-separated, focusing on distinctive technologies,
-methodologies, or architectural patterns mentioned in the article - avoid generic terms like "Machine Learning" or "AI"
-unless they represent novel approaches - write all titles in English]</tags>
-<urls>[Essential technical references as properly formatted HTML links: <a href="url1">descriptive title 1</a>,
-<a href="url2">descriptive title 2</a> - write all titles in English]</urls>""",
-        Language.KO: """Create a comprehensive and engaging technical explanation of the following blog post in Korean:
+<summary>[Your comprehensive technical explanation following the structure above]</summary>
+<tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies, 
+or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI" 
+unless they represent novel approaches discussed]</tags>
+<urls>[Essential technical references as HTML links: <a href="url1">Descriptive Title 1</a>, <a href="url2">Descriptive 
+Title 2</a> - include only URLs explicitly mentioned or directly referenced in the article]</urls>""",
+        Language.KO: """Analyze and explain the following blog post in a comprehensive yet accessible manner, writing in 
+Korean:
 
 **CONTENT TO ANALYZE:**
 <post>{post}</post>
 
-**WRITING APPROACH:**
-Write as if you're having a friendly conversation with a fellow developer over coffee. Be thorough and explanatory
-rather than brief and summarized. Take time to walk through concepts, explain the "why" behind decisions, and help
-readers truly understand the material. Keep the content length to a maximum of 20% of the original post length.
+**CORE PRINCIPLES:**
 
-**ANALYSIS REQUIREMENTS:**
-1. **Conversational Depth:** Explain technical concepts in a friendly, detailed manner with context and background
-2. **Practical Storytelling:** Share the journey of implementation, challenges faced, and solutions discovered
-3. **Thoughtful Insights:** Provide detailed explanations of findings, methodologies, and lessons learned
-4. **Strategic Context:** Thoroughly discuss technical decisions, trade-offs, and their broader implications
-5. **Industry Perspective:** Connect the content to wider technical trends with detailed explanations
-6. **Educational Focus:** Prioritize helping readers learn and understand over brevity
+1. **Factual Accuracy First**
+   - Base your analysis ONLY on information explicitly stated in the source material
+   - Never speculate, assume, or infer information not present in the original content
+   - If details are unclear or missing, acknowledge the limitation rather than filling gaps with assumptions
+   - Clearly distinguish between what the article states and what can be objectively verified
 
-**REQUIRED STRUCTURE (within <summary> tags):**
+2. **Conversational Yet Precise**
+   - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
+   - Be thorough and explanatory, not brief or superficial
+   - Help readers understand the "why" behind technical decisions, not just the "what"
+   - Target length: Maximum 20% of the original post length
+
+3. **Educational Focus**
+   - Prioritize clarity and understanding over brevity
+   - Explain concepts with appropriate context and background
+   - Connect technical details to practical implications
+   - Make complex ideas accessible without oversimplifying
+
+**REQUIRED STRUCTURE:**
+
+Provide your analysis within <summary> tags using this exact structure:
 
 <h3>📌 왜 이 아티클에 주목해야 하나요?</h3>
-Tell the story of why this content matters. Explain the background context, the problems it addresses, and why it's
-particularly relevant right now. Share what makes this approach interesting or unique, and help readers understand the
-broader significance in the current tech landscape.
+Write a compelling narrative that explains the significance and relevance of this content. Discuss what problem or 
+challenge it addresses, why this approach is noteworthy or timely, what makes it relevant to the current technical 
+landscape, and who should care about this and why. Write as a flowing explanation without creating subsections.
 
 <h3>🔄 아이디어, 아키텍처, 또는 워크플로우 개요</h3>
-Walk readers through the core ideas, system architecture, and workflow in detail. Explain how different components
-interact, why certain design choices were made, and how the overall system comes together. Include relevant images
-using: <img src="full_url" alt="descriptive text">
-Note: Always use complete URLs for images (e.g., https://example.com/path/image.jpg), not relative paths.
-Take time to explain the reasoning behind architectural patterns and help readers understand the thought process.
+Provide a clear, flowing explanation of the system design and how it works. Describe the main components and their 
+interactions, explain the workflow or process flow in detail, and clarify design choices and architectural patterns 
+mentioned in the article. Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs 
+only: https://example.com/image.jpg). Write as a cohesive narrative without subsection headers.
 
 <h3>🛠️ 기술적 심층 분석</h3>
-Provide a thorough technical walkthrough that includes:
-• **Understanding the Core Ideas:** Explain the fundamental concepts in detail, providing context and background to help
-readers fully grasp the approach
-• **Code Walkthrough:** Present and carefully explain critical code sections, discussing what each part does and why
-it's implemented that way
-• **Design Philosophy:** Discuss the thinking behind technical choices, exploring alternatives that were considered and
-why certain paths were chosen
-• **Performance Deep Dive:** Thoroughly explain optimization strategies, scalability considerations, and performance
-implications with detailed reasoning
-• **Handling Edge Cases:** Discuss how the system deals with potential issues, error scenarios, and unexpected
-situations
-• **Implementation Wisdom:** Share detailed guidance, common pitfalls to avoid, and practical advice for anyone looking
-to implement similar solutions
+Deliver a comprehensive technical walkthrough in a natural narrative flow. Cover fundamental technical concepts and 
+their significance, provide background context needed to understand the approach, explain key terminology, describe 
+critical code sections with line-by-line explanations when provided, discuss technical decision rationale as stated in 
+the article, identify specific tools, frameworks, or methodologies used, explain optimization strategies mentioned, 
+present performance characteristics and benchmarks if provided, discuss scalability considerations, address edge cases 
+and error handling if mentioned, acknowledge known limitations or challenges, and share implementation guidance provided 
+by the author. Write as a cohesive story without using subsection labels. Use <pre><code class="highlight"> for code 
+blocks.
 
 <h3>📊 성과 및 비즈니스 임팩트</h3>
-Present a detailed discussion of outcomes and their significance:
-• Walk through performance metrics and benchmarks, explaining what they mean and why they're important
-• Discuss the business value and strategic advantages in detail, connecting technical improvements to real-world
-benefits
-• Explore cost implications and resource optimization benefits with thorough analysis
-• Examine scalability potential and long-term maintenance considerations
+Present outcomes and impact in a natural narrative style. Include concrete metrics and benchmarks with specific numbers 
+when available, describe measured improvements or changes, discuss stated business value or practical benefits, and 
+mention cost implications or resource savings if quantified. Write as a flowing explanation without creating 
+subsections.
 
 <h3>🔮 향후 발전 가능성과 기회</h3>
-Provide a thoughtful exploration of future possibilities and implications:
-• Discuss potential evolution paths and emerging opportunities with detailed explanations
-• Explore integration possibilities with existing systems and workflows, explaining the practical implications
-• Analyze industry adoption prospects and competitive landscape implications with thorough reasoning
+Explore forward-looking aspects in a conversational narrative. Discuss evolution paths or next steps explicitly 
+mentioned, describe integration possibilities or use cases discussed in the article, and acknowledge limitations or 
+future work mentioned by the author. Write as a cohesive narrative without subsection headers.
 
 **FORMATTING REQUIREMENTS:**
 - Use HTML tags exclusively (no markdown)
-- Write in a conversational, explanatory style that prioritizes understanding over brevity
-- Present code in <pre><code class="highlight"> blocks for proper syntax highlighting
-- Use <strong> for key technical points and <em> for important technical terms
-- Format data and comparisons using HTML tables when appropriate
-- Maintain consistent heading hierarchy and structure
-- Ensure all technical terms are thoroughly explained with context and examples
-- Write content in Korean while keeping proper nouns, and difficult-to-translate concepts in English
+- Apply <strong> for critical technical concepts
+- Use <em> for technical terms requiring emphasis
+- Format comparisons and data in HTML tables when appropriate
+- Maintain clear heading hierarchy
+- Ensure all code uses <pre><code class="highlight"> blocks
+- Make technical explanations accessible but accurate
+- Write content in Korean while keeping proper nouns and difficult-to-translate technical concepts in English
+
+**CRITICAL REMINDERS:**
+❌ DO NOT speculate about information not in the article
+❌ DO NOT assume unstated technical details
+❌ DO NOT infer motivations or context not explicitly provided
+❌ DO NOT add examples or scenarios not in the original content
+❌ DO NOT include meta-commentary about following these instructions
+❌ DO NOT create subsection headers within the main sections (e.g., "Core Concepts:", "Integration Possibilities:", 
+"Known Limitations:")
+❌ DO NOT structure content with labels like "통합 가능성:", "한계점 인식:", "명시된 향후 계획:", "기술적 진화 방향:"
+✅ DO acknowledge when information is limited or unclear
+✅ DO stay faithful to the source material
+✅ DO explain only what is actually presented
+✅ DO write in a natural, flowing narrative style throughout all sections
 
 **OUTPUT FORMAT:**
-<summary>[Complete technical explanation with friendly, detailed narrative and comprehensive analysis in Korean]
-</summary>
-<tags>[5-7 specific technical topics in Title Case, comma-separated, focusing on distinctive technologies,
-methodologies, or architectural patterns mentioned in the article - avoid generic terms like "Machine Learning" or "AI"
-unless they represent novel approaches - write all titles in English]</tags>
-<urls>[Essential technical references as properly formatted HTML links: <a href="url1">descriptive title 1</a>,
-<a href="url2">descriptive title 2</a> - write all titles in English]</urls>""",
+<summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
+<tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies, 
+or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI" 
+unless they represent novel approaches discussed - write all titles in English]</tags>
+<urls>[Essential technical references as HTML links: <a href="url1">Descriptive Title 1</a>, <a href="url2">Descriptive 
+Title 2</a> - include only URLs explicitly mentioned or directly referenced in the article - write all titles in 
+English]</urls>""",
     }
 
     @classmethod
