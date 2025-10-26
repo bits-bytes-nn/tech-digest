@@ -2,7 +2,7 @@ import functools
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import Any, ClassVar, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 from datetime import datetime, timedelta, timezone
 
 import asyncio
@@ -10,7 +10,7 @@ import math
 import boto3
 import tenacity
 from botocore.config import Config as BotoConfig
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 from langchain.schema import BaseOutputParser
 from langchain_aws import ChatBedrock, ChatBedrockConverse
 from langchain_core.runnables import RunnableConfig
@@ -99,9 +99,10 @@ ModelInfoT = TypeVar("ModelInfoT")
 WrapperT = TypeVar("WrapperT")
 
 
-class BaseBedrockModelFactory[ModelIdT, ModelInfoT, WrapperT](ABC):
+class BaseBedrockModelFactory(Generic[ModelIdT, ModelInfoT, WrapperT], ABC):
     BOTO_READ_TIMEOUT: ClassVar[int] = 300
     BOTO_MAX_ATTEMPTS: ClassVar[int] = 3
+    MAX_POOL_CONNECTIONS: ClassVar[int] = 50
 
     def __init__(
         self,
@@ -113,7 +114,9 @@ class BaseBedrockModelFactory[ModelIdT, ModelInfoT, WrapperT](ABC):
         self.region_name = region_name or self.boto_session.region_name
         boto_config = BotoConfig(
             read_timeout=self.BOTO_READ_TIMEOUT,
-            retries={"max_attempts": self.BOTO_MAX_ATTEMPTS},
+            connect_timeout=60,
+            retries={"max_attempts": self.BOTO_MAX_ATTEMPTS, "mode": "adaptive"},
+            max_pool_connections=self.MAX_POOL_CONNECTIONS,
         )
         self._client = self.boto_session.client(
             self._get_boto_service_name(),
@@ -285,12 +288,12 @@ class BedrockLanguageModelFactory(
         if supports_1m_context_window and model_info.supports_1m_context_window:
             if is_cross_region:
                 config.setdefault("additional_model_request_fields", {}).update(
-                    {"anthropic-beta": "context-1m-2025-08-07"}
+                    {"anthropic_beta": ["context-1m-2025-08-07"]}
                 )
             else:
-                config["model_kwargs"].setdefault("extra_headers", {}).update(
-                    {"anthropic-beta": "context-1m-2025-08-07"}
-                )
+                config["model_kwargs"].setdefault(
+                    "additionalModelRequestFields", {}
+                ).update({"anthropic_beta": ["context-1m-2025-08-07"]})
             logger.debug("Applied 1M context window support")
         self._apply_model_features(config, model_info, is_cross_region, **kwargs)
         return config
@@ -327,7 +330,7 @@ class BedrockLanguageModelFactory(
         model_info: LanguageModelInfo,
         is_cross_region: bool,
         **kwargs: Any,
-    ):
+    ) -> None:
         enable_perf = kwargs.get("enable_performance_optimization", False)
         enable_think = kwargs.get("enable_thinking", False)
         if self._should_enable_performance_optimization(
@@ -343,9 +346,12 @@ class BedrockLanguageModelFactory(
                 "thinking_budget_tokens", self.DEFAULT_THINKING_BUDGET_TOKENS
             )
             think_config = {"thinking": {"type": "enabled", "budget_tokens": budget}}
-            config.setdefault("additional_model_request_fields", {}).update(
-                think_config
-            )
+            if is_cross_region:
+                config.setdefault("additional_model_request_fields", {}).update(
+                    think_config
+                )
+            else:
+                config.setdefault("model_kwargs", {}).update(think_config)
             logger.debug("Applied thinking mode (budget_tokens=%d)", budget)
 
     @staticmethod

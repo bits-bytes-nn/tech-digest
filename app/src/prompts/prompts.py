@@ -7,6 +7,7 @@ from langchain.prompts import (
     HumanMessagePromptTemplate,
     SystemMessagePromptTemplate,
 )
+from langchain_core.messages import SystemMessage
 
 from ..constants import FilteringCriteria, Language
 
@@ -22,28 +23,24 @@ class BasePrompt(ABC):
         self._validate_prompt_variables()
 
     def _validate_prompt_variables(self) -> None:
-        if self.input_variables is not None:
-            for var in self.input_variables:
-                if not var or not isinstance(var, str):
-                    raise ValueError(f"Invalid input variable: '{var}'")
-                if var == "image_data":
-                    continue
-                if (
-                    f"{{{var}}}" not in self.human_prompt_template
-                    and f"{{{var}}}" not in self.system_prompt_template
-                ):
-                    raise ValueError(
-                        f"Input variable '{var}' not found in any prompt template"
-                    )
+        if not self.input_variables:
+            return
+        for var in self.input_variables:
+            if not isinstance(var, str) or not var:
+                raise ValueError(f"Invalid input variable: {var}")
+            if (
+                var != "image_data"
+                and f"{{{var}}}" not in self.human_prompt_template
+                and f"{{{var}}}" not in self.system_prompt_template
+            ):
+                raise ValueError(
+                    f"Input variable '{var}' not found in any prompt template."
+                )
 
     @classmethod
-    def get_prompt(
-        cls,
-        enable_prompt_cache: bool = False,
-    ) -> ChatPromptTemplate:
+    def get_prompt(cls, enable_prompt_cache: bool = False) -> ChatPromptTemplate:
         system_template = cls.system_prompt_template
         human_template = cls.human_prompt_template
-
         instance = cls(
             input_variables=cls.input_variables,
             output_variables=cls.output_variables,
@@ -52,43 +49,30 @@ class BasePrompt(ABC):
         )
 
         if enable_prompt_cache:
-            messages = cls._create_cached_messages(instance)
-        else:
-            messages = cls._create_standard_messages(instance)
-        return ChatPromptTemplate.from_messages(messages)
+            system_msg = SystemMessage(
+                content=[
+                    {
+                        "type": "text",
+                        "text": instance.system_prompt_template,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+            )
+            human_msg = HumanMessagePromptTemplate.from_template(
+                instance.human_prompt_template
+            )
+            return ChatPromptTemplate.from_messages([system_msg, human_msg])
 
-    @classmethod
-    def _create_cached_messages(
-        cls, instance: "BasePrompt"
-    ) -> list[HumanMessagePromptTemplate | SystemMessagePromptTemplate]:
-        return [
-            SystemMessagePromptTemplate.from_template(
-                template=[
-                    {"type": "text", "text": instance.system_prompt_template},
-                    {"cachePoint": {"type": "default"}},
-                ],
-                input_variables=instance.input_variables,
-            ),
-            HumanMessagePromptTemplate.from_template(
-                template=instance.human_prompt_template,
-                input_variables=instance.input_variables,
-            ),
-        ]
-
-    @classmethod
-    def _create_standard_messages(
-        cls, instance: "BasePrompt"
-    ) -> list[HumanMessagePromptTemplate | SystemMessagePromptTemplate]:
-        return [
-            SystemMessagePromptTemplate.from_template(
-                template=instance.system_prompt_template,
-                input_variables=instance.input_variables,
-            ),
-            HumanMessagePromptTemplate.from_template(
-                template=instance.human_prompt_template,
-                input_variables=instance.input_variables,
-            ),
-        ]
+        return ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate.from_template(
+                    instance.system_prompt_template
+                ),
+                HumanMessagePromptTemplate.from_template(
+                    instance.human_prompt_template
+                ),
+            ]
+        )
 
 
 class FilteringPrompt(BasePrompt):
