@@ -254,8 +254,10 @@ class Summarizer:
         for post, summary_data in zip(posts, summaries):
             try:
                 summary_output = SummaryOutput.model_validate(summary_data)
-                post.summary = summary_output.summary.replace("다:", "다.").replace(
-                    "요:", "요."
+                post.summary = (
+                    summary_output.summary.replace("다:", "다.")
+                    .replace("요:", "요.")
+                    .replace("magazine.sebastianraschka", "sebastianraschka")
                 )
                 post.tags = summary_output.tags
                 post.urls = summary_output.urls

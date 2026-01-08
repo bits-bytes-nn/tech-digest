@@ -80,15 +80,24 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
     ),
     LanguageModelId.CLAUDE_V4_OPUS: LanguageModelInfo(
         context_window_size=200000,
-        max_output_tokens=32000,
+        max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
+        supports_1m_context_window=True,
     ),
     LanguageModelId.CLAUDE_V4_1_OPUS: LanguageModelInfo(
         context_window_size=200000,
-        max_output_tokens=32000,
+        max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
+        supports_1m_context_window=True,
+    ),
+    LanguageModelId.CLAUDE_V4_5_OPUS: LanguageModelInfo(
+        context_window_size=200000,
+        max_output_tokens=64000,
+        supports_prompt_caching=True,
+        supports_thinking=True,
+        supports_1m_context_window=True,
     ),
     # NOTE: add new models here
 }
@@ -128,16 +137,13 @@ class BaseBedrockModelFactory(Generic[ModelIdT, ModelInfoT, WrapperT], ABC):
         )
 
     @abstractmethod
-    def _get_boto_service_name(self) -> str:
-        ...
+    def _get_boto_service_name(self) -> str: ...
 
     @abstractmethod
-    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]:
-        ...
+    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]: ...
 
     @abstractmethod
-    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT:
-        ...
+    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT: ...
 
     def get_model_info(self, model_id: ModelIdT) -> ModelInfoT | None:
         return self._get_model_info_dict().get(model_id)

@@ -132,7 +132,7 @@ REJECT if content contains:
 - Marketing/promotional materials
 - Hardware reviews or basic platform tutorials
 
-**EXCEPTION:** If content SUBSTANTIALLY covers any included topic (not just mentions), AUTO-ACCEPT and proceed to 
+**EXCEPTION:** If content SUBSTANTIALLY covers any included topic (not just mentions), AUTO-ACCEPT and proceed to
 scoring.
 
 **INCLUDED TOPIC MATCHING CRITERIA (STRICT):**
@@ -181,7 +181,7 @@ If content SUBSTANTIALLY covers ANY included topic (>30% as primary focus):
 
 **0.75-0.85 (Exceptional):**
 - Novel theoretical ML contributions with rigorous proofs
-- Groundbreaking mathematical/algorithmic innovations  
+- Groundbreaking mathematical/algorithmic innovations
 - Exceptional empirical evaluation with comprehensive statistical analysis
 - High-quality practical guides with deep ML insights and battle-tested best practices
 - **Within tier:** 0.82-0.85 (groundbreaking), 0.78-0.81 (excellent), 0.75-0.77 (very good)
@@ -259,8 +259,8 @@ Example 3 (Borderline):
 
 **OUTPUT FORMAT:**
 <title>[Original title in proper title case]</title>
-<reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic? 
-If yes, state which included topic and coverage quality (exceptional/strong/adequate). (2) Base score selection and 
+<reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic?
+If yes, state which included topic and coverage quality (exceptional/strong/adequate). (2) Base score selection and
 tier reasoning (3) Applied modifiers with justification (4) Final score calculation]</reason>
 <score>[Number between 0.00 and 1.00, TWO decimal places, e.g., 0.67, 0.82, 0.43]</score>""",
         FilteringCriteria.AMAZON: """Evaluate this content for ML technical quality with focus on Amazon/AWS ML
@@ -288,7 +288,7 @@ REJECT if content contains:
 - Competitor platform focus
 - Basic tutorials without technical depth
 
-**EXCEPTION:** If content SUBSTANTIALLY covers any included topic with AWS context (>30% as primary focus), AUTO-ACCEPT 
+**EXCEPTION:** If content SUBSTANTIALLY covers any included topic with AWS context (>30% as primary focus), AUTO-ACCEPT
 and proceed to scoring.
 
 **INCLUDED TOPIC MATCHING CRITERIA (STRICT):**
@@ -353,7 +353,7 @@ If content SUBSTANTIALLY covers ANY included topic with Amazon/AWS context (>30%
 - Moderate technical depth in AWS ML services
 - Educational AWS ML content with some insights
 - Implementation-focused AWS guides with context
-- **Within tier:** 0.52-0.55 (good AWS educational value), 0.48-0.51 (acceptable AWS content), 0.45-0.47 (basic AWS 
+- **Within tier:** 0.52-0.55 (good AWS educational value), 0.48-0.51 (acceptable AWS content), 0.45-0.47 (basic AWS
 tutorial)
 
 **0.30-0.40 (Weak):**
@@ -416,8 +416,8 @@ Example 3 (Borderline AWS):
 
 **OUTPUT FORMAT:**
 <title>[Original title in proper title case]</title>
-<reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic 
-with AWS context? If yes, state which included topic and AWS coverage quality (exceptional/strong/adequate). 
+<reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic
+with AWS context? If yes, state which included topic and AWS coverage quality (exceptional/strong/adequate).
 (2) Base score selection and tier reasoning (3) Applied modifiers with justification (4) Final score calculation]
 </reason>
 <score>[Number between 0.00 and 1.00, TWO decimal places, e.g., 0.67, 0.82, 0.43]</score>""",
@@ -460,6 +460,7 @@ in the tech community."""
 4. Create smooth transition to main articles
 5. Keep total length 50-70 words
 6. Use casual, confident tone with technical expertise
+7. Output plain text only - no markdown formatting
 
 **OUTPUT:** Newsletter introduction only.""",
         Language.KO: """Write a weekly newsletter introduction in Korean using the context below.
@@ -475,6 +476,7 @@ in the tech community."""
 5. Keep total length 50-70 words
 6. Use casual speech (반말) with confident tone
 7. Keep technical terms in English when appropriate
+8. Output plain text only - no markdown formatting
 
 **OUTPUT:** Newsletter introduction in Korean only.""",
     }
@@ -496,8 +498,8 @@ class SummarizationPrompt(BasePrompt):
     input_variables: list[str] = ["post"]
     output_variables: list[str] = ["summary", "tags", "urls"]
     human_prompt_template: str = ""
-    system_prompt_template: str = """You are an expert technical writer and content analyst specializing in software 
-engineering, machine learning, and system architecture. Your goal is to create clear, engaging, and accurate 
+    system_prompt_template: str = """You are an expert technical writer and content analyst specializing in software
+engineering, machine learning, and system architecture. Your goal is to create clear, engaging, and accurate
 explanations that make complex technical concepts accessible without sacrificing depth or precision."""
 
     _human_prompt_template: ClassVar[dict[Language, str]] = {
@@ -531,35 +533,35 @@ explanations that make complex technical concepts accessible without sacrificing
 Provide your analysis within <summary> tags using this exact structure:
 
 <h3>📌 Why This Matters</h3>
-Write a compelling narrative that explains the significance and relevance of this content. Discuss what problem or 
-challenge it addresses, why this approach is noteworthy or timely, what makes it relevant to the current technical 
+Write a compelling narrative that explains the significance and relevance of this content. Discuss what problem or
+challenge it addresses, why this approach is noteworthy or timely, what makes it relevant to the current technical
 landscape, and who should care about this and why. Write as a flowing explanation without creating subsections.
 
 <h3>🔄 Core Architecture and Workflow</h3>
-Provide a clear, flowing explanation of the system design and how it works. Describe the main components and their 
-interactions, explain the workflow or process flow in detail, and clarify design choices and architectural patterns 
-mentioned in the article. Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs 
+Provide a clear, flowing explanation of the system design and how it works. Describe the main components and their
+interactions, explain the workflow or process flow in detail, and clarify design choices and architectural patterns
+mentioned in the article. Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs
 only: https://example.com/image.jpg). Write as a cohesive narrative without subsection headers.
 
 <h3>🛠️ Technical Deep Dive</h3>
-Deliver a comprehensive technical walkthrough in a natural narrative flow. Cover fundamental technical concepts and 
-their significance, provide background context needed to understand the approach, explain key terminology, describe 
-critical code sections with line-by-line explanations when provided, discuss technical decision rationale as stated in 
-the article, identify specific tools, frameworks, or methodologies used, explain optimization strategies mentioned, 
-present performance characteristics and benchmarks if provided, discuss scalability considerations, address edge cases 
-and error handling if mentioned, acknowledge known limitations or challenges, and share implementation guidance provided 
-by the author. Write as a cohesive story without using subsection labels. Use <pre><code class="highlight"> for code 
+Deliver a comprehensive technical walkthrough in a natural narrative flow. Cover fundamental technical concepts and
+their significance, provide background context needed to understand the approach, explain key terminology, describe
+critical code sections with line-by-line explanations when provided, discuss technical decision rationale as stated in
+the article, identify specific tools, frameworks, or methodologies used, explain optimization strategies mentioned,
+present performance characteristics and benchmarks if provided, discuss scalability considerations, address edge cases
+and error handling if mentioned, acknowledge known limitations or challenges, and share implementation guidance provided
+by the author. Write as a cohesive story without using subsection labels. Use <pre><code class="highlight"> for code
 blocks.
 
 <h3>📊 Results and Impact</h3>
-Present outcomes and impact in a natural narrative style. Include concrete metrics and benchmarks with specific numbers 
-when available, describe measured improvements or changes, discuss stated business value or practical benefits, and 
-mention cost implications or resource savings if quantified. Write as a flowing explanation without creating 
+Present outcomes and impact in a natural narrative style. Include concrete metrics and benchmarks with specific numbers
+when available, describe measured improvements or changes, discuss stated business value or practical benefits, and
+mention cost implications or resource savings if quantified. Write as a flowing explanation without creating
 subsections.
 
 <h3>🔮 Future Directions</h3>
-Explore forward-looking aspects in a conversational narrative. Discuss evolution paths or next steps explicitly 
-mentioned, describe integration possibilities or use cases discussed in the article, and acknowledge limitations or 
+Explore forward-looking aspects in a conversational narrative. Discuss evolution paths or next steps explicitly
+mentioned, describe integration possibilities or use cases discussed in the article, and acknowledge limitations or
 future work mentioned by the author. Write as a cohesive narrative without subsection headers.
 
 **FORMATTING REQUIREMENTS:**
@@ -577,7 +579,7 @@ future work mentioned by the author. Write as a cohesive narrative without subse
 ❌ DO NOT infer motivations or context not explicitly provided
 ❌ DO NOT add examples or scenarios not in the original content
 ❌ DO NOT include meta-commentary about following these instructions
-❌ DO NOT create subsection headers within the main sections (e.g., "Core Concepts:", "Integration Possibilities:", 
+❌ DO NOT create subsection headers within the main sections (e.g., "Core Concepts:", "Integration Possibilities:",
 "Known Limitations:")
 ❌ DO NOT structure content with labels like "통합 가능성:", "한계점 인식:", "명시된 향후 계획:"
 ✅ DO acknowledge when information is limited or unclear
@@ -587,12 +589,12 @@ future work mentioned by the author. Write as a cohesive narrative without subse
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
-<tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies, 
-or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI" 
+<tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies,
+or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI"
 unless they represent novel approaches discussed]</tags>
-<urls>[Essential technical references as HTML links: <a href="url1">Descriptive Title 1</a>, <a href="url2">Descriptive 
+<urls>[Essential technical references as HTML links: <a href="url1">Descriptive Title 1</a>, <a href="url2">Descriptive
 Title 2</a> - include only URLs explicitly mentioned or directly referenced in the article]</urls>""",
-        Language.KO: """Analyze and explain the following blog post in a comprehensive yet accessible manner, writing in 
+        Language.KO: """Analyze and explain the following blog post in a comprehensive yet accessible manner, writing in
 Korean:
 
 **CONTENT TO ANALYZE:**
@@ -623,35 +625,35 @@ Korean:
 Provide your analysis within <summary> tags using this exact structure:
 
 <h3>📌 왜 이 아티클에 주목해야 하나요?</h3>
-Write a compelling narrative that explains the significance and relevance of this content. Discuss what problem or 
-challenge it addresses, why this approach is noteworthy or timely, what makes it relevant to the current technical 
+Write a compelling narrative that explains the significance and relevance of this content. Discuss what problem or
+challenge it addresses, why this approach is noteworthy or timely, what makes it relevant to the current technical
 landscape, and who should care about this and why. Write as a flowing explanation without creating subsections.
 
 <h3>🔄 아이디어, 아키텍처, 또는 워크플로우 개요</h3>
-Provide a clear, flowing explanation of the system design and how it works. Describe the main components and their 
-interactions, explain the workflow or process flow in detail, and clarify design choices and architectural patterns 
-mentioned in the article. Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs 
+Provide a clear, flowing explanation of the system design and how it works. Describe the main components and their
+interactions, explain the workflow or process flow in detail, and clarify design choices and architectural patterns
+mentioned in the article. Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs
 only: https://example.com/image.jpg). Write as a cohesive narrative without subsection headers.
 
 <h3>🛠️ 기술적 심층 분석</h3>
-Deliver a comprehensive technical walkthrough in a natural narrative flow. Cover fundamental technical concepts and 
-their significance, provide background context needed to understand the approach, explain key terminology, describe 
-critical code sections with line-by-line explanations when provided, discuss technical decision rationale as stated in 
-the article, identify specific tools, frameworks, or methodologies used, explain optimization strategies mentioned, 
-present performance characteristics and benchmarks if provided, discuss scalability considerations, address edge cases 
-and error handling if mentioned, acknowledge known limitations or challenges, and share implementation guidance provided 
-by the author. Write as a cohesive story without using subsection labels. Use <pre><code class="highlight"> for code 
+Deliver a comprehensive technical walkthrough in a natural narrative flow. Cover fundamental technical concepts and
+their significance, provide background context needed to understand the approach, explain key terminology, describe
+critical code sections with line-by-line explanations when provided, discuss technical decision rationale as stated in
+the article, identify specific tools, frameworks, or methodologies used, explain optimization strategies mentioned,
+present performance characteristics and benchmarks if provided, discuss scalability considerations, address edge cases
+and error handling if mentioned, acknowledge known limitations or challenges, and share implementation guidance provided
+by the author. Write as a cohesive story without using subsection labels. Use <pre><code class="highlight"> for code
 blocks.
 
 <h3>📊 성과 및 비즈니스 임팩트</h3>
-Present outcomes and impact in a natural narrative style. Include concrete metrics and benchmarks with specific numbers 
-when available, describe measured improvements or changes, discuss stated business value or practical benefits, and 
-mention cost implications or resource savings if quantified. Write as a flowing explanation without creating 
+Present outcomes and impact in a natural narrative style. Include concrete metrics and benchmarks with specific numbers
+when available, describe measured improvements or changes, discuss stated business value or practical benefits, and
+mention cost implications or resource savings if quantified. Write as a flowing explanation without creating
 subsections.
 
 <h3>🔮 향후 발전 가능성과 기회</h3>
-Explore forward-looking aspects in a conversational narrative. Discuss evolution paths or next steps explicitly 
-mentioned, describe integration possibilities or use cases discussed in the article, and acknowledge limitations or 
+Explore forward-looking aspects in a conversational narrative. Discuss evolution paths or next steps explicitly
+mentioned, describe integration possibilities or use cases discussed in the article, and acknowledge limitations or
 future work mentioned by the author. Write as a cohesive narrative without subsection headers.
 
 **FORMATTING REQUIREMENTS:**
@@ -670,7 +672,7 @@ future work mentioned by the author. Write as a cohesive narrative without subse
 ❌ DO NOT infer motivations or context not explicitly provided
 ❌ DO NOT add examples or scenarios not in the original content
 ❌ DO NOT include meta-commentary about following these instructions
-❌ DO NOT create subsection headers within the main sections (e.g., "Core Concepts:", "Integration Possibilities:", 
+❌ DO NOT create subsection headers within the main sections (e.g., "Core Concepts:", "Integration Possibilities:",
 "Known Limitations:")
 ❌ DO NOT structure content with labels like "통합 가능성:", "한계점 인식:", "명시된 향후 계획:", "기술적 진화 방향:"
 ✅ DO acknowledge when information is limited or unclear
@@ -680,11 +682,11 @@ future work mentioned by the author. Write as a cohesive narrative without subse
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
-<tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies, 
-or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI" 
+<tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies,
+or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI"
 unless they represent novel approaches discussed - write all titles in English]</tags>
-<urls>[Essential technical references as HTML links: <a href="url1">Descriptive Title 1</a>, <a href="url2">Descriptive 
-Title 2</a> - include only URLs explicitly mentioned or directly referenced in the article - write all titles in 
+<urls>[Essential technical references as HTML links: <a href="url1">Descriptive Title 1</a>, <a href="url2">Descriptive
+Title 2</a> - include only URLs explicitly mentioned or directly referenced in the article - write all titles in
 English]</urls>""",
     }
 
