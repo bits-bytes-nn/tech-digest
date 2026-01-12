@@ -1,5 +1,4 @@
 import os
-from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
@@ -7,15 +6,7 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
-from app.src import FilteringCriteria, LanguageModelId
-
-
-class AutoNamedEnum(str, Enum):
-    @staticmethod
-    def _generate_next_value_(
-        name: str, start: int, count: int, last_values: list[str]
-    ) -> str:
-        return name.lower()
+from app.src import EnvVars, FilteringCriteria, LanguageModelId
 
 
 class BaseModelWithDefaults(BaseModel):
@@ -98,7 +89,7 @@ class Config(BaseModelWithDefaults):
     @classmethod
     def load(cls) -> "Config":
         load_dotenv()
-        config_suffix = os.environ.get(str("CONFIG_FILE_SUFFIX"), "dev")
+        config_suffix = os.environ.get(EnvVars.CONFIG_FILE_SUFFIX.value, "dev")
         filename, extension = "config", "yaml"
         suffix = f"-{config_suffix}" if config_suffix else ""
         config_file = (

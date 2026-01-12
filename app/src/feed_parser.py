@@ -42,6 +42,22 @@ SourceType: TypeAlias = Literal[
 ]
 
 
+class HeaderCache:
+    _cache: ClassVar[dict[str, int]] = {}
+
+    @classmethod
+    def get_cached_header_index(cls, domain: str) -> int | None:
+        return cls._cache.get(domain)
+
+    @classmethod
+    def cache_header_index(cls, domain: str, index: int) -> None:
+        cls._cache[domain] = index
+
+    @classmethod
+    def clear(cls) -> None:
+        cls._cache.clear()
+
+
 class ScraperConfig:
     CONTENT_SELECTORS: ClassVar[list[str]] = [
         "article",
@@ -80,10 +96,11 @@ class ScraperConfig:
             "Accept-Language": "en-US,en;q=0.5",
             "Accept-Encoding": "gzip, deflate",
         },
-        {"User-Agent": "curl/7.81.0", "Accept": "*/*"},
         {
-            "User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
         },
     ]
     REQUEST_TIMEOUT: ClassVar[int] = 30
@@ -114,7 +131,12 @@ class ScraperConfig:
 
 def _make_robust_request(url: str) -> requests.Response | None:
     session = requests.Session()
-    for i, headers in enumerate(ScraperConfig.REQUEST_HEADERS_OPTIONS, 1):
+    parsed_url = urlparse(url)
+    domain = parsed_url.netloc.lower()
+
+    cached_index = HeaderCache.get_cached_header_index(domain)
+    if cached_index is not None:
+        headers = ScraperConfig.REQUEST_HEADERS_OPTIONS[cached_index]
         try:
             session.headers.update(headers)
             response = session.get(
@@ -124,10 +146,32 @@ def _make_robust_request(url: str) -> requests.Response | None:
                 verify=True,
             )
             response.raise_for_status()
-            logger.info(f"Successfully fetched '{url}' with headers set {i}")
+            logger.info(
+                f"Successfully fetched '{url}' with cached headers (index {cached_index})"
+            )
             return response
         except RequestException as e:
-            logger.warning(f"Headers set {i} failed for '{url}': {e}")
+            logger.warning(
+                f"Cached headers (index {cached_index}) failed for '{url}': {e}"
+            )
+
+    for i, headers in enumerate(ScraperConfig.REQUEST_HEADERS_OPTIONS):
+        if i == cached_index:
+            continue
+        try:
+            session.headers.update(headers)
+            response = session.get(
+                url,
+                timeout=ScraperConfig.REQUEST_TIMEOUT,
+                allow_redirects=True,
+                verify=True,
+            )
+            response.raise_for_status()
+            HeaderCache.cache_header_index(domain, i)
+            logger.info(f"Successfully fetched '{url}' with headers set {i + 1}")
+            return response
+        except RequestException as e:
+            logger.warning(f"Headers set {i + 1} failed for '{url}': {e}")
     logger.error(f"All header attempts failed for '{url}'")
     return None
 
@@ -290,7 +334,8 @@ def parse_published_date(date_str: str) -> datetime:
 
 
 class PostFetcher(Protocol):
-    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]: ...
+    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
+        ...
 
 
 class RssFetcher:
@@ -846,9 +891,43 @@ class XAIBlogScraper(BasePageScraper):
         return ""
 
 
+class ScraperRegistry:
+    _SCRAPER_MAPPING: dict[str, tuple[type[BasePageScraper], SourceType]] = {
+        AppConstants.External.ANTHROPIC_ENGINEERING.value: (
+            AnthropicBlogScraper,
+            "anthropic",
+        ),
+        AppConstants.External.GOOGLE_RESEARCH.value: (GoogleBlogScraper, "google"),
+        AppConstants.External.LINKEDIN_ENGINEERING.value: (
+            LinkedInBlogScraper,
+            "linkedin",
+        ),
+        AppConstants.External.META_AI.value: (MetaAIBlogScraper, "meta"),
+        AppConstants.External.QWEN.value: (QwenBlogScraper, "qwen"),
+        AppConstants.External.XAI.value: (XAIBlogScraper, "xai"),
+        # NOTE: add new scrapers here
+    }
+
+    @classmethod
+    def get_fetcher(cls, url: str) -> PostFetcher:
+        for url_pattern, (scraper_class, source) in cls._SCRAPER_MAPPING.items():
+            if url_pattern in url:
+                logger.info("Using %s for URL: '%s'", scraper_class.__name__, url)
+                return scraper_class(page_url=url, source=source)
+        return RssFetcher(url)
+
+    @classmethod
+    def create_fetchers(cls, urls: list[str]) -> list[PostFetcher]:
+        return [cls.get_fetcher(url) for url in urls]
+
+
 class PostCollector:
     def __init__(self, fetchers: list[PostFetcher]):
         self.fetchers = fetchers
+
+    @classmethod
+    def from_urls(cls, urls: list[str]) -> "PostCollector":
+        return cls(ScraperRegistry.create_fetchers(urls))
 
     def collect_posts(self, start_date: datetime, end_date: datetime) -> list[Post]:
         logger.info(

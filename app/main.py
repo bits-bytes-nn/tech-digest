@@ -14,26 +14,18 @@ import boto3
 sys.path.append(str(Path(__file__).parent.parent))
 from configs import Config
 from src import (
-    AnthropicBlogScraper,
     AppConstants,
     BuildConfiguration,
     EnvVars,
-    GoogleBlogScraper,
     Greeter,
     Language,
     LocalPaths,
-    LinkedInBlogScraper,
-    MetaAIBlogScraper,
     NewsletterBuilder,
     Post,
     PostCollector,
-    PostFetcher,
-    QwenBlogScraper,
-    RssFetcher,
     S3Paths,
     SSMParams,
     Summarizer,
-    XAIBlogScraper,
     check_and_download_from_s3,
     get_date_range,
     get_ssm_param_value,
@@ -41,6 +33,7 @@ from src import (
     logger,
     send_email,
     upload_to_s3,
+    validate_emails,
 )
 
 SEND_INTERVAL_SECONDS: Final[float] = 0.5
@@ -146,38 +139,7 @@ def _fetch_and_filter_posts(
     start_date, end_date = get_date_range(end_date_str, config.scraping.days_back)
     logger.info("Fetching posts from '%s' to '%s'", start_date.date(), end_date.date())
 
-    fetchers: list[PostFetcher] = []
-    for url in config.scraping.rss_urls:
-        if AppConstants.External.ANTHROPIC_ENGINEERING.value in url:
-            logger.info("Using AnthropicBlogScraper for URL: '%s'", url)
-            fetchers.append(AnthropicBlogScraper(page_url=url, source="anthropic"))
-
-        elif AppConstants.External.GOOGLE_RESEARCH.value in url:
-            logger.info("Using GoogleBlogScraper for URL: '%s'", url)
-            fetchers.append(GoogleBlogScraper(page_url=url, source="google"))
-
-        elif AppConstants.External.LINKEDIN_ENGINEERING.value in url:
-            logger.info("Using LinkedInBlogScraper for URL: '%s'", url)
-            fetchers.append(LinkedInBlogScraper(page_url=url, source="linkedin"))
-
-        elif AppConstants.External.META_AI.value in url:
-            logger.info("Using MetaAIBlogScraper for URL: '%s'", url)
-            fetchers.append(MetaAIBlogScraper(page_url=url, source="meta"))
-
-        elif AppConstants.External.QWEN.value in url:
-            logger.info("Using QwenBlogScraper for URL: '%s'", url)
-            fetchers.append(QwenBlogScraper(page_url=url, source="qwen"))
-
-        elif AppConstants.External.XAI.value in url:
-            logger.info("Using XAIBlogScraper for URL: '%s'", url)
-            fetchers.append(XAIBlogScraper(page_url=url, source="xai"))
-
-        # NOTE: add new sources here
-
-        else:
-            fetchers.append(RssFetcher(url))
-
-    collector = PostCollector(fetchers)
+    collector = PostCollector.from_urls(config.scraping.rss_urls)
     posts = collector.collect_posts(start_date, end_date)
 
     date_suffix = end_date.strftime("%Y-%m-%d")
@@ -388,26 +350,14 @@ def _get_recipients(
     config: Config, boto_session: boto3.Session, recipients: list[str] | None = None
 ) -> list[str]:
     if recipients:
-        return _validate_emails(recipients)
+        return validate_emails(recipients)
     filename = _generate_recipients_filename(config)
     recipients_path = ROOT_DIR / LocalPaths.ASSETS_DIR.value / filename
     if _download_recipients_file(boto_session, config, filename, recipients_path):
-        return _validate_emails(
+        return validate_emails(
             recipients_path.read_text(encoding="utf-8").splitlines()
         )
     return []
-
-
-def _validate_emails(emails: list[str]) -> list[str]:
-    email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    valid_emails = [
-        email.strip() for email in emails if re.match(email_pattern, email.strip())
-    ]
-    if len(valid_emails) < len(emails):
-        logger.warning(
-            "Filtered out %d invalid email addresses", len(emails) - len(valid_emails)
-        )
-    return valid_emails
 
 
 def _generate_recipients_filename(config: Config) -> str:

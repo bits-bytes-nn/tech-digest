@@ -1,4 +1,5 @@
 import functools
+import re
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -24,6 +25,8 @@ from .logger import logger
 MAX_RETRIES: int = 5
 RETRY_MAX_WAIT: int = 120
 RETRY_MULTIPLIER: int = 30
+
+EMAIL_PATTERN: str = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 
 
 class LanguageModelInfo(BaseModel):
@@ -137,13 +140,16 @@ class BaseBedrockModelFactory(Generic[ModelIdT, ModelInfoT, WrapperT], ABC):
         )
 
     @abstractmethod
-    def _get_boto_service_name(self) -> str: ...
+    def _get_boto_service_name(self) -> str:
+        ...
 
     @abstractmethod
-    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]: ...
+    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]:
+        ...
 
     @abstractmethod
-    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT: ...
+    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT:
+        ...
 
     def get_model_info(self, model_id: ModelIdT) -> ModelInfoT | None:
         return self._get_model_info_dict().get(model_id)
@@ -408,32 +414,37 @@ class BatchProcessor(BaseModel):
     ) -> list[Any]:
         if not items_to_process:
             return []
-        if run_config:
-            self.max_concurrency = run_config.get(
-                "max_concurrency", self.max_concurrency
-            )
-            self.batch_size = run_config.get("batch_size", self.batch_size)
-        prepared_batch_func = self._create_batch_func(batch_func)
+        max_concurrency = (
+            run_config.get("max_concurrency", self.max_concurrency)
+            if run_config
+            else self.max_concurrency
+        )
+        batch_size = (
+            run_config.get("batch_size", self.batch_size)
+            if run_config
+            else self.batch_size
+        )
+        prepared_batch_func = self._create_batch_func(batch_func, max_concurrency)
         retrying_sequential_func = self._create_retry_decorator(task_name)(
             sequential_func
         )
         all_results = []
         num_items = len(items_to_process)
-        num_chunks = math.ceil(num_items / self.batch_size)
+        num_chunks = math.ceil(num_items / batch_size)
         logger.info(
             "Starting processing for '%s': %d items in %d chunks (batch size: %d)",
             task_name,
             num_items,
             num_chunks,
-            self.batch_size,
+            batch_size,
         )
         for i in tqdm(
-            range(0, num_items, self.batch_size),
+            range(0, num_items, batch_size),
             desc=f"Processing: {task_name}",
             disable=not show_progress,
         ):
-            chunk_items = items_to_process[i : i + self.batch_size]
-            chunk_num = (i // self.batch_size) + 1
+            chunk_items = items_to_process[i : i + batch_size]
+            chunk_num = (i // batch_size) + 1
             logger.debug(
                 "Processing chunk %d/%d (%d items)",
                 chunk_num,
@@ -467,10 +478,13 @@ class BatchProcessor(BaseModel):
         logger.info("Completed '%s': processed %d results", task_name, len(all_results))
         return all_results
 
-    def _create_batch_func(self, batch_func: Callable[..., list[Any]]) -> Callable:
+    @staticmethod
+    def _create_batch_func(
+        batch_func: Callable[..., list[Any]], max_concurrency: int
+    ) -> Callable:
         def _batch_func(inputs: list[dict[str, Any]]) -> list[Any]:
             return batch_func(
-                inputs, config=RunnableConfig(max_concurrency=self.max_concurrency)
+                inputs, config=RunnableConfig(max_concurrency=max_concurrency)
             )
 
         return _batch_func
@@ -541,33 +555,38 @@ class BatchProcessor(BaseModel):
     ) -> list[Any]:
         if not items_to_process:
             return []
-        if run_config:
-            self.max_concurrency = run_config.get(
-                "max_concurrency", self.max_concurrency
-            )
-            self.batch_size = run_config.get("batch_size", self.batch_size)
-        prepared_batch_func = self._create_async_batch_func(batch_func)
+        max_concurrency = (
+            run_config.get("max_concurrency", self.max_concurrency)
+            if run_config
+            else self.max_concurrency
+        )
+        batch_size = (
+            run_config.get("batch_size", self.batch_size)
+            if run_config
+            else self.batch_size
+        )
+        prepared_batch_func = self._create_async_batch_func(batch_func, max_concurrency)
         retrying_sequential_func = self._create_retry_decorator(task_name)(
             sequential_func
         )
         all_results = []
         num_items = len(items_to_process)
-        num_chunks = math.ceil(num_items / self.batch_size)
+        num_chunks = math.ceil(num_items / batch_size)
         logger.info(
             "Starting async processing for '%s': %d items in %d chunks (batch size: %d)",
             task_name,
             num_items,
             num_chunks,
-            self.batch_size,
+            batch_size,
         )
         chunk_iterator = async_tqdm(
-            range(0, num_items, self.batch_size),
+            range(0, num_items, batch_size),
             desc=f"Processing: {task_name}",
             disable=not show_progress,
         )
         for i in chunk_iterator:
-            chunk_items = items_to_process[i : i + self.batch_size]
-            chunk_num = (i // self.batch_size) + 1
+            chunk_items = items_to_process[i : i + batch_size]
+            chunk_num = (i // batch_size) + 1
             logger.debug(
                 "Processing chunk %d/%d (%d items)",
                 chunk_num,
@@ -593,29 +612,34 @@ class BatchProcessor(BaseModel):
                     chunk_inputs,
                     retrying_sequential_func,
                     f"{task_name} (chunk {chunk_num})",
+                    max_concurrency,
                     show_progress,
                 )
                 all_results.extend(chunk_results)
         logger.info("Completed '%s': processed %d results", task_name, len(all_results))
         return all_results
 
-    def _create_async_batch_func(self, batch_func: Callable[..., Any]) -> Callable:
+    @staticmethod
+    def _create_async_batch_func(
+        batch_func: Callable[..., Any], max_concurrency: int
+    ) -> Callable:
         async def _batch_func(inputs: list[dict[str, Any]]) -> list[Any]:
             return await batch_func(
-                inputs, config=RunnableConfig(max_concurrency=self.max_concurrency)
+                inputs, config=RunnableConfig(max_concurrency=max_concurrency)
             )
 
         return _batch_func
 
+    @staticmethod
     async def _aprocess_sequentially_with_fallback(
-        self,
         inputs: list[dict[str, Any]],
         sequential_func: Callable[[dict[str, Any]], Any],
         task_name: str,
+        max_concurrency: int,
         show_progress: bool = True,
     ) -> list[Any]:
         logger.info("Processing %d items concurrently for '%s'", len(inputs), task_name)
-        semaphore = asyncio.Semaphore(self.max_concurrency)
+        semaphore = asyncio.Semaphore(max_concurrency)
 
         async def _process_one(single_input):
             async with semaphore:
@@ -686,6 +710,19 @@ class RetryableBase:
             ),
             reraise=True,
         )
+
+
+def validate_email(email: str) -> bool:
+    return bool(re.match(EMAIL_PATTERN, email.strip()))
+
+
+def validate_emails(emails: list[str]) -> list[str]:
+    valid_emails = [email.strip() for email in emails if validate_email(email)]
+    if len(valid_emails) < len(emails):
+        logger.warning(
+            "Filtered out %d invalid email addresses", len(emails) - len(valid_emails)
+        )
+    return valid_emails
 
 
 def get_date_range(

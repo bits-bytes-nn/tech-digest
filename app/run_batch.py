@@ -1,6 +1,5 @@
 import argparse
 import os
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +18,7 @@ from src import (
     logger,
     get_ssm_param_value,
     submit_batch_job,
+    validate_email,
     wait_for_batch_job_completion,
 )
 
@@ -99,11 +99,6 @@ def validate_date(date_str: str) -> bool:
         return True
     except ValueError:
         return False
-
-
-def validate_email(email: str) -> bool:
-    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    return bool(re.match(pattern, email.strip()))
 
 
 if __name__ == "__main__":

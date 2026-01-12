@@ -27,6 +27,7 @@ from .feed_parser import (
     PostFetcher,
     QwenBlogScraper,
     RssFetcher,
+    ScraperRegistry,
     SourceType,
     XAIBlogScraper,
 )
@@ -38,6 +39,8 @@ from .utils import (
     HTMLTagOutputParser,
     get_date_range,
     measure_execution_time,
+    validate_email,
+    validate_emails,
 )
 
 
@@ -63,6 +66,7 @@ __all__ = [
     "RssFetcher",
     "S3Paths",
     "SSMParams",
+    "ScraperRegistry",
     "SourceType",
     "Summarizer",
     "XAIBlogScraper",
@@ -76,5 +80,7 @@ __all__ = [
     "send_email",
     "submit_batch_job",
     "upload_to_s3",
+    "validate_email",
+    "validate_emails",
     "wait_for_batch_job_completion",
 ]
