@@ -533,36 +533,30 @@ explanations that make complex technical concepts accessible without sacrificing
 Provide your analysis within <summary> tags using this exact structure:
 
 <h3>📌 Why This Matters</h3>
-Write a compelling narrative that explains the significance and relevance of this content. Discuss what problem or
-challenge it addresses, why this approach is noteworthy or timely, what makes it relevant to the current technical
-landscape, and who should care about this and why. Write as a flowing explanation without creating subsections.
+Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is 
+noteworthy, and who should care. Write as a flowing narrative without subsections. Be concise while covering essential 
+points.
 
 <h3>🔄 Core Architecture and Workflow</h3>
-Provide a clear, flowing explanation of the system design and how it works. Describe the main components and their
-interactions, explain the workflow or process flow in detail, and clarify design choices and architectural patterns
-mentioned in the article. Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs
-only: https://example.com/image.jpg). Write as a cohesive narrative without subsection headers.
+Describe the system design and workflow clearly. Cover main components, their interactions, and key design choices. 
+Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs only: 
+https://example.com/image.jpg). Write as a cohesive narrative without subsection headers. Avoid redundancy with the 
+technical deep dive section.
 
 <h3>🛠️ Technical Deep Dive</h3>
-Deliver a comprehensive technical walkthrough in a natural narrative flow. Cover fundamental technical concepts and
-their significance, provide background context needed to understand the approach, explain key terminology, describe
-critical code sections with line-by-line explanations when provided, discuss technical decision rationale as stated in
-the article, identify specific tools, frameworks, or methodologies used, explain optimization strategies mentioned,
-present performance characteristics and benchmarks if provided, discuss scalability considerations, address edge cases
-and error handling if mentioned, acknowledge known limitations or challenges, and share implementation guidance provided
-by the author. Write as a cohesive story without using subsection labels. Use <pre><code class="highlight"> for code
-blocks.
+Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 
+with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
+scalability considerations, edge cases, and known limitations. Use <pre><code class="highlight"> for code blocks. Write 
+as a cohesive narrative without subsection labels. Be detailed but avoid repeating information already covered in other 
+sections.
 
 <h3>📊 Results and Impact</h3>
-Present outcomes and impact in a natural narrative style. Include concrete metrics and benchmarks with specific numbers
-when available, describe measured improvements or changes, discuss stated business value or practical benefits, and
-mention cost implications or resource savings if quantified. Write as a flowing explanation without creating
-subsections.
+Present concrete outcomes with specific metrics, measured improvements, business value, and cost implications when 
+available. Write as a flowing narrative without subsections. Focus only on results explicitly stated in the article.
 
 <h3>🔮 Future Directions</h3>
-Explore forward-looking aspects in a conversational narrative. Discuss evolution paths or next steps explicitly
-mentioned, describe integration possibilities or use cases discussed in the article, and acknowledge limitations or
-future work mentioned by the author. Write as a cohesive narrative without subsection headers.
+Discuss future directions, integration possibilities, and limitations explicitly mentioned in the article. Write as a 
+cohesive narrative without subsection headers. Be concise and avoid speculation.
 
 **FORMATTING REQUIREMENTS:**
 - Use HTML tags exclusively (no markdown)
@@ -579,13 +573,13 @@ future work mentioned by the author. Write as a cohesive narrative without subse
 ❌ DO NOT infer motivations or context not explicitly provided
 ❌ DO NOT add examples or scenarios not in the original content
 ❌ DO NOT include meta-commentary about following these instructions
-❌ DO NOT create subsection headers within the main sections (e.g., "Core Concepts:", "Integration Possibilities:",
-"Known Limitations:")
-❌ DO NOT structure content with labels like "통합 가능성:", "한계점 인식:", "명시된 향후 계획:"
+❌ DO NOT create subsection headers within the main sections
+❌ DO NOT repeat information across different sections
 ✅ DO acknowledge when information is limited or unclear
 ✅ DO stay faithful to the source material
 ✅ DO explain only what is actually presented
 ✅ DO write in a natural, flowing narrative style throughout all sections
+✅ DO be concise while maintaining completeness
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
@@ -625,36 +619,30 @@ Korean:
 Provide your analysis within <summary> tags using this exact structure:
 
 <h3>📌 왜 이 아티클에 주목해야 하나요?</h3>
-Write a compelling narrative that explains the significance and relevance of this content. Discuss what problem or
-challenge it addresses, why this approach is noteworthy or timely, what makes it relevant to the current technical
-landscape, and who should care about this and why. Write as a flowing explanation without creating subsections.
+Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is 
+noteworthy, and who should care. Write as a flowing narrative without subsections. Be concise while covering essential 
+points.
 
 <h3>🔄 아이디어, 아키텍처, 또는 워크플로우 개요</h3>
-Provide a clear, flowing explanation of the system design and how it works. Describe the main components and their
-interactions, explain the workflow or process flow in detail, and clarify design choices and architectural patterns
-mentioned in the article. Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs
-only: https://example.com/image.jpg). Write as a cohesive narrative without subsection headers.
+Describe the system design and workflow clearly. Cover main components, their interactions, and key design choices. 
+Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs only: 
+https://example.com/image.jpg). Write as a cohesive narrative without subsection headers. Avoid redundancy with the 
+technical deep dive section.
 
 <h3>🛠️ 기술적 심층 분석</h3>
-Deliver a comprehensive technical walkthrough in a natural narrative flow. Cover fundamental technical concepts and
-their significance, provide background context needed to understand the approach, explain key terminology, describe
-critical code sections with line-by-line explanations when provided, discuss technical decision rationale as stated in
-the article, identify specific tools, frameworks, or methodologies used, explain optimization strategies mentioned,
-present performance characteristics and benchmarks if provided, discuss scalability considerations, address edge cases
-and error handling if mentioned, acknowledge known limitations or challenges, and share implementation guidance provided
-by the author. Write as a cohesive story without using subsection labels. Use <pre><code class="highlight"> for code
-blocks.
+Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 
+with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
+scalability considerations, edge cases, and known limitations. Use <pre><code class="highlight"> for code blocks. Write 
+as a cohesive narrative without subsection labels. Be detailed but avoid repeating information already covered in other 
+sections.
 
 <h3>📊 성과 및 비즈니스 임팩트</h3>
-Present outcomes and impact in a natural narrative style. Include concrete metrics and benchmarks with specific numbers
-when available, describe measured improvements or changes, discuss stated business value or practical benefits, and
-mention cost implications or resource savings if quantified. Write as a flowing explanation without creating
-subsections.
+Present concrete outcomes with specific metrics, measured improvements, business value, and cost implications when 
+available. Write as a flowing narrative without subsections. Focus only on results explicitly stated in the article.
 
 <h3>🔮 향후 발전 가능성과 기회</h3>
-Explore forward-looking aspects in a conversational narrative. Discuss evolution paths or next steps explicitly
-mentioned, describe integration possibilities or use cases discussed in the article, and acknowledge limitations or
-future work mentioned by the author. Write as a cohesive narrative without subsection headers.
+Discuss future directions, integration possibilities, and limitations explicitly mentioned in the article. Write as a 
+cohesive narrative without subsection headers. Be concise and avoid speculation.
 
 **FORMATTING REQUIREMENTS:**
 - Use HTML tags exclusively (no markdown)
@@ -664,7 +652,8 @@ future work mentioned by the author. Write as a cohesive narrative without subse
 - Maintain clear heading hierarchy
 - Ensure all code uses <pre><code class="highlight"> blocks
 - Make technical explanations accessible but accurate
-- Write content in Korean while keeping proper nouns and difficult-to-translate technical concepts in English
+- Write content in Korean, translating technical terms when possible
+- Keep technical terms in English only when translation would be awkward or unclear
 
 **CRITICAL REMINDERS:**
 ❌ DO NOT speculate about information not in the article
@@ -672,13 +661,15 @@ future work mentioned by the author. Write as a cohesive narrative without subse
 ❌ DO NOT infer motivations or context not explicitly provided
 ❌ DO NOT add examples or scenarios not in the original content
 ❌ DO NOT include meta-commentary about following these instructions
-❌ DO NOT create subsection headers within the main sections (e.g., "Core Concepts:", "Integration Possibilities:",
-"Known Limitations:")
-❌ DO NOT structure content with labels like "통합 가능성:", "한계점 인식:", "명시된 향후 계획:", "기술적 진화 방향:"
+❌ DO NOT create subsection headers within the main sections
+❌ DO NOT repeat information across different sections
+❌ DO NOT use English technical terms when clear Korean translations exist
 ✅ DO acknowledge when information is limited or unclear
 ✅ DO stay faithful to the source material
 ✅ DO explain only what is actually presented
 ✅ DO write in a natural, flowing narrative style throughout all sections
+✅ DO be concise while maintaining completeness
+✅ DO translate technical terms to Korean when appropriate
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
