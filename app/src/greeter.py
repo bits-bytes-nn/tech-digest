@@ -1,5 +1,5 @@
 import boto3
-from langchain.schema import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser
 
 from .constants import Language, LanguageModelId
 from .prompts import GreetingPrompt

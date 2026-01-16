@@ -2,7 +2,7 @@ from abc import ABC
 from typing import ClassVar
 from dataclasses import dataclass
 
-from langchain.prompts import (
+from langchain_core.prompts import (
     ChatPromptTemplate,
     HumanMessagePromptTemplate,
     SystemMessagePromptTemplate,

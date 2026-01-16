@@ -12,7 +12,7 @@ import boto3
 import tenacity
 from botocore.config import Config as BotoConfig
 from bs4 import BeautifulSoup
-from langchain.schema import BaseOutputParser
+from langchain_core.output_parsers import BaseOutputParser
 from langchain_aws import ChatBedrock, ChatBedrockConverse
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
