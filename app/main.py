@@ -156,6 +156,8 @@ def _fetch_and_filter_posts(
         config.summarization.filtering_model_id,
         config.summarization.summarization_model_id,
         filtering_criteria=config.summarization.filtering_criteria,
+        filtering_enable_thinking=config.summarization.filtering_enable_thinking,
+        summarization_enable_thinking=config.summarization.summarization_enable_thinking,
         language=language,
         max_concurrency=config.summarization.max_concurrency,
         min_score=config.summarization.min_score,

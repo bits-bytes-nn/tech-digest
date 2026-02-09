@@ -3,7 +3,8 @@ from typing import Any
 
 import boto3
 import markdown
-from langchain.output_parsers import OutputFixingParser
+from langchain_classic.output_parsers import OutputFixingParser
+from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field, field_validator
 
 from .constants import FilteringCriteria, Language, LanguageModelId
@@ -110,6 +111,8 @@ class Summarizer:
         summarization_model_id: LanguageModelId,
         fixing_model_id: LanguageModelId | None = None,
         filtering_criteria: FilteringCriteria = FilteringCriteria.ALL,
+        filtering_enable_thinking: bool = False,
+        summarization_enable_thinking: bool = False,
         language: Language = Language.KO,
         max_concurrency: int = 10,
         min_score: float = 0.7,
@@ -123,16 +126,20 @@ class Summarizer:
             max_concurrency=max_concurrency, batch_size=max_concurrency
         )
         self.llm_factory = BedrockLanguageModelFactory(boto_session=self.boto_session)
-        self.filter = self._create_filter(filtering_model_id)
+        self.filter = self._create_filter(filtering_model_id, filtering_enable_thinking)
         self.summarizer = self._create_summarizer(
-            summarization_model_id, fixing_model_id
+            summarization_model_id, fixing_model_id, summarization_enable_thinking
         )
 
-    def _create_filter(self, model_id: LanguageModelId):
+    def _create_filter(
+        self, model_id: LanguageModelId, use_thinking: bool = False
+    ) -> Runnable:
         model_info = self.llm_factory.get_model_info(model_id)
         if not model_info:
             raise ValueError(f"Invalid model ID: '{model_id}'")
-        filtering_llm = self.llm_factory.get_model(model_id=model_id, temperature=0.0)
+        filtering_llm = self.llm_factory.get_model(
+            model_id=model_id, temperature=0.0, enable_thinking=use_thinking
+        )
         return (
             FilteringPrompt.for_criteria(self.filtering_criteria).get_prompt()
             | filtering_llm
@@ -140,12 +147,15 @@ class Summarizer:
         )
 
     def _create_summarizer(
-        self, model_id: LanguageModelId, fixing_model_id: LanguageModelId | None
+        self,
+        model_id: LanguageModelId,
+        fixing_model_id: LanguageModelId | None,
+        use_thinking: bool = False,
     ):
         model_info = self.llm_factory.get_model_info(model_id)
         if not model_info:
             raise ValueError(f"Invalid model ID: '{model_id}'")
-        fixing_model_id = fixing_model_id or LanguageModelId.CLAUDE_V3_5_HAIKU
+        fixing_model_id = fixing_model_id or LanguageModelId.CLAUDE_V4_5_HAIKU
         fixing_llm = self.llm_factory.get_model(
             model_id=LanguageModelId(fixing_model_id), temperature=0.0
         )
@@ -154,7 +164,7 @@ class Summarizer:
             parser=HTMLTagOutputParser(tag_names=SummarizationPrompt.output_variables),
         )
         summarization_llm = self.llm_factory.get_model(
-            model_id=model_id, temperature=0.0
+            model_id=model_id, temperature=0.0, enable_thinking=use_thinking
         )
         return (
             SummarizationPrompt.for_language(self.language).get_prompt()

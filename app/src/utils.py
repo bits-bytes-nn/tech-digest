@@ -54,6 +54,7 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         context_window_size=200000,
         max_output_tokens=64000,
         supports_prompt_caching=True,
+        supports_thinking=True,
     ),
     LanguageModelId.CLAUDE_V3_5_SONNET: LanguageModelInfo(
         context_window_size=200000, max_output_tokens=8192
@@ -101,6 +102,11 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_prompt_caching=True,
         supports_thinking=True,
         supports_1m_context_window=True,
+    ),
+    LanguageModelId.CLAUDE_V4_6_OPUS: LanguageModelInfo(
+        context_window_size=1000000,
+        max_output_tokens=64000,
+        supports_thinking=True,
     ),
     # NOTE: add new models here
 }
@@ -256,10 +262,14 @@ class BedrockLanguageModelFactory(
             self.boto_session, model_id, self.region_name or ""
         )
         is_cross_region = resolved_model_id != model_id.value
-        model_config = self._build_model_config(
-            model_info, resolved_model_id, is_cross_region, **kwargs
+        enable_thinking = kwargs.get("enable_thinking", False)
+        use_converse = is_cross_region or (
+            enable_thinking and model_info.supports_thinking
         )
-        model_class = ChatBedrockConverse if is_cross_region else ChatBedrock
+        model_config = self._build_model_config(
+            model_info, resolved_model_id, use_converse, **kwargs
+        )
+        model_class = ChatBedrockConverse if use_converse else ChatBedrock
         model = model_class(**model_config)
         logger.debug(
             "Created language model: '%s' with class %s",

@@ -46,7 +46,9 @@ class Summarization(BaseModelWithDefaults):
     included_topics: list[str] = Field(default_factory=list)
     excluded_topics: list[str] = Field(default_factory=list)
     filtering_model_id: LanguageModelId
+    filtering_enable_thinking: bool = Field(default=False)
     summarization_model_id: LanguageModelId
+    summarization_enable_thinking: bool = Field(default=False)
     greeting_model_id: LanguageModelId
     max_concurrency: int = Field(default=10, ge=1)
     min_score: float = Field(default=0.7, ge=0.0, le=1.0)
