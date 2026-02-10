@@ -77,7 +77,7 @@ class Config(BaseModelWithDefaults):
             filtering_criteria=FilteringCriteria.ALL,
             filtering_model_id=LanguageModelId.CLAUDE_V4_5_SONNET,
             summarization_model_id=LanguageModelId.CLAUDE_V4_5_SONNET,
-            greeting_model_id=LanguageModelId.CLAUDE_V3_5_HAIKU,
+            greeting_model_id=LanguageModelId.CLAUDE_V4_5_HAIKU,
         )
     )
     newsletter: Newsletter = Field(default_factory=Newsletter)
