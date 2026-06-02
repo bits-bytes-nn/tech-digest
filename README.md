@@ -11,6 +11,12 @@ Automated newsletter service that curates and delivers AI tech insights from lea
 - **Automated Infrastructure**: AWS Lambda/Batch with EventBridge scheduling
 - **Professional Email**: HTML templates with responsive design and company logos
 
+### 📐 Documentation
+
+- **Deep technical reference:** [`assets/tech-doc.md`](./assets/tech-doc.md) — line-by-line documentation of every module.
+- **AWS architecture diagram:** [`assets/diagrams/aws-architecture.png`](./assets/diagrams/aws-architecture.png)
+- **Processing pipeline diagram:** [`assets/diagrams/pipeline-flow.png`](./assets/diagrams/pipeline-flow.png)
+
 ### 🏗️ Architecture
 
 #### Core Components
@@ -76,4 +82,16 @@ python app/main.py --end-date 2024-01-01 --recipients aldente0630@gmail.com
 
 # Submit batch job
 python app/run_batch.py --end-date 2024-01-01 --language ko --recipients aldente0630@gmail.com
+```
+
+#### Testing & Quality
+```bash
+# Install dev tooling (ruff, mypy, pytest)
+pip install -e ".[dev]"
+
+# Lint, format-check, type-check, and test
+ruff check .
+ruff format --check .
+mypy app
+pytest            # fast, offline unit/integration suite
 ```
