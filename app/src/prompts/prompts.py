@@ -1,13 +1,12 @@
 from abc import ABC
-from typing import ClassVar
 from dataclasses import dataclass
+from typing import ClassVar
 
 from langchain_core.prompts import (
     ChatPromptTemplate,
     HumanMessagePromptTemplate,
     SystemMessagePromptTemplate,
 )
-from langchain_core.messages import SystemMessage
 
 from ..constants import FilteringCriteria, Language
 
@@ -37,42 +36,80 @@ class BasePrompt(ABC):
                     f"Input variable '{var}' not found in any prompt template."
                 )
 
+    # When set, prompt caching moves everything from this marker onward in the
+    # human template into the (cached) system prefix. This lets the large static
+    # rubric/instructions — which would otherwise sit after the volatile
+    # ``{post}`` and be uncacheable — become a stable cache prefix, WITHOUT
+    # duplicating the text (the human template remains the single source).
+    cache_split_marker: ClassVar[str | None] = None
+
     @classmethod
-    def get_prompt(cls, enable_prompt_cache: bool = False) -> ChatPromptTemplate:
-        system_template = cls.system_prompt_template
-        human_template = cls.human_prompt_template
-        instance = cls(
+    def get_prompt(
+        cls, enable_prompt_cache: bool = False, use_converse: bool = True
+    ) -> ChatPromptTemplate:
+        # Construct once to run variable validation (__post_init__).
+        cls(
             input_variables=cls.input_variables,
             output_variables=cls.output_variables,
-            system_prompt_template=system_template,
-            human_prompt_template=human_template,
+            system_prompt_template=cls.system_prompt_template,
+            human_prompt_template=cls.human_prompt_template,
         )
+        system_template = cls.system_prompt_template
+        human_template = cls.human_prompt_template
 
-        if enable_prompt_cache:
-            system_msg = SystemMessage(
-                content=[
-                    {
-                        "type": "text",
-                        "text": instance.system_prompt_template,
-                        "cache_control": {"type": "ephemeral"},
-                    }
+        if enable_prompt_cache and cls.cache_split_marker:
+            system_template, human_template = cls._split_for_cache(
+                system_template, human_template
+            )
+
+        if not enable_prompt_cache:
+            return ChatPromptTemplate.from_messages(
+                [
+                    SystemMessagePromptTemplate.from_template(system_template),
+                    HumanMessagePromptTemplate.from_template(human_template),
                 ]
             )
-            human_msg = HumanMessagePromptTemplate.from_template(
-                instance.human_prompt_template
-            )
-            return ChatPromptTemplate.from_messages([system_msg, human_msg])
 
-        return ChatPromptTemplate.from_messages(
-            [
-                SystemMessagePromptTemplate.from_template(
-                    instance.system_prompt_template
-                ),
-                HumanMessagePromptTemplate.from_template(
-                    instance.human_prompt_template
-                ),
+        # Mark the system prompt as a cache prefix. The two Bedrock backends use
+        # DIFFERENT, mutually-incompatible cache markers, so emit only the one
+        # matching the backend that will actually run:
+        #   - ChatBedrockConverse: a trailing ``{"cachePoint": {...}}`` block.
+        #     (Putting a ``cache_control`` text block here is fine, but a
+        #      cachePoint block in a ChatBedrock request raises a ValueError.)
+        #   - ChatBedrock: ``cache_control: {ephemeral}`` on the text block.
+        # The volatile ``{post}`` stays in the human message (after the cache
+        # breakpoint); the system prefix is byte-identical across every post in
+        # a run, so the cache hits.
+        if use_converse:
+            system_content: list[dict] = [
+                {"type": "text", "text": system_template},
+                {"cachePoint": {"type": "default"}},
             ]
+        else:
+            system_content = [
+                {
+                    "type": "text",
+                    "text": system_template,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        return ChatPromptTemplate.from_messages(
+            [("system", system_content), ("human", human_template)]
         )
+
+    @classmethod
+    def _split_for_cache(
+        cls, system_template: str, human_template: str
+    ) -> tuple[str, str]:
+        """Move the human template's tail (from ``cache_split_marker`` on) into
+        the system prefix. Returns ``(new_system, new_human)``."""
+        marker = cls.cache_split_marker
+        if not marker or marker not in human_template:
+            return system_template, human_template
+        head, sep, tail = human_template.partition(marker)
+        new_system = f"{system_template}\n\n{sep}{tail}".rstrip()
+        new_human = head.rstrip()
+        return new_system, new_human
 
 
 class FilteringPrompt(BasePrompt):
@@ -85,6 +122,9 @@ class FilteringPrompt(BasePrompt):
     output_variables: list[str] = ["title", "score", "reason"]
     system_prompt_template: str = ""
     human_prompt_template: str = ""
+    # Everything from this marker onward is the static rubric; caching moves it
+    # into the cached system prefix (the data block before it stays in human).
+    cache_split_marker: ClassVar[str | None] = "**EVALUATION PROCESS:**"
 
     _system_prompt_template: ClassVar[dict[FilteringCriteria, str]] = {
         FilteringCriteria.ALL: """You are an expert machine learning research evaluator with deep expertise in ML
@@ -127,7 +167,7 @@ Your role:
 
 REJECT if content contains:
 - Non-ML topics (data analytics, BI, visualization, databases, ETL, general software development)
-- Excluded topics listed above
+- Topics in the provided Excluded Topics list
 - Pure implementation tutorials without research insights
 - Marketing/promotional materials
 - Hardware reviews or basic platform tutorials
@@ -142,7 +182,7 @@ scoring.
 - Simple mentions, brief examples, or tangential references DO NOT qualify
 
 ACCEPT if content has:
-- Included topics from the list above as PRIMARY focus (HIGHEST PRIORITY - automatic acceptance)
+- Topics from the provided Included Topics list as PRIMARY focus (HIGHEST PRIORITY - automatic acceptance)
 - Core ML focus (theory, algorithms, model architectures, research methods)
 - Novel research contributions or theoretical insights
 - Deep technical ML understanding
@@ -150,119 +190,45 @@ ACCEPT if content has:
 
 ---
 
-**STEP 2: QUALITY SCORING (0.00-1.00, use TWO decimal places)**
+**STEP 2: QUALITY SCORING — pick ONE anchor score**
 
-**CRITICAL RULE: INCLUDED TOPICS - TIERED SCORING**
+Choose the SINGLE anchor score (multiples of 0.05) whose description best matches the
+content. Do NOT add or subtract fractional modifiers — pick the closest anchor and commit.
+This keeps scoring reproducible: the same content must receive the same score every time.
 
-If content SUBSTANTIALLY covers ANY included topic (>30% as primary focus):
-- **BASE SCORE: 0.75-0.85** (determined by quality)
-- Apply quality modifiers below
-- Skip standard penalties
+**INCLUDED-TOPIC CONTENT** (content SUBSTANTIALLY covers an included topic — >30% as a
+PRIMARY focus, not a passing mention). Included topics take priority; score in the top band:
+- **0.85** — Exceptional: expert-level depth, novel insight, or multiple included topics covered substantially.
+- **0.80** — Strong: solid technical depth and clear insight on the included topic.
+- **0.75** — Adequate: meets the substantial-coverage bar but with basic depth, or some promotional mixing.
 
-**INCLUDED TOPIC QUALITY TIERS:**
-- **0.82-0.85:** Exceptional coverage with novel insights, comprehensive analysis, and expert-level depth
-- **0.78-0.81:** Strong coverage with good insights and solid technical depth
-- **0.75-0.77:** Adequate coverage meeting substantial threshold but with basic depth
+**OTHER ML CONTENT** (no included topic as primary focus). Pick the band, then the anchor:
+- **0.85** — Groundbreaking: novel theory with rigorous proofs, or a landmark algorithmic/empirical result.
+- **0.80** — Excellent: strong novel contribution or a deep, battle-tested practical guide.
+- **0.70** — Strong: solid empirical study or well-validated improvement with clear insight.
+- **0.60** — Good: competent work with some novelty or a useful, well-structured guide.
+- **0.50** — Moderate: limited novelty, decent execution, or educational with some new perspective.
+- **0.35** — Weak: mostly implementation/tutorial with minimal ML insight.
+- **0.15** — Poor: pure implementation or promotional content with negligible research value.
+- **0.05** — Not ML: off-topic, marketing, or an excluded topic.
 
-**INCLUDED TOPIC MODIFIERS:**
-- +0.03: Multiple included topics covered substantially (each >30%)
-- +0.02: Exceptional clarity and organization
-- +0.02: Novel or unique perspective on the included topic
-- -0.02: Coverage is just above 30% threshold (borderline substantial)
-- -0.03: Some promotional content mixed in (<10% of content)
+**ADJUSTMENT RULES (at most one step, ±0.05):**
+- Move DOWN one 0.05 step if: the article is noticeably unclear/disorganized, OR contains
+  meaningful promotional content, OR is borderline between this band and the one below.
+- Move UP one 0.05 step only if: exceptionally clear AND reproducible AND addresses an
+  important real-world problem — and only within the same band's top.
+- Never move more than one 0.05 step from the chosen anchor.
 
-**IMPORTANT:** Simple mentions or brief examples of included topics DO NOT qualify for included topic scoring.
-
----
-
-**SCORING PATH: OTHER ML CONTENT (Non-included topics)**
-
-**Base Score Ranges (select specific score within range):**
-
-**0.75-0.85 (Exceptional):**
-- Novel theoretical ML contributions with rigorous proofs
-- Groundbreaking mathematical/algorithmic innovations
-- Exceptional empirical evaluation with comprehensive statistical analysis
-- High-quality practical guides with deep ML insights and battle-tested best practices
-- **Within tier:** 0.82-0.85 (groundbreaking), 0.78-0.81 (excellent), 0.75-0.77 (very good)
-
-**0.60-0.70 (Strong):**
-- Solid empirical studies with clear novelty
-- Well-validated incremental improvements
-- Rigorous comparative studies with insights
-- Well-structured practical guides with valuable ML best practices
-- **Within tier:** 0.67-0.70 (strong novelty), 0.63-0.66 (good execution), 0.60-0.62 (solid work)
-
-**0.45-0.55 (Moderate):**
-- Limited novelty but decent execution
-- Educational content with some new perspectives
-- Implementation-focused with research context
-- **Within tier:** 0.52-0.55 (good educational value), 0.48-0.51 (acceptable), 0.45-0.47 (basic)
-
-**0.30-0.40 (Weak):**
-- Mostly implementation guides with minimal insights
-- Vendor-specific tutorials with some ML content
-- Superficial ML coverage
-- **Within tier:** 0.37-0.40 (some value), 0.33-0.36 (limited value), 0.30-0.32 (minimal value)
-
-**0.00-0.25 (Reject/Very Poor):**
-- Pure implementation without research value (0.15-0.25)
-- Promotional/marketing content (0.05-0.15)
-- Non-ML content (0.00-0.05)
-
----
-
-**FINE-TUNING MODIFIERS (apply after selecting base score):**
-
-**Positive Adjustments (+0.02 to +0.05 each):**
-- +0.05: Exceptional clarity and reproducibility
-- +0.03: Novel insights or unique perspective
-- +0.03: Comprehensive empirical validation
-- +0.02: Well-structured with clear takeaways
-- +0.02: Addresses important real-world problem
-
-**Negative Adjustments (-0.02 to -0.05 each):**
-- -0.05: Significant non-ML content (10-20%)
-- -0.04: Promotional elements (5-10% of content)
-- -0.03: Implementation-heavy without insights
-- -0.02: Limited scope or depth
-- -0.02: Unclear or poorly organized
-
-**Uncertainty Handling:**
-- When uncertain between two scores: choose the lower one
-- When borderline between tiers: subtract 0.03 from base score
-- Maximum total adjustments: ±0.10 from base score
-
----
-
-**SCORING CALCULATION EXAMPLE:**
-
-Example 1 (Included Topic):
-- Base: 0.80 (strong coverage of "reinforcement learning" - included topic)
-- +0.02 (exceptional clarity)
-- +0.02 (novel perspective)
-- **Final: 0.84**
-
-Example 2 (Other ML Content):
-- Base: 0.65 (solid empirical study, mid-tier in "Strong" range)
-- +0.03 (comprehensive validation)
-- -0.02 (limited scope)
-- **Final: 0.66**
-
-Example 3 (Borderline):
-- Base: 0.48 (educational content, mid-tier in "Moderate" range)
-- -0.03 (borderline between tiers)
-- -0.02 (promotional elements)
-- **Final: 0.43**
+**UNCERTAINTY:** When torn between two anchors, always choose the LOWER one.
 
 ---
 
 **OUTPUT FORMAT:**
 <title>[Original title in proper title case]</title>
-<reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic?
-If yes, state which included topic and coverage quality (exceptional/strong/adequate). (2) Base score selection and
-tier reasoning (3) Applied modifiers with justification (4) Final score calculation]</reason>
-<score>[Number between 0.00 and 1.00, TWO decimal places, e.g., 0.67, 0.82, 0.43]</score>""",
+<reason>[Explain concisely: (1) Topic validation — does the content SUBSTANTIALLY cover (>30%
+primary focus) an included topic? If so, name it. (2) Which anchor score you chose and why.
+(3) Any one-step adjustment and its reason.]</reason>
+<score>[The chosen anchor, optionally ±0.05; two decimals, e.g., 0.80, 0.70, 0.15]</score>""",
         FilteringCriteria.AMAZON: """Evaluate this content for ML technical quality with focus on Amazon/AWS ML
 implementations.
 
@@ -283,7 +249,7 @@ implementations.
 
 REJECT if content contains:
 - Non-ML topics (data analytics, BI, visualization, databases, ETL)
-- Excluded topics listed above
+- Topics in the provided Excluded Topics list
 - Non-Amazon promotional content
 - Competitor platform focus
 - Basic tutorials without technical depth
@@ -298,7 +264,7 @@ and proceed to scoring.
 - Simple mentions, brief examples, or tangential references DO NOT qualify
 
 ACCEPT if content has:
-- Included topics from the list above as PRIMARY focus with AWS context (HIGHEST PRIORITY)
+- Topics from the provided Included Topics list as PRIMARY focus with AWS context (HIGHEST PRIORITY)
 - Core ML focus with Amazon/AWS context (80%+ of content)
 - Technical depth in AWS ML services (SageMaker, Bedrock, etc.)
 - Advanced ML understanding within AWS ecosystem
@@ -306,121 +272,45 @@ ACCEPT if content has:
 
 ---
 
-**STEP 2: QUALITY SCORING (0.00-1.00, use TWO decimal places)**
+**STEP 2: QUALITY SCORING — pick ONE anchor score**
 
-**CRITICAL RULE: INCLUDED TOPICS - TIERED SCORING**
+Choose the SINGLE anchor score (multiples of 0.05) whose description best matches the
+content. Do NOT add or subtract fractional modifiers — pick the closest anchor and commit.
+This keeps scoring reproducible: the same content must receive the same score every time.
 
-If content SUBSTANTIALLY covers ANY included topic with Amazon/AWS context (>30% as primary focus):
-- **BASE SCORE: 0.75-0.85** (determined by quality)
-- Apply quality modifiers below
-- Skip standard penalties
+**INCLUDED-TOPIC CONTENT** (content SUBSTANTIALLY covers an included topic with Amazon/AWS
+context — >30% as a PRIMARY focus, not a passing mention). Score in the top band:
+- **0.85** — Exceptional AWS coverage: expert depth, novel insight, or multiple included topics.
+- **0.80** — Strong AWS coverage: solid technical depth and clear insight.
+- **0.75** — Adequate AWS coverage: meets the substantial bar but basic depth, or some promotional mixing.
 
-**INCLUDED TOPIC QUALITY TIERS (with AWS context):**
-- **0.82-0.85:** Exceptional AWS coverage with novel insights, comprehensive analysis, and expert-level depth
-- **0.78-0.81:** Strong AWS coverage with good insights and solid technical depth
-- **0.75-0.77:** Adequate AWS coverage meeting substantial threshold but with basic depth
+**OTHER AWS ML CONTENT** (no included topic as primary focus). Pick the band, then the anchor:
+- **0.85** — Groundbreaking AWS ML architecture/algorithmic innovation, or landmark result.
+- **0.80** — Excellent: strong novel AWS ML contribution or a deep, battle-tested AWS guide.
+- **0.70** — Strong: solid AWS ML study/implementation with clear technical depth.
+- **0.60** — Good: competent AWS ML work or a useful, well-structured AWS guide.
+- **0.50** — Moderate: moderate AWS ML depth, or educational with some insight.
+- **0.35** — Weak: basic AWS ML tutorial with minimal depth.
+- **0.15** — Poor: marketing disguised as AWS technical content, or minimal AWS ML focus.
+- **0.05** — Not relevant: non-AWS vendor content, off-topic, or an excluded topic.
 
-**INCLUDED TOPIC MODIFIERS:**
-- +0.03: Multiple included topics covered substantially in AWS context (each >30%)
-- +0.02: Exceptional clarity and organization
-- +0.02: Novel or unique AWS implementation perspective
-- -0.02: Coverage is just above 30% threshold (borderline substantial)
-- -0.03: Some promotional AWS content mixed in (<10% of content)
+**ADJUSTMENT RULES (at most one step, ±0.05):**
+- Move DOWN one 0.05 step if: noticeably unclear/disorganized, OR meaningful promotional/
+  non-AWS-vendor content, OR borderline between this band and the one below.
+- Move UP one 0.05 step only if: exceptionally clear AND reproducible AND addresses an
+  important real-world AWS ML problem — and only within the same band's top.
+- Never move more than one 0.05 step from the chosen anchor.
 
-**IMPORTANT:** Simple mentions or brief examples of included topics DO NOT qualify for included topic scoring.
-
----
-
-**SCORING PATH: OTHER AWS ML CONTENT (Non-included topics)**
-
-**Base Score Ranges (select specific score within range):**
-
-**0.75-0.85 (Exceptional):**
-- Novel ML contributions in AWS/Amazon context
-- Groundbreaking AWS ML architectural innovations
-- Exceptional mathematical/algorithmic innovations on AWS platform
-- High-quality AWS ML practical guides with deep insights and battle-tested best practices
-- **Within tier:** 0.82-0.85 (groundbreaking AWS ML), 0.78-0.81 (excellent AWS ML), 0.75-0.77 (very good AWS ML)
-
-**0.60-0.70 (Strong):**
-- Solid ML studies using Amazon/AWS services with clear value
-- AWS ML implementations with strong technical depth
-- Well-validated incremental improvements to AWS ML workflows
-- Well-structured AWS ML practical guides with valuable best practices
-- **Within tier:** 0.67-0.70 (strong AWS innovation), 0.63-0.66 (good AWS execution), 0.60-0.62 (solid AWS work)
-
-**0.45-0.55 (Moderate):**
-- Moderate technical depth in AWS ML services
-- Educational AWS ML content with some insights
-- Implementation-focused AWS guides with context
-- **Within tier:** 0.52-0.55 (good AWS educational value), 0.48-0.51 (acceptable AWS content), 0.45-0.47 (basic AWS
-tutorial)
-
-**0.30-0.40 (Weak):**
-- Basic AWS ML tutorials with minimal depth
-- Superficial Amazon ML service coverage
-- Limited AWS technical contribution
-- **Within tier:** 0.37-0.40 (some AWS value), 0.33-0.36 (limited AWS value), 0.30-0.32 (minimal AWS value)
-
-**0.00-0.25 (Reject/Very Poor):**
-- Non-AWS vendor content (0.00-0.05)
-- Marketing disguised as AWS technical content (0.05-0.15)
-- Minimal AWS ML focus (0.15-0.25)
-
----
-
-**FINE-TUNING MODIFIERS (apply after selecting base score):**
-
-**Positive Adjustments (+0.02 to +0.05 each):**
-- +0.05: Exceptional AWS implementation clarity and reproducibility
-- +0.03: Novel AWS ML insights or unique architectural perspective
-- +0.03: Comprehensive AWS empirical validation
-- +0.02: Well-structured AWS guide with clear takeaways
-- +0.02: Addresses important real-world AWS ML problem
-
-**Negative Adjustments (-0.02 to -0.05 each):**
-- -0.05: Significant non-ML content (10-20%)
-- -0.04: Non-AWS vendor mentions (5-10% of content)
-- -0.03: Implementation-heavy without AWS insights
-- -0.02: Limited AWS scope or depth
-- -0.02: Unclear or poorly organized AWS content
-
-**Uncertainty Handling:**
-- When uncertain between two scores: choose the lower one
-- When borderline between tiers: subtract 0.03 from base score
-- Maximum total adjustments: ±0.10 from base score
-
----
-
-**SCORING CALCULATION EXAMPLE:**
-
-Example 1 (Included Topic with AWS):
-- Base: 0.80 (strong coverage of "SageMaker" - included topic with AWS context)
-- +0.02 (exceptional clarity)
-- +0.02 (novel AWS perspective)
-- **Final: 0.84**
-
-Example 2 (Other AWS ML Content):
-- Base: 0.65 (solid AWS empirical study, mid-tier in "Strong" range)
-- +0.03 (comprehensive AWS validation)
-- -0.02 (limited AWS scope)
-- **Final: 0.66**
-
-Example 3 (Borderline AWS):
-- Base: 0.48 (educational AWS content, mid-tier in "Moderate" range)
-- -0.03 (borderline between tiers)
-- -0.02 (promotional elements)
-- **Final: 0.43**
+**UNCERTAINTY:** When torn between two anchors, always choose the LOWER one.
 
 ---
 
 **OUTPUT FORMAT:**
 <title>[Original title in proper title case]</title>
-<reason>[Explain: (1) Topic validation - Does content SUBSTANTIALLY cover (>30% as primary focus) any included topic
-with AWS context? If yes, state which included topic and AWS coverage quality (exceptional/strong/adequate).
-(2) Base score selection and tier reasoning (3) Applied modifiers with justification (4) Final score calculation]
-</reason>
-<score>[Number between 0.00 and 1.00, TWO decimal places, e.g., 0.67, 0.82, 0.43]</score>""",
+<reason>[Explain concisely: (1) Topic validation — does the content SUBSTANTIALLY cover (>30%
+primary focus) an included topic with AWS context? If so, name it. (2) Which anchor score you
+chose and why. (3) Any one-step adjustment and its reason.]</reason>
+<score>[The chosen anchor, optionally ±0.05; two decimals, e.g., 0.80, 0.70, 0.15]</score>""",
     }
 
     @classmethod
@@ -501,6 +391,9 @@ class SummarizationPrompt(BasePrompt):
     system_prompt_template: str = """You are an expert technical writer and content analyst specializing in software
 engineering, machine learning, and system architecture. Your goal is to create clear, engaging, and accurate
 explanations that make complex technical concepts accessible without sacrificing depth or precision."""
+    # The static analysis instructions begin here; caching moves them into the
+    # cached system prefix while the post itself stays in the human message.
+    cache_split_marker: ClassVar[str | None] = "**CORE PRINCIPLES:**"
 
     _human_prompt_template: ClassVar[dict[Language, str]] = {
         Language.EN: """Analyze and explain the following blog post in a comprehensive yet accessible manner:
@@ -528,9 +421,15 @@ explanations that make complex technical concepts accessible without sacrificing
    - Connect technical details to practical implications
    - Make complex ideas accessible without oversimplifying
 
+**SECTION SKIP RULE:**
+- If the source material does not contain sufficient information for a section, OMIT that section entirely
+- Do NOT write sections that merely state "no information is available" or "the article does not mention this"
+- Only include sections where you can provide meaningful, substantive content based on the source material
+
 **REQUIRED STRUCTURE:**
 
-Provide your analysis within <summary> tags using this exact structure:
+Provide your analysis within <summary> tags using the following sections. Include only those sections for which the
+source material provides sufficient substantive content:
 
 <h3>📌 Why This Matters</h3>
 Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is 
@@ -575,6 +474,7 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 ❌ DO NOT include meta-commentary about following these instructions
 ❌ DO NOT create subsection headers within the main sections
 ❌ DO NOT repeat information across different sections
+❌ DO NOT include sections that only state the absence of information — omit them instead
 ✅ DO acknowledge when information is limited or unclear
 ✅ DO stay faithful to the source material
 ✅ DO explain only what is actually presented
@@ -614,9 +514,15 @@ Korean:
    - Connect technical details to practical implications
    - Make complex ideas accessible without oversimplifying
 
+**섹션 생략 규칙:**
+- 원문에 해당 섹션을 채울 충분한 정보가 없으면, 그 섹션을 통째로 생략하세요
+- "원문에 관련 정보가 없습니다" 또는 "언급되지 않았습니다" 같은 내용으로 섹션을 채우지 마세요
+- 원문을 기반으로 실질적이고 의미 있는 내용을 작성할 수 있는 섹션만 포함하세요
+
 **REQUIRED STRUCTURE:**
 
-Provide your analysis within <summary> tags using this exact structure:
+Provide your analysis within <summary> tags using the following sections. Include only those sections for which the
+source material provides sufficient substantive content:
 
 <h3>📌 왜 이 아티클에 주목해야 하나요?</h3>
 Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is 
@@ -664,6 +570,7 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 ❌ DO NOT create subsection headers within the main sections
 ❌ DO NOT repeat information across different sections
 ❌ DO NOT use English technical terms when clear Korean translations exist
+❌ DO NOT include sections that only state the absence of information — omit them instead
 ✅ DO acknowledge when information is limited or unclear
 ✅ DO stay faithful to the source material
 ✅ DO explain only what is actually presented
