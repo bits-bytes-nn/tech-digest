@@ -19,6 +19,7 @@ from .constants import (
 )
 from .feed_parser import (
     AnthropicBlogScraper,
+    CrawlReport,
     GoogleBlogScraper,
     LinkedInBlogScraper,
     MetaAIBlogScraper,
@@ -28,6 +29,9 @@ from .feed_parser import (
     QwenBlogScraper,
     RssFetcher,
     ScraperRegistry,
+    SourceFetchError,
+    SourceHealth,
+    SourceStatus,
     SourceType,
     XAIBlogScraper,
 )
@@ -43,11 +47,11 @@ from .utils import (
     validate_emails,
 )
 
-
 __all__ = [
     "AnthropicBlogScraper",
     "AppConstants",
     "BuildConfiguration",
+    "CrawlReport",
     "EnvVars",
     "FilteringCriteria",
     "GoogleBlogScraper",
@@ -67,6 +71,9 @@ __all__ = [
     "S3Paths",
     "SSMParams",
     "ScraperRegistry",
+    "SourceFetchError",
+    "SourceHealth",
+    "SourceStatus",
     "SourceType",
     "Summarizer",
     "XAIBlogScraper",

@@ -1,12 +1,14 @@
 import io
+import json
+import os
+import shutil
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
-import json
 from jinja2 import Environment, FileSystemLoader, Template
 from PIL import Image
 from pydantic import BaseModel, Field, field_validator
@@ -21,7 +23,7 @@ from .logger import logger
 
 
 class NewsletterConfig:
-    DATE_FORMATS: tuple[str, ...] = (
+    DATE_FORMATS: ClassVar[tuple[str, ...]] = (
         "%Y-%m-%d",
         "%a, %d %b %Y %H:%M:%S %z",
         "%a, %d %b %Y %H:%M:%S",
@@ -29,14 +31,14 @@ class NewsletterConfig:
         "%Y-%m-%dT%H:%M:%S",
         "%a, %d %b %Y %H:%M:%S GMT",
     )
-    DEFAULT_STYLES: dict[str, str] = {
+    DEFAULT_STYLES: ClassVar[dict[str, str]] = {
         "header_title": "Weekly AI Tech Blog Digest",
         "header_description": "Stay ahead of the curve with our curated digest of the most impactful AI developments, research breakthroughs, and industry updates from leading tech companies and research institutions.",
         "header_thumbnail": "peccy.png",
         "first_section_intro": "This week's highlights showcase groundbreaking AI innovations and developments that are shaping the future of technology. We've carefully selected and summarized the most relevant articles to keep you informed of the latest advancements in artificial intelligence.",
         "footer_title": "Thank you for reading! Stay tuned for next week's AI insights and discoveries.",
     }
-    LOGOS: dict[str, str] = {
+    LOGOS: ClassVar[dict[str, str]] = {
         "airbnb": "airbnb.png",
         "amazon": "amazon.png",
         "anthropic": "anthropic.png",
@@ -77,10 +79,16 @@ class Article(BaseModel):
     published_date: str
     thumbnail: str
     summary: str = Field(min_length=1)
+    source: str = "unknown"
     tags: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
     score: float = Field(default=1.0, ge=0.0, le=1.0)
     _validate_date = field_validator("published_date", mode="before")(validate_date)
+
+    @property
+    def source_label(self) -> str:
+        """Human-friendly source name for alt text / accessibility."""
+        return "" if self.source == "unknown" else self.source.replace("_", " ").title()
 
 
 class Footer(BaseModel):
@@ -135,6 +143,16 @@ class HtmlToImageConverter:
     DEFAULT_WAIT_TIME: int = 2
     DEFAULT_MAX_HEIGHT: int = 2000
     DEFAULT_OVERLAP: int = 50
+    # Common Chrome/Chromium binary names; the Batch image installs
+    # google-chrome-stable. The Lambda base image ships NO browser, so image
+    # conversion is unsupported there (see chrome_available / convert()).
+    CHROME_BINARIES: tuple[str, ...] = (
+        "google-chrome-stable",
+        "google-chrome",
+        "chromium",
+        "chromium-browser",
+        "chrome",
+    )
 
     def __init__(self, output_dir: Path, **kwargs: Any) -> None:
         self.output_dir = output_dir
@@ -142,6 +160,17 @@ class HtmlToImageConverter:
         self.overlap = kwargs.get("overlap", self.DEFAULT_OVERLAP)
         self.chrome_options = self._configure_chrome_options()
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    @classmethod
+    def chrome_available(cls) -> bool:
+        """Whether a Chrome/Chromium binary is on PATH (or set via env).
+
+        Used to fail fast with a clear message instead of a cryptic
+        WebDriverException when ``convert_to_images`` is enabled in an
+        environment without a browser (notably the Lambda runtime image)."""
+        if os.environ.get("CHROME_BINARY"):
+            return Path(os.environ["CHROME_BINARY"]).exists()
+        return any(shutil.which(name) for name in cls.CHROME_BINARIES)
 
     @staticmethod
     def _configure_chrome_options() -> Options:
@@ -151,11 +180,22 @@ class HtmlToImageConverter:
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument(f"--window-size={HtmlToImageConverter.DEFAULT_WIDTH},3000")
+        if binary := os.environ.get("CHROME_BINARY"):
+            options.binary_location = binary
         return options
 
     def convert(self, html_path: Path) -> list[Path]:
         if not html_path.exists():
             raise FileNotFoundError(f"HTML file not found: '{html_path}'")
+        if not self.chrome_available():
+            raise RuntimeError(
+                "HTML-to-image conversion requires a Chrome/Chromium browser, "
+                "but none was found on PATH. The AWS Lambda runtime image does "
+                "not include a browser — run with 'lambda_or_batch: batch' "
+                "(the Batch image installs google-chrome-stable) or set "
+                "'convert_to_images: false'. Set CHROME_BINARY to override the "
+                "browser path."
+            )
         output_paths = []
         with self.driver_session() as driver:
             driver.get(f"file://{html_path.absolute()}")
@@ -175,7 +215,13 @@ class HtmlToImageConverter:
     def driver_session(self) -> Generator[webdriver.Chrome, None, None]:
         driver = None
         try:
-            service = Service(ChromeDriverManager().install())
+            # Prefer a chromedriver already on PATH or pinned via env (present
+            # in the Batch image); fall back to webdriver-manager's download
+            # only when neither is available (e.g. local dev).
+            driver_path = os.environ.get("CHROMEDRIVER_PATH") or shutil.which(
+                "chromedriver"
+            )
+            service = Service(driver_path or ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=self.chrome_options)
             yield driver
         except WebDriverException as e:

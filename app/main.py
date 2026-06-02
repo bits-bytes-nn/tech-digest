@@ -5,8 +5,8 @@ import re
 import shutil
 import sys
 import time
-from pprint import pformat
 from pathlib import Path
+from pprint import pformat
 from typing import Any, Final
 
 import boto3
@@ -16,6 +16,7 @@ from configs import Config
 from src import (
     AppConstants,
     BuildConfiguration,
+    CrawlReport,
     EnvVars,
     Greeter,
     Language,
@@ -74,12 +75,15 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         end_date_str = event.get("END_DATE")
         language = event.get("LANGUAGE")
         recipients = event.get("RECIPIENTS")
-        posts, date_suffix, filtered_out_posts = _fetch_and_filter_posts(
+        posts, date_suffix, filtered_out_posts, crawl_report = _fetch_and_filter_posts(
             config,
             bedrock_boto_session,
             end_date_str=end_date_str,
             language=Language(language) if language else Language.KO,
         )
+        topic_arn = os.environ.get(EnvVars.TOPIC_ARN.value)
+        if is_running_in_aws() and topic_arn and crawl_report.failed:
+            _send_crawl_health_alert(default_boto_session, topic_arn, crawl_report)
         if not posts:
             logger.info("No posts to process. Exiting gracefully.")
             return {"statusCode": 200, "body": "No posts found to process."}
@@ -94,7 +98,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                 default_boto_session,
                 None if recipients is None else recipients.split(","),
             )
-            topic_arn = os.environ.get(EnvVars.TOPIC_ARN.value)
             if is_running_in_aws() and topic_arn:
                 _send_success_notification(
                     default_boto_session,
@@ -103,6 +106,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                     total,
                     failed,
                     filtered_out_posts,
+                    crawl_report,
                 )
         return {"statusCode": 200, "body": "Newsletter processed successfully"}
     except Exception as e:
@@ -135,17 +139,18 @@ def _fetch_and_filter_posts(
     boto_session: boto3.Session,
     end_date_str: str | None = None,
     language: Language = Language.KO,
-) -> tuple[list[Post], str, list[tuple[Post, str]]]:
+) -> tuple[list[Post], str, list[tuple[Post, str]], CrawlReport]:
     start_date, end_date = get_date_range(end_date_str, config.scraping.days_back)
     logger.info("Fetching posts from '%s' to '%s'", start_date.date(), end_date.date())
 
     collector = PostCollector.from_urls(config.scraping.rss_urls)
     posts = collector.collect_posts(start_date, end_date)
+    crawl_report = collector.report
 
     date_suffix = end_date.strftime("%Y-%m-%d")
     if not posts:
         logger.warning("No posts found in the specified date range")
-        return [], date_suffix, []
+        return [], date_suffix, [], crawl_report
 
     logger.info("Found %d posts", len(posts))
     logger.info("Posts: %s", [post.title for post in posts])
@@ -161,35 +166,31 @@ def _fetch_and_filter_posts(
         language=language,
         max_concurrency=config.summarization.max_concurrency,
         min_score=config.summarization.min_score,
+        min_content_length=config.scraping.min_content_length,
+        filtering_thinking_budget_tokens=(
+            config.summarization.filtering_thinking_budget_tokens
+        ),
+        summarization_thinking_budget_tokens=(
+            config.summarization.summarization_thinking_budget_tokens
+        ),
+        summarization_max_tokens=config.summarization.summarization_max_tokens,
     )
 
+    # The score-rank and max_posts cap are applied inside process_posts BEFORE
+    # summarization, so we never pay to summarize posts that get discarded.
     filtered_posts = summarizer.process_posts(
         posts,
         config.summarization.use_filtering,
         config.summarization.included_topics,
         config.summarization.excluded_topics,
+        max_posts=config.summarization.max_posts,
     )
 
     logger.info("Successfully summarized %d posts", len(filtered_posts))
-    filtered_posts.sort(key=lambda post: getattr(post, "score", 0.0), reverse=True)
-
-    if (
-        config.summarization.max_posts
-        and isinstance(config.summarization.max_posts, int)
-        and config.summarization.max_posts > 0
-    ):
-        original_count = len(filtered_posts)
-        filtered_posts = filtered_posts[: config.summarization.max_posts]
-        logger.info(
-            "Limited to top %d posts out of %d based on score",
-            len(filtered_posts),
-            original_count,
-        )
-
     logger.info("Filtered posts: %s", [post.title for post in filtered_posts])
     logger.debug(pformat(filtered_posts))
 
-    return filtered_posts, date_suffix, summarizer.filtered_out_posts
+    return filtered_posts, date_suffix, summarizer.filtered_out_posts, crawl_report
 
 
 def _process_posts_and_create_newsletter(
@@ -356,9 +357,7 @@ def _get_recipients(
     filename = _generate_recipients_filename(config)
     recipients_path = ROOT_DIR / LocalPaths.ASSETS_DIR.value / filename
     if _download_recipients_file(boto_session, config, filename, recipients_path):
-        return validate_emails(
-            recipients_path.read_text(encoding="utf-8").splitlines()
-        )
+        return validate_emails(recipients_path.read_text(encoding="utf-8").splitlines())
     return []
 
 
@@ -381,7 +380,7 @@ def _download_recipients_file(
 def _get_newsletter_content(newsletter_path: Path) -> str | None:
     try:
         return newsletter_path.read_text(encoding="utf-8")
-    except IOError as e:
+    except OSError as e:
         logger.error("Failed to read newsletter file: %s", e)
         return None
 
@@ -420,6 +419,7 @@ def _send_success_notification(
     total_recipients: int,
     failed_recipients: list[str],
     filtered_out_posts: list[tuple[Post, str]],
+    crawl_report: CrawlReport | None = None,
 ) -> None:
     sns_client = boto_session.client("sns")
     filtered_out_info = "\nFiltered out posts:\n"
@@ -431,11 +431,26 @@ def _send_success_notification(
     message += f"Successfully sent: {success_count}/{total_recipients}\n"
     if failed_recipients:
         message += f"Failed recipients: {', '.join(failed_recipients)}\n"
+    if crawl_report is not None:
+        message += f"\nCrawl health: {crawl_report.summary_line()}\n"
     message += filtered_out_info
     sns_client.publish(
         TopicArn=topic_arn,
         Subject=f"Newsletter Delivery - {subject_status}",
         Message=message.rstrip(),
+    )
+
+
+def _send_crawl_health_alert(
+    boto_session: boto3.Session, topic_arn: str, crawl_report: CrawlReport
+) -> None:
+    """Notify when one or more crawl sources failed, so a broken source is
+    noticed promptly instead of silently dropping out of the digest."""
+    sns_client = boto_session.client("sns")
+    sns_client.publish(
+        TopicArn=topic_arn,
+        Subject=(f"Tech Digest - {len(crawl_report.failed)} crawl source(s) failing"),
+        Message=crawl_report.format_alert(),
     )
 
 
