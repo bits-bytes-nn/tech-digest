@@ -1,22 +1,22 @@
+import asyncio
 import functools
+import math
 import re
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar, Generic, TypeVar
-from datetime import datetime, timedelta, timezone
 
-import asyncio
-import math
 import boto3
 import tenacity
 from botocore.config import Config as BotoConfig
 from bs4 import BeautifulSoup
-from langchain_core.output_parsers import BaseOutputParser
 from langchain_aws import ChatBedrock, ChatBedrockConverse
+from langchain_core.exceptions import OutputParserException
+from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
-from tqdm.asyncio import tqdm as async_tqdm
 from tqdm import tqdm
 
 from .constants import LanguageModelId
@@ -82,6 +82,13 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
         supports_1m_context_window=True,
     ),
+    LanguageModelId.CLAUDE_V4_6_SONNET: LanguageModelInfo(
+        context_window_size=200000,
+        max_output_tokens=64000,
+        supports_prompt_caching=True,
+        supports_thinking=True,
+        supports_1m_context_window=True,
+    ),
     LanguageModelId.CLAUDE_V4_OPUS: LanguageModelInfo(
         context_window_size=200000,
         max_output_tokens=64000,
@@ -106,7 +113,9 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
     LanguageModelId.CLAUDE_V4_6_OPUS: LanguageModelInfo(
         context_window_size=1000000,
         max_output_tokens=64000,
+        supports_prompt_caching=True,
         supports_thinking=True,
+        supports_1m_context_window=True,
     ),
     # NOTE: add new models here
 }
@@ -146,16 +155,13 @@ class BaseBedrockModelFactory(Generic[ModelIdT, ModelInfoT, WrapperT], ABC):
         )
 
     @abstractmethod
-    def _get_boto_service_name(self) -> str:
-        ...
+    def _get_boto_service_name(self) -> str: ...
 
     @abstractmethod
-    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]:
-        ...
+    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]: ...
 
     @abstractmethod
-    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT:
-        ...
+    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT: ...
 
     def get_model_info(self, model_id: ModelIdT) -> ModelInfoT | None:
         return self._get_model_info_dict().get(model_id)
@@ -243,7 +249,11 @@ class BedrockLanguageModelFactory(
 ):
     DEFAULT_TEMPERATURE: ClassVar[float] = 0.0
     DEFAULT_TOP_K: ClassVar[int] = 50
-    DEFAULT_THINKING_BUDGET_TOKENS: ClassVar[int] = 2048
+    # Anthropic requires a thinking budget of at least 1024 tokens, and the
+    # budget must be strictly less than max_tokens. The default is a usable
+    # floor; callers (e.g. Summarizer) pass larger, task-tuned budgets.
+    MIN_THINKING_BUDGET: ClassVar[int] = 1024
+    DEFAULT_THINKING_BUDGET_TOKENS: ClassVar[int] = 4096
     DEFAULT_LATENCY_MODE: ClassVar[str] = "normal"
 
     def _get_boto_service_name(self) -> str:
@@ -367,6 +377,32 @@ class BedrockLanguageModelFactory(
             budget = kwargs.get(
                 "thinking_budget_tokens", self.DEFAULT_THINKING_BUDGET_TOKENS
             )
+            # Bedrock requires MIN_THINKING_BUDGET <= budget < max_tokens (the
+            # budget is drawn from the output allowance).
+            effective_max = self._validate_max_tokens(
+                kwargs.get("max_tokens"), model_info
+            )
+            if effective_max <= self.MIN_THINKING_BUDGET:
+                # No budget can satisfy MIN_THINKING_BUDGET <= budget < max_tokens;
+                # thinking is impossible at this max_tokens. Skip it rather than
+                # send a request Bedrock will reject.
+                logger.warning(
+                    "max_tokens (%d) too small for thinking (min budget %d); "
+                    "disabling thinking for this request.",
+                    effective_max,
+                    self.MIN_THINKING_BUDGET,
+                )
+                return
+            if budget >= effective_max:
+                clamped = max(self.MIN_THINKING_BUDGET, effective_max - 1024)
+                logger.warning(
+                    "thinking_budget_tokens (%d) >= max_tokens (%d); clamping to %d",
+                    budget,
+                    effective_max,
+                    clamped,
+                )
+                budget = clamped
+            budget = max(budget, self.MIN_THINKING_BUDGET)
             think_config = {"thinking": {"type": "enabled", "budget_tokens": budget}}
             if is_cross_region:
                 config.setdefault("additional_model_request_fields", {}).update(
@@ -530,13 +566,12 @@ class BatchProcessor(BaseModel):
         show_progress: bool = True,
     ) -> list[Any]:
         logger.info("Processing %d items sequentially for '%s'", len(inputs), task_name)
-        results = []
+        results: list[Any] = []
         progress_desc = f"Sequential Processing: '{task_name}'"
         successful_count = 0
         for single_input in tqdm(inputs, desc=progress_desc, disable=not show_progress):
             try:
-                result = sequential_func(single_input)
-                results.append(result)
+                results.append(sequential_func(single_input))
                 successful_count += 1
             except Exception as e:
                 logger.error(
@@ -544,7 +579,11 @@ class BatchProcessor(BaseModel):
                     task_name,
                     e,
                 )
-                continue
+                # Append None (not skip) so the results list stays positionally
+                # aligned with inputs — callers zip results back onto their
+                # items and a dropped element would misattribute every result
+                # after it. Callers must treat None as "failed, no output".
+                results.append(None)
         logger.info(
             "Sequential processing completed for '%s': %d/%d items processed successfully",
             task_name,
@@ -553,136 +592,21 @@ class BatchProcessor(BaseModel):
         )
         return results
 
-    async def aexecute_with_fallback(
-        self,
-        items_to_process: list[Any],
-        prepare_inputs_func: Callable[[list[Any]], list[dict[str, Any]]],
-        batch_func: Callable[..., Any],
-        sequential_func: Callable[..., Any],
-        task_name: str,
-        run_config: dict[str, Any] | None = None,
-        show_progress: bool = True,
-    ) -> list[Any]:
-        if not items_to_process:
-            return []
-        max_concurrency = (
-            run_config.get("max_concurrency", self.max_concurrency)
-            if run_config
-            else self.max_concurrency
-        )
-        batch_size = (
-            run_config.get("batch_size", self.batch_size)
-            if run_config
-            else self.batch_size
-        )
-        prepared_batch_func = self._create_async_batch_func(batch_func, max_concurrency)
-        retrying_sequential_func = self._create_retry_decorator(task_name)(
-            sequential_func
-        )
-        all_results = []
-        num_items = len(items_to_process)
-        num_chunks = math.ceil(num_items / batch_size)
-        logger.info(
-            "Starting async processing for '%s': %d items in %d chunks (batch size: %d)",
-            task_name,
-            num_items,
-            num_chunks,
-            batch_size,
-        )
-        chunk_iterator = async_tqdm(
-            range(0, num_items, batch_size),
-            desc=f"Processing: {task_name}",
-            disable=not show_progress,
-        )
-        for i in chunk_iterator:
-            chunk_items = items_to_process[i : i + batch_size]
-            chunk_num = (i // batch_size) + 1
-            logger.debug(
-                "Processing chunk %d/%d (%d items)",
-                chunk_num,
-                num_chunks,
-                len(chunk_items),
-            )
-            chunk_inputs = prepare_inputs_func(chunk_items)
-            if not chunk_inputs:
-                logger.warning(
-                    "No valid inputs prepared for chunk %d, skipping", chunk_num
-                )
-                continue
-            try:
-                chunk_results = await prepared_batch_func(chunk_inputs)
-                all_results.extend(chunk_results)
-            except Exception as e:
-                logger.warning(
-                    "Async batch processing failed for chunk %d: %s. Falling back to concurrent sequential processing",
-                    chunk_num,
-                    e,
-                )
-                chunk_results = await self._aprocess_sequentially_with_fallback(
-                    chunk_inputs,
-                    retrying_sequential_func,
-                    f"{task_name} (chunk {chunk_num})",
-                    max_concurrency,
-                    show_progress,
-                )
-                all_results.extend(chunk_results)
-        logger.info("Completed '%s': processed %d results", task_name, len(all_results))
-        return all_results
-
-    @staticmethod
-    def _create_async_batch_func(
-        batch_func: Callable[..., Any], max_concurrency: int
-    ) -> Callable:
-        async def _batch_func(inputs: list[dict[str, Any]]) -> list[Any]:
-            return await batch_func(
-                inputs, config=RunnableConfig(max_concurrency=max_concurrency)
-            )
-
-        return _batch_func
-
-    @staticmethod
-    async def _aprocess_sequentially_with_fallback(
-        inputs: list[dict[str, Any]],
-        sequential_func: Callable[[dict[str, Any]], Any],
-        task_name: str,
-        max_concurrency: int,
-        show_progress: bool = True,
-    ) -> list[Any]:
-        logger.info("Processing %d items concurrently for '%s'", len(inputs), task_name)
-        semaphore = asyncio.Semaphore(max_concurrency)
-
-        async def _process_one(single_input):
-            async with semaphore:
-                try:
-                    return await sequential_func(single_input)
-                except Exception as e:
-                    logger.error(
-                        "Concurrent sequential processing failed for item in '%s': %s",
-                        task_name,
-                        e,
-                    )
-                    return None
-
-        tasks = [_process_one(single_input) for single_input in inputs]
-        progress_desc = f"Concurrent Fallback: '{task_name}'"
-        results = await async_tqdm.gather(
-            *tasks, disable=not show_progress, desc=progress_desc
-        )
-        successful_results = [res for res in results if res is not None]
-        logger.info(
-            "Concurrent sequential processing completed for '%s': %d/%d items processed successfully",
-            task_name,
-            len(successful_results),
-            len(inputs),
-        )
-        return successful_results
-
 
 class HTMLTagOutputParser(BaseOutputParser):
     tag_names: str | list[str]
+    # Tags that MUST be present and non-empty; if any is missing the parser
+    # raises OutputParserException so a wrapping OutputFixingParser actually
+    # triggers its repair model. Empty by default to preserve lenient behavior
+    # (the filter tolerates missing optional fields downstream).
+    required_tags: list[str] = Field(default_factory=list)
 
     def parse(self, text: str) -> str | dict[str, str]:
         if not text:
+            if self.required_tags:
+                raise OutputParserException(
+                    f"Empty model output; required tags missing: {self.required_tags}"
+                )
             return {} if isinstance(self.tag_names, list) else ""
         soup = BeautifulSoup(text, "html.parser")
         parsed: dict[str, str] = {}
@@ -695,6 +619,12 @@ class HTMLTagOutputParser(BaseOutputParser):
                     parsed[tag_name] = str(tag.decode_contents()).strip()
                 else:
                     parsed[tag_name] = str(tag).strip()
+        missing = [t for t in self.required_tags if not parsed.get(t)]
+        if missing:
+            raise OutputParserException(
+                f"Required tag(s) missing or empty in model output: {missing}. "
+                f"Got tags: {sorted(parsed)}"
+            )
         if isinstance(self.tag_names, list):
             return parsed
         return next(iter(parsed.values()), "")
@@ -739,11 +669,9 @@ def get_date_range(
     end_date_str: str | None, days_back: int
 ) -> tuple[datetime, datetime]:
     if end_date_str:
-        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(
-            tzinfo=timezone.utc
-        )
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
     else:
-        end_date = datetime.now(timezone.utc)
+        end_date = datetime.now(UTC)
     end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
     start_date = end_date - timedelta(days=days_back)
     return start_date, end_date

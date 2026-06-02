@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-type-test:
+    name: Lint, type-check & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Mypy type-check
+        # Run from inside app/ so the container import layout (`src`, `configs`)
+        # resolves to single module names (matches Dockerfile WORKDIR=/app).
+        working-directory: app
+        run: mypy src
+
+      - name: Run tests
+        run: pytest --cov=app --cov-report=term-missing --cov-report=xml -m "not live"
+
+      - name: Filtering eval harness (dry run — no AWS, no cost)
+        # Validates the eval set + analysis wiring stay healthy. The live
+        # scoring pass (real Bedrock, cost) is run manually, not in CI.
+        run: python scripts/eval_filtering.py
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  cdk-synth:
+    name: CDK synth (validate infra)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Node (for AWS CDK CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm install -g aws-cdk
+
+      - name: CDK synth (validates infra compiles; no AWS credentials needed)
+        run: cdk synth --quiet
+        env:
+          CDK_DEFAULT_ACCOUNT: "111111111111"
+          CDK_DEFAULT_REGION: "ap-northeast-2"
+          CDK_SYNTH_DUMMY_AZS: "1"
+          JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION: "1"
+          CONFIG_FILE_SUFFIX: ci

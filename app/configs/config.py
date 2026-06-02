@@ -38,6 +38,11 @@ class Resources(BaseModelWithDefaults):
 class Scraping(BaseModelWithDefaults):
     rss_urls: list[str]
     days_back: int = Field(default=7, ge=1)
+    # Minimum length of *visible* article text (markup stripped) for a post to
+    # be considered substantive enough to summarize. Posts below this are
+    # dropped during filtering so they never reach the summarizer, which would
+    # otherwise emit an empty/low-quality summary ("article too short").
+    min_content_length: int = Field(default=600, ge=0)
 
 
 class Summarization(BaseModelWithDefaults):
@@ -53,6 +58,14 @@ class Summarization(BaseModelWithDefaults):
     max_concurrency: int = Field(default=10, ge=1)
     min_score: float = Field(default=0.7, ge=0.0, le=1.0)
     max_posts: int | None = Field(default=None, ge=1)
+    # Extended-thinking budget (tokens) for the filtering/summarization models
+    # when *_enable_thinking is on. The model factory's hardcoded 2048 default
+    # is too small to meaningfully reason over a full article; expose it so it
+    # can be tuned per stage. Must be < the model's max output tokens.
+    filtering_thinking_budget_tokens: int = Field(default=4096, ge=1024)
+    summarization_thinking_budget_tokens: int = Field(default=8192, ge=1024)
+    # Optional cap on summary output tokens (None = use the model's maximum).
+    summarization_max_tokens: int | None = Field(default=None, ge=256)
 
 
 class Newsletter(BaseModelWithDefaults):
@@ -75,8 +88,8 @@ class Config(BaseModelWithDefaults):
     summarization: Summarization = Field(
         default_factory=lambda: Summarization(
             filtering_criteria=FilteringCriteria.ALL,
-            filtering_model_id=LanguageModelId.CLAUDE_V4_5_SONNET,
-            summarization_model_id=LanguageModelId.CLAUDE_V4_5_SONNET,
+            filtering_model_id=LanguageModelId.CLAUDE_V4_6_SONNET,
+            summarization_model_id=LanguageModelId.CLAUDE_V4_6_SONNET,
             greeting_model_id=LanguageModelId.CLAUDE_V4_5_HAIKU,
         )
     )

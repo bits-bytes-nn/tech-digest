@@ -14,9 +14,9 @@ from src import (
     AppConstants,
     EnvVars,
     SSMParams,
+    get_ssm_param_value,
     is_running_in_aws,
     logger,
-    get_ssm_param_value,
     submit_batch_job,
     validate_email,
     wait_for_batch_job_completion,
@@ -133,20 +133,19 @@ if __name__ == "__main__":
     end_date = args.end_date if args.end_date is not None else AppConstants.NULL_STRING
     language = args.language if args.language is not None else AppConstants.NULL_STRING
     recipients_str = AppConstants.NULL_STRING
-    if args.recipients:
-        if args.recipients[0].lower() != AppConstants.NULL_STRING:
-            valid_emails = [email for email in args.recipients if validate_email(email)]
-            if len(valid_emails) < len(args.recipients):
-                logger.warning(
-                    "Filtered out %d invalid email addresses",
-                    len(args.recipients) - len(valid_emails),
-                )
-            if valid_emails:
-                recipients_str = " ".join(valid_emails)
-            else:
-                logger.warning(
-                    "No valid email addresses provided, setting recipients to null."
-                )
+    if args.recipients and args.recipients[0].lower() != AppConstants.NULL_STRING:
+        valid_emails = [email for email in args.recipients if validate_email(email)]
+        if len(valid_emails) < len(args.recipients):
+            logger.warning(
+                "Filtered out %d invalid email addresses",
+                len(args.recipients) - len(valid_emails),
+            )
+        if valid_emails:
+            recipients_str = " ".join(valid_emails)
+        else:
+            logger.warning(
+                "No valid email addresses provided, setting recipients to null."
+            )
 
     try:
         main(

@@ -1,13 +1,16 @@
-FROM public.ecr.aws/ubuntu/ubuntu:22.04
+FROM public.ecr.aws/ubuntu/ubuntu:24.04
 
+# Ubuntu 24.04 ships Python 3.12, matching the project's requires-python.
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Seoul \
     LANG=ko_KR.UTF-8 \
-    LC_ALL=ko_KR.UTF-8
+    LC_ALL=ko_KR.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3.10 python3-pip \
+        python3 python3-pip python3-venv \
         wget gnupg2 ca-certificates \
         xvfb libxi6 libgconf-2-4 \
         locales language-pack-ko fontconfig \
@@ -22,13 +25,17 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Pin the Chrome binary so HtmlToImageConverter uses it directly and Selenium
+# Manager resolves the matching chromedriver without a flaky network download.
+ENV CHROME_BINARY=/usr/bin/google-chrome-stable
+
 COPY font-prefer.conf /etc/fonts/conf.d/64-language-selector-prefer.conf
 RUN fc-cache -fv
 
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN python3 -m pip install --no-cache-dir -r requirements.txt
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY . ./
 

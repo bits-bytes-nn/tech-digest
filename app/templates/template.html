@@ -3,6 +3,7 @@
 footer_partial %} {% import "main_contents.html" as main_partial %}
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html
+  lang="{{ data.language | default('ko') }}"
   xmlns="http://www.w3.org/1999/xhtml"
   xmlns:v="urn:schemas-microsoft-com:vml"
   xmlns:o="urn:schemas-microsoft-com:office:office"
@@ -12,12 +13,18 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
     <meta content="IE=edge" http-equiv="X-UA-Compatible" />
     <meta content="telephone=no" name="format-detection" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="supported-color-schemes" content="light dark" />
     <title>{{ data.header.title }}</title>
     <link
       href="https://fonts.googleapis.com/css?family=Roboto+Mono&display=swap"
       rel="stylesheet"
     />
     <style type="text/css">
+      :root {
+        color-scheme: light dark;
+        supported-color-schemes: light dark;
+      }
       body {
         margin: 0;
         padding: 0;
@@ -33,6 +40,9 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
         -ms-interpolation-mode: bicubic;
         max-width: 100% !important;
         height: auto !important;
+      }
+      a {
+        color: #ff9900;
       }
       table {
         border-collapse: collapse !important;
@@ -52,10 +62,51 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
         margin: 0 auto;
         text-align: center;
       }
+      /* Code blocks scroll horizontally instead of overflowing on mobile. */
+      pre {
+        overflow-x: auto !important;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
       @media only screen and (max-width: 800px) {
         .wrapper {
           width: 100% !important;
           max-width: 100% !important;
+        }
+        .card-title {
+          font-size: 1.5rem !important;
+        }
+        .td-padding {
+          padding: 14px !important;
+        }
+      }
+      /* Dark-mode: lift the cards and text for readability where supported. */
+      @media (prefers-color-scheme: dark) {
+        body,
+        .email-bg {
+          background-color: #1b2733 !important;
+        }
+        .card,
+        .card-1 {
+          background-color: #283543 !important;
+        }
+        .card-body,
+        .card-body * {
+          color: #e6edf3 !important;
+        }
+        .muted {
+          color: #9fb0c0 !important;
+        }
+        .tag-chip {
+          background-color: #3a4a5c !important;
+        }
+        .tag-chip span {
+          color: #cdd9e5 !important;
+        }
+        pre,
+        code {
+          background-color: #11181f !important;
+          color: #e6edf3 !important;
         }
       }
     </style>
@@ -68,6 +119,10 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
       border="0"
       bgcolor="#34495E"
       align="center"
+      class="email-bg"
+      role="article"
+      aria-roledescription="email"
+      aria-label="{{ data.header.title }}"
     >
       <div
         class="Gmail"
@@ -79,8 +134,9 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
           width: 800px !important;
         "
       ></div>
+      <!-- Preheader: inbox preview line. Uses the intro, falls back to title. -->
       <div style="display: none; max-height: 0; overflow: hidden">
-        {{ data.header.title }}
+        {{ (data.section.introduction | striptags | truncate(140)) if (data.section and data.section.introduction) else data.header.title }}
       </div>
       <div style="display: none; max-height: 0; overflow: hidden">
         &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;

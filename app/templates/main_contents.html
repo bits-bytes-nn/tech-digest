@@ -20,6 +20,7 @@
               cellspacing="0"
               width="100%"
               bgcolor="#FFFFFF"
+              class="card"
               style="
                 margin-bottom: 20px;
                 border-radius: 8px;
@@ -48,6 +49,8 @@
                               <td width="80" style="padding: 18px">
                                 <img
                                   src="{{ article.thumbnail }}"
+                                  width="80"
+                                  height="80"
                                   style="
                                     width: 80px;
                                     height: 80px;
@@ -55,7 +58,7 @@
                                     max-width: 100%;
                                     height: auto;
                                   "
-                                  alt="Thumbnail"
+                                  alt="{{ article.source|default('', true)|replace('_', ' ')|title }} logo"
                                 />
                               </td>
                               <td
@@ -66,6 +69,7 @@
                                 "
                               >
                                 <div
+                                  class="card-title card-body"
                                   style="
                                     font-weight: 700;
                                     font-family: 'Pretendard', 'Inter',
@@ -95,6 +99,7 @@
                                 "
                               >
                                 <div
+                                  class="muted"
                                   style="
                                     font-family: 'Pretendard', 'Inter',
                                       system-ui, sans-serif;
@@ -104,6 +109,23 @@
                                   "
                                 >
                                   Published on {{ article.published_date }}
+                                  {% if article.score is defined and article.score > 0 %}
+                                  <span
+                                    style="
+                                      display: inline-block;
+                                      margin-left: 8px;
+                                      padding: 2px 10px;
+                                      border-radius: 999px;
+                                      font-size: 0.8125rem;
+                                      font-weight: 700;
+                                      color: #ffffff;
+                                      background-color: #ff9900;
+                                      background: linear-gradient(135deg, #ff9900 0%, #ffb84d 100%);
+                                    "
+                                    title="Relevance score"
+                                    >★ {{ '%.2f' | format(article.score) }}</span
+                                  >
+                                  {% endif %}
                                 </div>
                               </td>
                             </tr>
@@ -120,6 +142,7 @@
                                 >
                                   {% for tag in article.tags %}
                                   <span
+                                    class="tag-chip"
                                     style="
                                       background-color: #e9ecef;
                                       padding: 4px 8px;
@@ -147,7 +170,7 @@
                       <tr>
                         <td
                           bgcolor="#FFFFFF"
-                          class="td-padding"
+                          class="td-padding card-body"
                           align="left"
                           style="
                             font-family: 'Pretendard', 'Inter', system-ui,
@@ -226,6 +249,7 @@
                                           border-radius: 4px;
                                           padding: 10px 20px;
                                           display: inline-block;
+                                          background-color: #ff9900;
                                           background: linear-gradient(
                                             135deg,
                                             #ff9900 0%,
@@ -263,7 +287,7 @@
                       <tr>
                         <td
                           bgcolor="#FFFFFF"
-                          class="td-padding"
+                          class="td-padding card-body"
                           align="left"
                           style="
                             font-family: 'Pretendard', 'Inter', system-ui,

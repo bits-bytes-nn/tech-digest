@@ -1,0 +1,146 @@
+[project]
+name = "tech-digest"
+version = "0.2.0"
+description = "Automated weekly AI tech blog digest newsletter powered by Amazon Bedrock."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+# Runtime dependencies are pinned in app/requirements.txt (container) and
+# requirements.txt (infra + dev). This table mirrors them for tooling that
+# reads PEP 621 metadata.
+dependencies = [
+    "beautifulsoup4>=4.12.2",
+    "boto3>=1.35.81",
+    "feedparser>=6.0.8",
+    "jinja2>=3.1.3",
+    "langchain>=1.2.4",
+    "langchain-aws>=1.2.2",
+    "langchain-classic>=1.0.1",
+    "langchain-core>=0.3.77",
+    "markdown>=3.4.1",
+    "pillow>=10.2.0",
+    "pydantic[email]>=2.10.3",
+    "python-dotenv>=1.0.1",
+    "pytz>=2023.3.post1",
+    "requests>=2.32.3",
+    "selenium>=4.30.0",
+    "tenacity>=8.2.2",
+    "tqdm>=4.65.0",
+    "webdriver-manager>=4.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+    "boto3-stubs[bedrock-runtime,s3,ses,sns,ssm,batch,sts]>=1.35.0",
+]
+
+[tool.setuptools]
+# This is an application, not an importable distribution; disable package
+# auto-discovery so `pip install -e .` does not choke on the mixed layout.
+py-modules = []
+
+# --------------------------------------------------------------------------- #
+# pytest
+# --------------------------------------------------------------------------- #
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+]
+markers = [
+    "unit: fast, isolated tests with no network or AWS access (default)",
+    "integration: tests that exercise multiple components together",
+    "live: tests that hit real external services (skipped in CI; opt-in)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:botocore.*",
+]
+
+# --------------------------------------------------------------------------- #
+# ruff
+# --------------------------------------------------------------------------- #
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = ["cdk.out", "logs", "outputs", "inputs", ".idea", ".run"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",   # line length handled by formatter
+    "B008",   # function calls in argument defaults (FastAPI/pydantic idiom)
+    "SIM108", # ternary not always clearer
+    # The following are stylistic modernizations with behavioral subtleties we
+    # deliberately opt out of: StrEnum changes __str__/auto() semantics, and
+    # PEP-695 `type`/generic syntax is a cosmetic rewrite. The code accesses
+    # enums via .value consistently, so the current form is correct and clear.
+    "UP040",  # non-PEP695 type alias (TypeAlias is fine)
+    "UP042",  # str+Enum vs StrEnum
+    "UP046",  # non-PEP695 Generic base
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011", "SIM"]
+# Long prompt strings, unicode punctuation, and declarative prompt-class
+# attributes (input/output_variables) that are class-level by design.
+"app/src/prompts/prompts.py" = ["E501", "RUF001", "RUF012"]
+# σ (sigma) is intentional in the report table header (standard deviation).
+"app/src/eval_metrics.py" = ["RUF001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "src", "configs"]
+
+# --------------------------------------------------------------------------- #
+# mypy
+# --------------------------------------------------------------------------- #
+[tool.mypy]
+python_version = "3.12"
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+ignore_missing_imports = true
+# The app uses a dual import layout (`app.src` from the repo root, bare `src`
+# inside the container). Run mypy from inside `app/` (`cd app && mypy .`, as CI
+# does) so files resolve under a single module root and are not seen twice.
+explicit_package_bases = true
+namespace_packages = true
+exclude = ["cdk.out/", "logs/", "outputs/", "inputs/", "tests/"]
+
+[[tool.mypy.overrides]]
+module = ["feedparser.*", "webdriver_manager.*", "markdown.*", "requests.*"]
+ignore_missing_imports = true
+
+# feed_parser walks dynamically-typed BeautifulSoup/feedparser DOM nodes whose
+# stubs over-approximate attribute types (Tag | None, str | AttributeValueList).
+# The runtime guards are correct; silence the unavoidable DOM-typing noise here
+# rather than littering the scrapers with per-line ignores.
+[[tool.mypy.overrides]]
+module = ["src.feed_parser"]
+disable_error_code = ["union-attr", "assignment", "type-var", "misc"]
+
+# utils builds boto3 clients dynamically; boto3-stubs' Literal service-name
+# overloads reject the runtime-computed service string.
+[[tool.mypy.overrides]]
+module = ["src.utils"]
+disable_error_code = ["call-overload"]
