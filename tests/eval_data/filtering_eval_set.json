@@ -1,0 +1,47 @@
+{
+  "description": "Small labeled eval set for filtering-score behavior. Each item has synthetic-but-representative content and an expected coarse band (high/strong/moderate/weak/reject). Used by scripts/eval_filtering.py to measure determinism, grid adherence, and band alignment. Expected bands were calibrated against a live Sonnet 4.6 run (2026-06, thinking OFF): the tuned rubric is stricter than first-guess labels (e.g. a pure vendor click-through tutorial scores 'reject', a no-novelty educational recap scores 'weak'). Extend with real article excerpts as needed.",
+  "criteria": "all",
+  "included_topics": [
+    "Foundation Model Releases (e.g., GPT, Claude, Gemini, Grok)",
+    "Major Product/Service/Feature Launches Using Foundation Models"
+  ],
+  "excluded_topics": ["Biology", "Healthcare", "Robotics"],
+  "articles": [
+    {
+      "id": "included-foundation-model-release",
+      "expected_band": "high",
+      "title": "Introducing Claude 4.6: A New Frontier Foundation Model",
+      "content": "Today we release Claude 4.6, a new foundation model. This post is a primary, in-depth account of the release: the model's architecture (a sparse mixture-of-experts transformer with 64 routed experts), the training recipe (a three-stage curriculum of pretraining, mid-training on synthetic reasoning traces, and RLHF), and benchmark results across MMLU, GPQA, and SWE-bench. We detail the new 1M-token context window, the adaptive-thinking mechanism that dynamically allocates reasoning tokens, and the inference-time routing that cuts cost by 40%. Foundation model releases like this are the core focus throughout. We include ablations showing each training stage's contribution, latency/throughput curves, and a discussion of safety evaluations. The release is the primary subject of the entire article, covered with expert depth and novel architectural detail."
+    },
+    {
+      "id": "strong-empirical-study",
+      "expected_band": "strong",
+      "title": "A Rigorous Empirical Study of Retrieval-Augmented Generation Latency",
+      "content": "We present a careful empirical study of latency in retrieval-augmented generation systems. Across 12 configurations we measure end-to-end latency, recall@k, and answer faithfulness, with statistical significance testing and confidence intervals. The work offers a clear, well-validated incremental contribution: a caching strategy for vector lookups that reduces p99 latency by 30% with no measurable recall loss. We compare against three baselines, provide reproducible code, and analyze failure cases. The study is solid and insightful though not groundbreaking; it is a strong comparative evaluation rather than a novel theoretical advance."
+    },
+    {
+      "id": "moderate-educational",
+      "expected_band": "weak",
+      "title": "Understanding Attention: An Educational Walkthrough",
+      "content": "This educational post explains the attention mechanism for readers new to transformers. It walks through query-key-value projections, scaled dot-product attention, and multi-head attention with worked numeric examples and diagrams. The content is clear and pedagogically useful with some fresh framing, but it covers well-established material and offers limited novelty. It is implementation-and-explanation focused with modest research context, suitable as a learning resource rather than a research contribution."
+    },
+    {
+      "id": "weak-vendor-tutorial",
+      "expected_band": "reject",
+      "title": "How to Deploy a Model on Our Platform in 5 Steps",
+      "content": "This tutorial shows how to click through our cloud console to deploy a pretrained model endpoint. Step 1: create an account. Step 2: upload your model artifact. Step 3: pick an instance type. Step 4: click deploy. Step 5: call the REST endpoint. The post is a basic vendor-specific how-to with minimal machine-learning insight; it does not discuss model internals, training, or evaluation. It is mostly platform navigation with superficial ML coverage."
+    },
+    {
+      "id": "reject-non-ml-marketing",
+      "expected_band": "reject",
+      "title": "Why Our Company Culture Makes Us Great",
+      "content": "Our company was founded on the belief that people come first. In this post our CEO shares the story of our annual offsite retreat, our commitment to work-life balance, and the new espresso machines in the break room. We also announce our updated brand colors and a redesigned logo. There is no machine-learning, research, or technical content here; this is a promotional culture-and-marketing piece."
+    },
+    {
+      "id": "reject-excluded-topic",
+      "expected_band": "reject",
+      "title": "Deep Learning for Protein Folding in Drug Discovery",
+      "content": "This article applies deep learning to protein structure prediction for pharmaceutical drug discovery, a healthcare and biology application. While it uses neural networks, the entire focus is on biological molecular dynamics, wet-lab validation of candidate compounds, and clinical relevance — squarely within the excluded Biology and Healthcare topics. The ML method is incidental to a biology/healthcare subject that is explicitly excluded."
+    }
+  ]
+}
