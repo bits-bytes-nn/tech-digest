@@ -17,41 +17,48 @@ scraping:
     - "https://www.amazon.science/index.rss"
     - "https://www.anthropic.com/news"
     - "https://aws.amazon.com/blogs/amazon-ai/feed/"
-    - "https://www.deepmind.com/blog/rss.xml"
+    - "https://deepmind.google/blog/rss.xml" # was www.deepmind.com/blog/rss.xml (302 redirect)
     - "https://research.google/blog"
     - "https://huggingface.co/blog/feed.xml"
     - "https://tech.kakao.com/feed/"
     - "https://www.linkedin.com/blog/engineering"
     - "https://ai.meta.com/blog/"
-    - "https://code.facebook.com/posts/rss"
-    - "http://research.microsoft.com/rss/news.xml"
-    - "https://ncsoft.github.io/ncresearch/feed.xml"
-    - "http://techblog.netflix.com/feeds/posts/default"
-    - "http://developer.nvidia.com/blog/feed"
+    - "https://engineering.fb.com/feed/" # was code.facebook.com/posts/rss (301 redirect)
+    - "https://www.microsoft.com/en-us/research/blog/feed/" # was research.microsoft.com/rss/news.xml (301 redirect)
+    - "https://medium.com/feed/netflix-techblog" # was techblog.netflix.com (301 redirect to Medium)
+    - "https://developer.nvidia.com/blog/feed"
     - "https://openai.com/news/rss.xml"
     - "https://medium.com/feed/@palantir"
     - "https://medium.com/feed/@Pinterest_Engineering"
     - "https://qwenlm.github.io/blog/"
     - "https://x.ai/news"
     - "https://eugeneyan.com/rss/"
-    - "https://huyenchip.com/feed.xml"
-    - "http://sebastianraschka.com/rss_feed.xml"
+    - "https://sebastianraschka.com/rss_feed.xml"
     - "https://www.philschmid.de/rss"
   days_back: 7
+  # Minimum visible-text length (markup stripped) for a post to be summarized.
+  # Posts below this are reported as filtered-out, not summarized.
+  min_content_length: 600
 
 summarization:
   use_filtering: True
   filtering_criteria: all
   included_topics: # list of included topics
   excluded_topics: # list of excluded topics
-  filtering_model_id: anthropic.claude-sonnet-4-5-20250929-v1:0
+  filtering_model_id: anthropic.claude-sonnet-4-6
   filtering_enable_thinking: False
-  summarization_model_id: anthropic.claude-sonnet-4-5-20250929-v1:0
+  summarization_model_id: anthropic.claude-sonnet-4-6
   summarization_enable_thinking: False
   greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
   max_concurrency: 5
   min_score: 0.8
   max_posts: 5
+  # Extended-thinking budgets (tokens), used only when *_enable_thinking is True.
+  # Must be >= 1024 and < the model's max output tokens (auto-clamped otherwise).
+  filtering_thinking_budget_tokens: 4096
+  summarization_thinking_budget_tokens: 8192
+  # Optional cap on summary output tokens (blank = use the model's maximum).
+  summarization_max_tokens:
 
 newsletter:
   send_emails: True

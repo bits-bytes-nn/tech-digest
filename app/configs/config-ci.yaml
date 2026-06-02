@@ -1,0 +1,35 @@
+# CI-only config used by `cdk synth` in GitHub Actions to validate that the
+# infrastructure compiles. Values are dummy placeholders, not real resources.
+resources:
+  project_name: tech-digest
+  stage: dev
+  default_region_name: ap-northeast-2
+  bedrock_region_name: us-west-2
+  s3_bucket_name: tech-digest-ci-placeholder-bucket
+  s3_prefix: tech-digest
+  # Lambda mode synthesizes without AWS context lookups (the Batch EC2 path
+  # needs AMI/context lookups that require credentials); CI validates the
+  # Lambda stack. The Batch path is exercised by unit tests and real deploys.
+  lambda_or_batch: lambda
+  cron_expression: "cron(0 1 ? * 6 *)"
+
+scraping:
+  rss_urls:
+    - "https://openai.com/news/rss.xml"
+  days_back: 7
+  min_content_length: 600
+
+summarization:
+  use_filtering: True
+  filtering_criteria: all
+  filtering_model_id: anthropic.claude-sonnet-4-6
+  summarization_model_id: anthropic.claude-sonnet-4-6
+  greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
+  max_concurrency: 5
+  min_score: 0.7
+  max_posts: 3
+
+newsletter:
+  send_emails: False
+  sender: "ci@example.com"
+  header_title: "Weekly AI Tech Blog Digest"

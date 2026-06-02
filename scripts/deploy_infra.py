@@ -8,14 +8,32 @@ from aws_cdk import (
     Duration,
     Stack,
     Tags,
+)
+from aws_cdk import (
     aws_batch as batch,
+)
+from aws_cdk import (
     aws_ec2 as ec2,
+)
+from aws_cdk import (
     aws_ecs as ecs,
+)
+from aws_cdk import (
     aws_events as events,
+)
+from aws_cdk import (
     aws_iam as iam,
+)
+from aws_cdk import (
     aws_lambda as lambda_,
+)
+from aws_cdk import (
     aws_sns as sns,
+)
+from aws_cdk import (
     aws_sns_subscriptions as subscriptions,
+)
+from aws_cdk import (
     aws_ssm as ssm,
 )
 from aws_cdk.aws_ecr_assets import DockerImageAsset, Platform
@@ -35,6 +53,7 @@ class NewsletterStack(Stack):
         *,
         project_name: str,
         stage: str = "dev",
+        s3_bucket_name: str = "",
         vpc_id: str | None = None,
         subnet_ids: list[str] | None = None,
         lambda_or_batch: str = "lambda",
@@ -49,8 +68,19 @@ class NewsletterStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
+        if not s3_bucket_name:
+            # Fail closed: an empty bucket name would otherwise scope the S3
+            # IAM policy to arn:aws:s3:::* (every bucket in the account).
+            raise ValueError(
+                "s3_bucket_name is required to scope the S3 IAM policy; "
+                "set resources.s3_bucket_name in the config."
+            )
         self.project_name = project_name
         self.stage = stage
+        self._bucket_name = s3_bucket_name
+        self._bedrock_region = bedrock_region_name or "us-west-2"
+        # The SES sender identity to scope send permissions to (operator email).
+        self._sender = (email_addresses or [None])[0]
         self.lambda_or_batch = lambda_or_batch
         self._add_tags(scope)
 
@@ -79,6 +109,15 @@ class NewsletterStack(Stack):
         self._store_ssm_parameters(
             langchain_api_key, job_queue_name, job_definition_name
         )
+
+    @property
+    def availability_zones(self) -> list[str]:
+        # When synthesizing without AWS credentials (CI validation), return
+        # deterministic AZs so VPC creation doesn't trigger an account lookup.
+        # Real deploys have credentials and use the default lookup.
+        if os.environ.get("CDK_SYNTH_DUMMY_AZS"):
+            return [f"{self.region}a", f"{self.region}c"]
+        return super().availability_zones
 
     def _get_resource_name(self, suffix: str) -> str:
         return f"{self.project_name}-{self.stage}-{suffix}"
@@ -136,45 +175,135 @@ class NewsletterStack(Stack):
         return sg
 
     def _create_iam_role(self) -> iam.Role:
-        base_policies = [
-            "AmazonS3FullAccess",
-            "AmazonSESFullAccess",
-            "AmazonSNSFullAccess",
-            "AmazonSSMFullAccess",
-            "AmazonBedrockFullAccess",
-        ]
+        # Least-privilege (AWS Well-Architected, Security pillar): instead of
+        # broad *FullAccess managed policies, grant only the specific actions
+        # the application performs, scoped to this stack's resources. The only
+        # AWS-managed policies retained are the service-execution roles that
+        # are required by the runtime itself (Lambda exec / ECS-on-EC2 agent).
         if self.lambda_or_batch == "lambda":
-            service_principal = iam.ServicePrincipal("lambda.amazonaws.com")
-            additional_policies = [
-                "service-role/AWSLambdaBasicExecutionRole",
-                "service-role/AWSLambdaVPCAccessExecutionRole",
+            service_principal: iam.IPrincipal = iam.ServicePrincipal(
+                "lambda.amazonaws.com"
+            )
+            managed_policies = [
+                iam.ManagedPolicy.from_aws_managed_policy_name(name)
+                for name in (
+                    "service-role/AWSLambdaBasicExecutionRole",
+                    "service-role/AWSLambdaVPCAccessExecutionRole",
+                )
             ]
         else:
             service_principal = iam.CompositePrincipal(
                 iam.ServicePrincipal("ec2.amazonaws.com"),
                 iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
             )
-            additional_policies = [
-                "AmazonEC2FullAccess",
-                "AmazonECS_FullAccess",
-                "AWSBatchFullAccess",
-                "CloudWatchLogsFullAccess",
+            # Required for the Batch EC2 compute environment to register with
+            # ECS and pull container images; this is the AWS-recommended
+            # scoped instance role, not a *FullAccess policy.
+            managed_policies = [
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AmazonEC2ContainerServiceforEC2Role"
+                )
             ]
 
-        all_policies = base_policies + additional_policies
-        managed_policies = [
-            iam.ManagedPolicy.from_aws_managed_policy_name(name)
-            for name in all_policies
-        ]
-
-        return iam.Role(
+        role = iam.Role(
             self,
             "NewsletterRole",
             assumed_by=service_principal,
-            description="IAM role for Newsletter",
+            description="Least-privilege IAM role for Tech Digest Newsletter",
             managed_policies=managed_policies,
             role_name=self._get_resource_name("newsletter"),
         )
+        for statement in self._app_policy_statements():
+            role.add_to_policy(statement)
+        return role
+
+    def _app_policy_statements(self) -> list[iam.PolicyStatement]:
+        """Scoped permissions for the application's actual AWS operations."""
+        region = self.region
+        account = self.account
+        bucket_arn = f"arn:aws:s3:::{self._bucket_name}"
+        param_arn = (
+            f"arn:aws:ssm:{region}:{account}:parameter/"
+            f"{self.project_name}/{self.stage}/*"
+        )
+        return [
+            # S3: read config/recipients, write newsletters/articles — object
+            # actions on the bucket, plus ListBucket on the bucket itself.
+            iam.PolicyStatement(
+                actions=["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                resources=[f"{bucket_arn}/*"],
+            ),
+            iam.PolicyStatement(
+                actions=["s3:ListBucket", "s3:GetBucketLocation"],
+                resources=[bucket_arn],
+            ),
+            # SES: deliver the newsletter, restricted (via FromAddress) to the
+            # configured sender so the role cannot send as arbitrary identities.
+            iam.PolicyStatement(
+                actions=["ses:SendRawEmail", "ses:SendEmail"],
+                resources=["*"],  # SES identity ARNs are account/region-specific
+                conditions=(
+                    {"StringEquals": {"ses:FromAddress": self._sender}}
+                    if self._sender
+                    else None
+                ),
+            ),
+            # SNS: publish run/health notifications to this stack's topic.
+            iam.PolicyStatement(
+                actions=["sns:Publish"],
+                resources=[
+                    f"arn:aws:sns:{region}:{account}:"
+                    f"{self._get_resource_name('newsletter')}"
+                ],
+            ),
+            # SSM: read this project's parameters (e.g. LangChain API key).
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter", "ssm:GetParameters"],
+                resources=[param_arn],
+            ),
+            # Bedrock: invoke Claude models, including via cross-region
+            # inference profiles. A cross-region profile (us./apac./global.)
+            # fans the underlying InvokeModel out to MULTIPLE regions, so the
+            # foundation-model resource MUST span regions or invocation hits
+            # AccessDenied when the profile routes to a region not listed.
+            # foundation-model ARNs are AWS-owned (no account id); the
+            # meaningful restriction is the Anthropic model namespace, with a
+            # region wildcard. The account-scoped inference-profile ARNs remain
+            # the access-controlled resource.
+            iam.PolicyStatement(
+                actions=[
+                    "bedrock:InvokeModel",
+                    "bedrock:InvokeModelWithResponseStream",
+                ],
+                resources=[
+                    "arn:aws:bedrock:*::foundation-model/anthropic.*",
+                    f"arn:aws:bedrock:*:{account}:inference-profile/*",
+                ],
+            ),
+            iam.PolicyStatement(
+                actions=[
+                    "bedrock:ListInferenceProfiles",
+                    "bedrock:GetInferenceProfile",
+                ],
+                resources=["*"],  # profile discovery is an account-level action
+            ),
+            # CloudWatch Logs: Batch container logging (Lambda gets this from
+            # its managed exec role). Scoped to this project's Batch log groups.
+            iam.PolicyStatement(
+                actions=[
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                ],
+                resources=[
+                    f"arn:aws:logs:{region}:{account}:log-group:/aws/batch/*",
+                    f"arn:aws:logs:{region}:{account}:log-group:"
+                    f"/aws/batch/*:log-stream:*",
+                    f"arn:aws:logs:{region}:{account}:log-group:"
+                    f"{self.project_name}-{self.stage}*",
+                ],
+            ),
+        ]
 
     def _create_sns_topic(self, email_addresses: list[str] | None) -> sns.Topic:
         topic = sns.Topic(
@@ -405,7 +534,17 @@ def main() -> None:
         boto_session = boto3.Session(
             region_name=config.resources.default_region_name, profile_name=profile_name
         )
-        account_id = get_account_id(boto_session)
+        # Resolve the account from STS, falling back to CDK_DEFAULT_ACCOUNT when
+        # no credentials are available (e.g. `cdk synth` validation in CI).
+        try:
+            account_id = get_account_id(boto_session)
+        except Exception:
+            account_id = os.environ.get("CDK_DEFAULT_ACCOUNT")
+            if not account_id:
+                raise
+            logger.warning(
+                "STS unavailable; using CDK_DEFAULT_ACCOUNT=%s for synth", account_id
+            )
 
         env_vars = {
             key.value: os.environ.get(key.value, default)
@@ -435,6 +574,7 @@ def main() -> None:
             f"Newsletter{config.resources.stage.capitalize()}Stack",
             project_name=config.resources.project_name,
             stage=config.resources.stage,
+            s3_bucket_name=config.resources.s3_bucket_name,
             vpc_id=config.resources.vpc_id,
             subnet_ids=config.resources.subnet_ids,
             lambda_or_batch=config.resources.lambda_or_batch,
