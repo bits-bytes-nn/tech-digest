@@ -12,7 +12,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv \
         wget gnupg2 ca-certificates \
-        xvfb libxi6 libgconf-2-4 \
+        xvfb libxi6 \
         locales language-pack-ko fontconfig \
         fonts-nanum* fonts-noto-cjk fonts-noto-color-emoji \
         git && \

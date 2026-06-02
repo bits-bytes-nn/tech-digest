@@ -144,3 +144,10 @@ disable_error_code = ["union-attr", "assignment", "type-var", "misc"]
 [[tool.mypy.overrides]]
 module = ["src.utils"]
 disable_error_code = ["call-overload"]
+
+# Prompt subclasses declare the dataclass fields (input/output_variables,
+# templates) as class attributes; get_prompt reads them off the class object,
+# which is correct at runtime but mypy flags as instance-only access.
+[[tool.mypy.overrides]]
+module = ["src.prompts.prompts"]
+disable_error_code = ["misc"]
