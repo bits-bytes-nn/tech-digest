@@ -560,6 +560,8 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 - Make technical explanations accessible but accurate
 - Write content in Korean, translating technical terms when possible
 - Keep technical terms in English only when translation would be awkward or unclear
+- End Korean sentences with a period (.), never a colon (:). Korean prose does not
+  terminate a sentence with a colon — use a colon only to introduce a list or example
 
 **CRITICAL REMINDERS:**
 ❌ DO NOT speculate about information not in the article

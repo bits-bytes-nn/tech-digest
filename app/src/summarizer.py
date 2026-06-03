@@ -1,8 +1,11 @@
 import re
+from html import escape
 from typing import Any, ClassVar
+from urllib.parse import urlparse
 
 import boto3
 import markdown
+from bs4 import BeautifulSoup
 from langchain_aws import ChatBedrockConverse
 from langchain_classic.output_parsers import OutputFixingParser
 from langchain_core.runnables import Runnable
@@ -40,6 +43,61 @@ class SummarizerConfig:
         "toc",
     ]
     MAX_TAGS: ClassVar[int] = 5
+    # HTML sanitization allow-list for the model-generated summary, which is
+    # rendered with Jinja ``| safe`` (autoescape off). Only these structural and
+    # inline tags survive; everything else (notably <script>, <style>, <iframe>,
+    # event-handler attributes, javascript: URLs) is stripped. The tag set
+    # mirrors what the summarization prompt is instructed to emit.
+    ALLOWED_HTML_TAGS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "a",
+            "b",
+            "blockquote",
+            "br",
+            "code",
+            "col",
+            "colgroup",
+            "del",
+            "div",
+            "em",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "hr",
+            "i",
+            "img",
+            "li",
+            "ol",
+            "p",
+            "pre",
+            "span",
+            "strong",
+            "sub",
+            "sup",
+            "table",
+            "tbody",
+            "td",
+            "tfoot",
+            "th",
+            "thead",
+            "tr",
+            "ul",
+        }
+    )
+    # Attributes kept per tag; all others are dropped (this removes on*= handlers,
+    # style, etc.). href/src additionally pass a scheme check below.
+    ALLOWED_HTML_ATTRS: ClassVar[dict[str, frozenset[str]]] = {
+        "a": frozenset({"href", "title"}),
+        "img": frozenset({"src", "alt", "title"}),
+        "code": frozenset({"class"}),
+        "pre": frozenset({"class"}),
+        "table": frozenset({"class"}),
+        "td": frozenset({"colspan", "rowspan"}),
+        "th": frozenset({"colspan", "rowspan"}),
+    }
 
 
 def _normalize_tags(tags_input: Any) -> list[str]:
@@ -53,37 +111,123 @@ def _normalize_tags(tags_input: Any) -> list[str]:
     return tags
 
 
-# Deterministic, declarative summary fix-ups. Kept as an explicit, documented
-# map (rather than chained inline .replace() calls) so each correction states
-# its intent and new ones can be added without touching control flow.
-_SUMMARY_REPLACEMENTS: dict[str, str] = {
-    # The model occasionally ends a Korean sentence with a colon where a period
-    # is correct ("...합니다:" -> "...합니다.").
-    "다:": "다.",
-    "요:": "요.",
-    # Normalize a known source-URL variant to its canonical host.
+# Korean sentence-ending verb syllables the model sometimes terminates with a
+# colon instead of a period ("...합니다:" -> "...합니다."). Korean prose does not
+# end a sentence with a colon, so a colon right after one of these syllables is
+# always a mistake — but ONLY when it actually ends the sentence.
+_KO_SENTENCE_END_SYLLABLES = "다요죠"
+
+# Match a sentence-ending syllable + colon ONLY at a real clause boundary: the
+# colon must be followed by markup (</p>, </li>, <br>, ...) or end-of-string.
+# This is the key difference from a blind ``"다:" -> "다."`` replace, which also
+# corrupts legitimate list-introducing colons (e.g. "결과는 다음과 같습니다: 첫째").
+# Post-processing runs AFTER markdown->HTML, so a terminal colon is always
+# followed by a closing tag; an introducing colon is followed by text.
+_KO_TERMINAL_COLON = re.compile(rf"([{_KO_SENTENCE_END_SYLLABLES}]):(?=\s*(?:<|$))")
+
+# Host aliases: a source occasionally surfaces under a CDN/subdomain variant
+# that should be normalized to its canonical host in rendered links. These are
+# genuine per-host facts (not heuristics), so they live in an explicit map.
+_HOST_ALIASES: dict[str, str] = {
     "magazine.sebastianraschka": "sebastianraschka",
 }
 
 
 def _postprocess_summary(summary: str) -> str:
-    for old, new in _SUMMARY_REPLACEMENTS.items():
-        summary = summary.replace(old, new)
+    summary = _KO_TERMINAL_COLON.sub(r"\1.", summary)
+    for variant, canonical in _HOST_ALIASES.items():
+        summary = summary.replace(variant, canonical)
     return summary
 
 
+# Only these URL schemes may appear in a rendered <a href>. The summary fields
+# are emitted by the LLM and rendered with Jinja's ``| safe`` (autoescape off),
+# so an unchecked href like ``javascript:...`` or ``data:...`` would execute /
+# phish. Anything not on this list is dropped.
+_SAFE_URL_SCHEMES: frozenset[str] = frozenset({"http", "https", "mailto"})
+
+
+def _is_safe_url(url: str) -> bool:
+    """True only for absolute URLs whose scheme is explicitly allow-listed.
+
+    Rejects ``javascript:``, ``data:``, ``vbscript:``, scheme-relative ``//evil``
+    and bare/relative strings — none of which belong in a trusted outbound link.
+    """
+    try:
+        scheme = urlparse(url.strip()).scheme.lower()
+    except (ValueError, AttributeError):
+        return False
+    return scheme in _SAFE_URL_SCHEMES
+
+
+def _safe_anchor(url: str, text: str) -> str:
+    """Build an <a> tag with both href and text HTML-escaped."""
+    return f'<a href="{escape(url.strip(), quote=True)}">{escape(text.strip())}</a>'
+
+
 def _normalize_urls(urls_input: Any) -> list[str]:
-    urls = []
+    # Each entry becomes a sanitized <a> tag; entries whose URL is missing or
+    # uses a non-allow-listed scheme are dropped rather than rendered.
     if isinstance(urls_input, str):
         markdown_links = re.findall(r"\[(.*?)]\((.*?)\)", urls_input)
         if markdown_links:
-            return [f'<a href="{url}">{desc}</a>' for desc, url in markdown_links]
-        urls = [url.strip() for url in urls_input.split(",") if url.strip()]
+            return [
+                _safe_anchor(url, desc)
+                for desc, url in markdown_links
+                if _is_safe_url(url)
+            ]
+        raw_items = [url.strip() for url in urls_input.split(",") if url.strip()]
     elif isinstance(urls_input, list):
-        for item in urls_input:
-            if isinstance(item, str):
-                urls.append(item.strip())
-    return urls
+        raw_items = [item.strip() for item in urls_input if isinstance(item, str)]
+    else:
+        return []
+
+    sanitized: list[str] = []
+    for item in raw_items:
+        # An item may already be an <a> tag (the prompt asks for HTML links) or a
+        # bare URL. Parse out href/text, validate the scheme, re-emit escaped.
+        if "<a" in item.lower():
+            anchor = BeautifulSoup(item, "html.parser").find("a")
+            # bs4's .get may return a list for multi-valued attrs; coerce to str.
+            href = str(anchor.get("href", "")) if anchor else ""
+            text = anchor.get_text(strip=True) if anchor else ""
+            if _is_safe_url(href):
+                sanitized.append(_safe_anchor(href, text or href))
+        elif _is_safe_url(item):
+            sanitized.append(_safe_anchor(item, item))
+    return sanitized
+
+
+def _sanitize_html(html: str) -> str:
+    """Strip disallowed tags/attributes from model-generated summary HTML.
+
+    The summary is rendered with Jinja ``| safe``, so it is a trust boundary:
+    the LLM (and, transitively, scraped source content it may echo) must not be
+    able to inject <script>, event handlers, or javascript:/data: URLs into the
+    outbound email. Unknown tags are unwrapped (their text is kept); disallowed
+    attributes and unsafe href/src schemes are removed.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in list(soup.find_all(True)):
+        name = tag.name.lower()
+        if name not in SummarizerConfig.ALLOWED_HTML_TAGS:
+            # Drop script/style content entirely; otherwise keep inner text.
+            if name in ("script", "style"):
+                tag.decompose()
+            else:
+                tag.unwrap()
+            continue
+        allowed = SummarizerConfig.ALLOWED_HTML_ATTRS.get(name, frozenset())
+        for attr in list(tag.attrs):
+            if attr.lower() not in allowed:
+                del tag[attr]
+            elif attr.lower() in ("href", "src") and not _is_safe_url(
+                str(tag.get(attr, ""))
+            ):
+                # Allow-listed attribute but unsafe scheme — drop the whole tag's
+                # link rather than leave a javascript:/data: payload.
+                del tag[attr]
+    return str(soup)
 
 
 class SummaryOutput(BaseModel):
@@ -103,7 +247,9 @@ class SummaryOutput(BaseModel):
             )
             for old, new in SummarizerConfig.HTML_REPLACEMENTS.items():
                 html = html.replace(old, new)
-            return html
+            # Sanitize AFTER the class-injecting replacements so the allow-listed
+            # class attributes (code/pre/table) survive the attribute filter.
+            return _sanitize_html(html)
         except Exception as e:
             logger.error("Error converting markdown to HTML: %s", e)
             return v
@@ -111,7 +257,10 @@ class SummaryOutput(BaseModel):
     @field_validator("tags", mode="before")
     def _validate_tags(cls, v: Any) -> list[str]:
         tags = _normalize_tags(v)
-        unique_tags = sorted(set(tags))
+        # Keep the model's ordering (it lists tags most-relevant-first) while
+        # de-duplicating; alphabetical sorting would drop important tags purely
+        # because they sort late. dict.fromkeys preserves first-seen order.
+        unique_tags = list(dict.fromkeys(tags))
         return (
             unique_tags[: SummarizerConfig.MAX_TAGS]
             if unique_tags

@@ -5,6 +5,7 @@ from typing import Any, Literal
 import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic_core import PydanticUndefined
 
 from app.src import EnvVars, FilteringCriteria, LanguageModelId
 
@@ -12,9 +13,23 @@ from app.src import EnvVars, FilteringCriteria, LanguageModelId
 class BaseModelWithDefaults(BaseModel):
     @model_validator(mode="before")
     def set_defaults_for_none_fields(cls, values: dict[str, Any]) -> dict[str, Any]:
+        # Treat an explicit ``null`` in the YAML the same as an omitted key, so a
+        # field's declared default (or default_factory) takes effect instead of
+        # leaking None into a non-Optional field. Handle BOTH default forms:
+        # ``field.default`` for plain defaults and ``field.default_factory`` for
+        # factory defaults (e.g. list/dict fields) — the latter was previously
+        # ignored, so ``rss_urls: null`` would surface None instead of [].
+        if not isinstance(values, dict):
+            return values
         for field_name, field in cls.model_fields.items():
-            if values.get(field_name) is None and field.default is not None:
+            # Only act when the key is present AND explicitly None; an omitted
+            # key is left for pydantic to default normally.
+            if field_name not in values or values.get(field_name) is not None:
+                continue
+            if field.default is not None and field.default is not PydanticUndefined:
                 values[field_name] = field.default
+            elif field.default_factory is not None:
+                values[field_name] = field.default_factory()  # type: ignore[call-arg]
         return values
 
 
@@ -42,6 +57,17 @@ class Scraping(BaseModelWithDefaults):
     # be considered substantive enough to summarize. Posts below this are
     # dropped during filtering so they never reach the summarizer, which would
     # otherwise emit an empty/low-quality summary ("article too short").
+    #
+    # Rationale for 600: an RSS teaser / link-blog stub is typically 1-3 short
+    # paragraphs (~300-500 visible chars); a real article with enough substance
+    # to summarize meaningfully reliably clears ~600. It is intentionally a
+    # CHARACTER count (not tokens) for speed and dependency-freedom.
+    #
+    # KNOWN BIAS: character counting under-counts information density for CJK
+    # languages (Korean/Chinese/Japanese express the same content in far fewer
+    # characters than English). Sources like kakao, ncsoft and qwen can thus be
+    # gated more aggressively than English sources at the same threshold. If you
+    # crawl primarily CJK sources, lower this (e.g. 300-400) per stage.
     min_content_length: int = Field(default=600, ge=0)
 
 

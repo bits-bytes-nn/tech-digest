@@ -1,5 +1,6 @@
 # NOTE: If there is no RSS feed available, you need to create a custom scraper here
 
+import ipaddress
 import re
 import socket
 import time
@@ -19,6 +20,36 @@ from requests.exceptions import RequestException
 
 from .constants import AppConstants
 from .logger import logger
+
+# Cap on redirects we will follow per request. Bounds redirect-chain abuse and
+# keeps a misbehaving source from looping us.
+MAX_REDIRECTS: int = 5
+
+
+def _is_blocked_host(host: str) -> bool:
+    """True if ``host`` is an IP literal in a private / loopback / link-local /
+    reserved range — the SSRF-sensitive targets (notably the cloud metadata
+    endpoint 169.254.169.254). Hostnames are not resolved here: this is a
+    cheap literal guard, not a full DNS-rebinding defense. Crawl targets are an
+    operator-controlled allow-list (config rss_urls), so the realistic risk is a
+    source REDIRECTING to an internal address, which this catches for IP-literal
+    redirect targets.
+    """
+    if not host:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False  # Not an IP literal; treat as a normal external hostname.
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
 
 SourceType: TypeAlias = Literal[
     "airbnb",
@@ -177,6 +208,7 @@ def _try_request(
     """Single GET attempt with one retry for transient errors (timeout / 5xx /
     429). Returns the response on success, or None if this header set fails."""
     session.headers.update(headers)
+    session.max_redirects = MAX_REDIRECTS
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
@@ -187,6 +219,16 @@ def _try_request(
                 verify=True,
             )
             response.raise_for_status()
+            # Re-check the host we actually landed on: a source could redirect to
+            # an internal IP literal (e.g. the cloud metadata endpoint). Block it.
+            final_host = urlparse(response.url).hostname or ""
+            if _is_blocked_host(final_host):
+                logger.warning(
+                    "Request to '%s' redirected to blocked host '%s'; refusing.",
+                    url,
+                    final_host,
+                )
+                return None
             return response
         except RequestException as e:
             resp = getattr(e, "response", None)
@@ -227,8 +269,13 @@ def _make_robust_request(url: str) -> requests.Response | None:
     """Fetch a URL trying several realistic browser header sets, remembering the
     one that works per-domain. Returns None only if every header set fails
     (network error, persistent anti-bot block, HTTP error)."""
+    parsed = urlparse(url)
+    if _is_blocked_host(parsed.hostname or ""):
+        logger.warning("Refusing request to blocked host: '%s'", url)
+        return None
+
     session = requests.Session()
-    domain = urlparse(url).netloc.lower()
+    domain = parsed.netloc.lower()
 
     # Try the header set that previously worked for this domain first.
     ordered_indices = list(range(len(ScraperConfig.REQUEST_HEADERS_OPTIONS)))
@@ -265,7 +312,10 @@ class Post(BaseModel):
     def validate_tags(cls, v):
         if not v:
             return ScraperConfig.DEFAULT_TAGS.copy()
-        unique_tags = sorted({tag for tag in v if isinstance(tag, str)})
+        # Preserve the source ordering (tags are emitted most-significant-first)
+        # while de-duplicating, then cap. dict.fromkeys keeps first-seen order;
+        # sorting here would discard relevance and drop important trailing tags.
+        unique_tags = list(dict.fromkeys(tag for tag in v if isinstance(tag, str)))
         return unique_tags[: ScraperConfig.MAX_TAGS]
 
     @classmethod
@@ -396,9 +446,17 @@ def is_date_in_range(
     return start_date.astimezone(UTC) <= target_utc <= end_date.astimezone(UTC)
 
 
-def parse_published_date(date_str: str) -> datetime:
+def try_parse_published_date(date_str: str) -> datetime | None:
+    """Parse a date string to an aware UTC datetime, or return None on failure.
+
+    This is the fail-CLOSED primitive used by the date-range gate: a post whose
+    date cannot be parsed must be EXCLUDED, not silently treated as "now" (which
+    would let undated/unparseable posts slip into every weekly window). Use
+    ``parse_published_date`` only where a non-null sort key is required and the
+    post has already cleared the gate.
+    """
     if not isinstance(date_str, str) or not date_str:
-        return datetime.now(UTC)
+        return None
     try:
         return datetime.fromisoformat(date_str.replace("Z", "+00:00")).astimezone(UTC)
     except (ValueError, TypeError):
@@ -410,7 +468,17 @@ def parse_published_date(date_str: str) -> datetime:
         except (ValueError, TypeError):
             continue
     logger.warning(f"Failed to parse date '{date_str}' with any known format.")
-    return datetime.now(UTC)
+    return None
+
+
+def parse_published_date(date_str: str) -> datetime:
+    """Parse a date string, falling back to ``now(UTC)`` when unparseable.
+
+    Used for Post construction where a sort key must always exist. For the
+    in/out-of-window decision use ``try_parse_published_date`` so undated posts
+    are dropped rather than dated to the present moment.
+    """
+    return try_parse_published_date(date_str) or datetime.now(UTC)
 
 
 class PostFetcher(Protocol):
@@ -447,10 +515,14 @@ class RssFetcher:
                         raise SourceFetchError(f"Feed parse error: {bozo_exc}")
 
                 for entry in feed.entries:
-                    published_date = parse_published_date(
+                    # Fail closed: an entry whose date cannot be parsed is
+                    # excluded rather than dated to "now" and let through.
+                    published_date = try_parse_published_date(
                         getattr(entry, "published", "")
                     )
-                    if is_date_in_range(published_date, start_date, end_date):
+                    if published_date is not None and is_date_in_range(
+                        published_date, start_date, end_date
+                    ):
                         posts.append(Post.from_entry(entry))
 
         except SourceFetchError:
@@ -495,8 +567,10 @@ class GenericPageScraper(BasePageScraper):
                 published_str = (
                     published_value if isinstance(published_value, str) else ""
                 )
-                pub_date = parse_published_date(published_str)
-                if is_date_in_range(pub_date, start_date, end_date):
+                pub_date = try_parse_published_date(published_str)
+                if pub_date is not None and is_date_in_range(
+                    pub_date, start_date, end_date
+                ):
                     posts.append(Post.from_entry(entry_data))
             except Exception as e:
                 logger.error(f"Error processing item from {self.page_url}: {e}")
@@ -550,8 +624,8 @@ class AnthropicBlogScraper(BasePageScraper):
             if not date_text:
                 return None
 
-            pub_date = parse_published_date(date_text)
-            if not is_date_in_range(pub_date, start_date, end_date):
+            pub_date = try_parse_published_date(date_text)
+            if pub_date is None or not is_date_in_range(pub_date, start_date, end_date):
                 return None
 
             return Post.from_entry(
@@ -727,16 +801,17 @@ class MetaAIBlogScraper(BasePageScraper):
                     logger.debug(f"Meta AI: No date found for '{title}' (item {i})")
                     continue
 
-                pub_date = parse_published_date(date_text)
-                if not is_date_in_range(pub_date, start_date, end_date):
-                    logger.debug(
-                        f"Meta AI: '{title}' date {pub_date.date()} outside range"
-                    )
+                pub_date = try_parse_published_date(date_text)
+                if pub_date is None or not is_date_in_range(
+                    pub_date, start_date, end_date
+                ):
+                    logger.debug(f"Meta AI: '{title}' date unparseable or out of range")
                     continue
 
-                full_url = (
-                    f"https://ai.meta.com{href}" if href.startswith("/") else href
-                )
+                # urljoin handles both relative ("/blog/x") and absolute hrefs
+                # against the scraper's own page_url, so the host is never
+                # hardcoded here (single source of truth: the configured URL).
+                full_url = urljoin(self.page_url, href)
 
                 post = Post.from_entry(
                     feedparser.FeedParserDict(
@@ -867,15 +942,18 @@ class QwenBlogScraper(GenericPageScraper):
 
         title = title.replace("| Qwen", "").replace("- Qwen", "").strip()
 
-        date_text = ""
         page_text = str(item.parent) if item.parent else ""
-        if date_match := re.search(r"\b([A-Z][a-z]+ \d{1,2}, \d{4})\b", page_text):
-            date_text = date_match.group(1)
+        date_match = re.search(r"\b([A-Z][a-z]+ \d{1,2}, \d{4})\b", page_text)
+        if not date_match:
+            # Fail closed: without a parseable date we cannot place the post in a
+            # weekly window, so drop it rather than stamping it with "now" (which
+            # would force every undated Qwen post into the current digest).
+            return None
 
         return feedparser.FeedParserDict(
             title=title.strip(),
             link=urljoin(self.page_url, href) if href.startswith("/") else href,
-            published=date_text or datetime.now(UTC).isoformat(),
+            published=date_match.group(1),
             source=self.source,
         )
 
@@ -909,11 +987,15 @@ class XAIBlogScraper(BasePageScraper):
                 if not date_text:
                     continue
 
-                pub_date = parse_published_date(date_text)
-                if not is_date_in_range(pub_date, start_date, end_date):
+                pub_date = try_parse_published_date(date_text)
+                if pub_date is None or not is_date_in_range(
+                    pub_date, start_date, end_date
+                ):
                     continue
 
-                full_url = f"https://x.ai{href}" if href.startswith("/") else href
+                # urljoin resolves relative/absolute hrefs against page_url, so
+                # the host stays a single source of truth (the configured URL).
+                full_url = urljoin(self.page_url, href)
 
                 post = Post.from_entry(
                     feedparser.FeedParserDict(

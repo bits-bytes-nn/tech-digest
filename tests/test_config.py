@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.configs.config import Config, Resources, Scraping, Summarization
+from app.configs.config import (
+    Config,
+    Newsletter,
+    Resources,
+    Scraping,
+    Summarization,
+)
 from app.src.constants import FilteringCriteria, LanguageModelId
 
 
@@ -68,6 +74,31 @@ class TestSummarization:
             greeting_model_id=LanguageModelId.CLAUDE_V4_5_HAIKU,
         )
         assert s.max_posts is None
+
+
+class TestExplicitNullCoercion:
+    """An explicit ``null`` in YAML should fall back to the field's default
+    (including default_factory), not leak None into a non-Optional field."""
+
+    def test_explicit_null_factory_dict_field(self):
+        # logos has default_factory=dict; explicit None must become {}.
+        assert Newsletter(logos=None).logos == {}
+
+    def test_explicit_null_factory_list_fields(self):
+        s = Summarization(
+            filtering_criteria=FilteringCriteria.ALL,
+            filtering_model_id=LanguageModelId.CLAUDE_V4_6_SONNET,
+            summarization_model_id=LanguageModelId.CLAUDE_V4_6_SONNET,
+            greeting_model_id=LanguageModelId.CLAUDE_V4_5_HAIKU,
+            included_topics=None,
+            excluded_topics=None,
+        )
+        assert s.included_topics == []
+        assert s.excluded_topics == []
+
+    def test_explicit_null_plain_default(self):
+        # days_back has a plain default of 7; explicit None must become 7.
+        assert Scraping(rss_urls=["https://x.com/feed"], days_back=None).days_back == 7
 
 
 class TestConfigFromYaml:

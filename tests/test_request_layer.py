@@ -24,9 +24,12 @@ def no_sleep(monkeypatch):
 
 
 class _FakeResponse:
-    def __init__(self, status_code=200, headers=None):
+    def __init__(self, status_code=200, headers=None, url="https://example.com"):
         self.status_code = status_code
         self.headers = headers or {}
+        # The robust request re-checks the final landing host for SSRF; tests
+        # default to an external URL so the guard is a no-op unless overridden.
+        self.url = url
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -113,3 +116,36 @@ class TestMakeRobustRequest:
         _make_robust_request("https://example.com")
         # Header set index 1 (the 2nd) worked -> cached for the domain.
         assert HeaderCache.get_cached_header_index("example.com") == 1
+
+
+class TestSSRFGuard:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://169.254.169.254/latest/meta-data/",  # cloud metadata
+            "http://127.0.0.1/admin",  # loopback
+            "http://10.0.0.5/internal",  # RFC1918
+            "http://192.168.1.1/",  # RFC1918
+            "http://[::1]/",  # IPv6 loopback
+        ],
+    )
+    def test_blocks_internal_targets_without_requesting(self, monkeypatch, url):
+        # A blocked host must short-circuit BEFORE any network call is made.
+        session = _FakeSession([_FakeResponse(200)])
+        _patch_session(monkeypatch, session)
+        assert _make_robust_request(url) is None
+        assert session.calls == 0
+
+    def test_blocks_redirect_to_internal_host(self, monkeypatch):
+        # External target that redirects to the metadata IP: the request is made
+        # but the final landing host is rejected. The block is deterministic
+        # across header sets, so every set lands on the blocked host -> None.
+        meta = "http://169.254.169.254/latest/meta-data/"
+        session = _FakeSession([_FakeResponse(200, url=meta)] * 3)
+        _patch_session(monkeypatch, session)
+        assert _make_robust_request("https://example.com") is None
+
+    def test_allows_normal_external_host(self, monkeypatch):
+        session = _FakeSession([_FakeResponse(200, url="https://example.com/post")])
+        _patch_session(monkeypatch, session)
+        assert _make_robust_request("https://example.com") is not None

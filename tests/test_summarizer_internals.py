@@ -105,7 +105,8 @@ class TestSummarizePosts:
         )
         s._summarize_posts([post])
         assert "Real summary content." in post.summary
-        assert post.tags == ["LLM", "RAG"]
+        # Tags preserve first-seen (relevance) order, not alphabetical.
+        assert post.tags == ["RAG", "LLM"]
 
     def test_none_summary_aligned_no_crash(self):
         s = _summarizer()

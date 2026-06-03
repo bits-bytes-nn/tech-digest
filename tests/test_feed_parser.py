@@ -20,6 +20,7 @@ from app.src.feed_parser import (
     XAIBlogScraper,
     is_date_in_range,
     parse_published_date,
+    try_parse_published_date,
 )
 
 
@@ -51,6 +52,28 @@ class TestParsePublishedDate:
     def test_non_string_returns_now(self):
         dt = parse_published_date(None)  # type: ignore[arg-type]
         assert dt.tzinfo is UTC
+
+
+class TestTryParsePublishedDate:
+    """The fail-CLOSED variant: unparseable input yields None (post is dropped)
+    rather than being silently dated to the present moment."""
+
+    def test_valid_iso_parses(self):
+        dt = try_parse_published_date("2026-05-30T10:00:00Z")
+        assert dt == datetime(2026, 5, 30, 10, 0, 0, tzinfo=UTC)
+
+    def test_valid_human_readable_parses(self):
+        dt = try_parse_published_date("May 30, 2026")
+        assert dt is not None and (dt.year, dt.month, dt.day) == (2026, 5, 30)
+
+    def test_empty_returns_none(self):
+        assert try_parse_published_date("") is None
+
+    def test_unparseable_returns_none(self):
+        assert try_parse_published_date("not a date at all") is None
+
+    def test_non_string_returns_none(self):
+        assert try_parse_published_date(None) is None  # type: ignore[arg-type]
 
 
 class TestIsDateInRange:
@@ -145,7 +168,8 @@ class TestPostModel:
             published_date=datetime.now(UTC),
             tags=["b", "a", "a", "c", "d", "e", "f", "g"],
         )
-        assert post.tags == sorted(set(post.tags))
+        # Order preserved (first-seen), duplicates removed, capped at 5.
+        assert post.tags == ["b", "a", "c", "d", "e"]
         assert len(post.tags) <= 5
 
     def test_empty_tags_default(self):

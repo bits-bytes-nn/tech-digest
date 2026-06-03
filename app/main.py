@@ -73,13 +73,18 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
     try:
         _setup_aws_env(config, default_boto_session)
         end_date_str = event.get("END_DATE")
-        language = event.get("LANGUAGE")
+        language_str = event.get("LANGUAGE")
         recipients = event.get("RECIPIENTS")
+        # Resolve once here so every downstream stage (filtering, greeting,
+        # newsletter build/filenames) uses the SAME language. Passing it only to
+        # filtering — as before — left the greeting and output filenames stuck on
+        # the KO default even when --language en was requested.
+        language = Language(language_str) if language_str else Language.KO
         posts, date_suffix, filtered_out_posts, crawl_report = _fetch_and_filter_posts(
             config,
             bedrock_boto_session,
             end_date_str=end_date_str,
-            language=Language(language) if language else Language.KO,
+            language=language,
         )
         topic_arn = os.environ.get(EnvVars.TOPIC_ARN.value)
         if is_running_in_aws() and topic_arn and crawl_report.failed:
@@ -88,7 +93,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
             logger.info("No posts to process. Exiting gracefully.")
             return {"statusCode": 200, "body": "No posts found to process."}
         newsletter_path = _process_posts_and_create_newsletter(
-            posts, date_suffix, config, default_boto_session, bedrock_boto_session
+            posts,
+            date_suffix,
+            config,
+            default_boto_session,
+            bedrock_boto_session,
+            language=language,
         )
         if config.newsletter.send_emails:
             success, failed, total = _process_newsletter_emails(

@@ -12,10 +12,25 @@ from app.src.summarizer import (
 
 
 class TestPostprocessSummary:
-    def test_korean_colon_to_period(self):
+    def test_terminal_colon_before_markup_becomes_period(self):
+        # A sentence-ending syllable + colon at a clause boundary (colon followed
+        # by a closing tag) is a mistake and is corrected to a period.
         assert (
-            _postprocess_summary("이것은 중요합니다: 다음") == "이것은 중요합니다. 다음"
+            _postprocess_summary("<p>이것은 동작합니다:</p>")
+            == "<p>이것은 동작합니다.</p>"
         )
+
+    def test_terminal_colon_at_end_of_string_becomes_period(self):
+        assert _postprocess_summary("문장이 끝납니다:") == "문장이 끝납니다."
+
+    def test_introducing_colon_is_preserved(self):
+        # Colon followed by text introduces a list/example and must NOT be
+        # rewritten (the bug a blind "다:"->"다." replace used to cause).
+        text = "<p>결과는 다음과 같습니다: 첫째, 둘째</p>"
+        assert _postprocess_summary(text) == text
+
+    def test_ratio_colon_is_preserved(self):
+        assert _postprocess_summary("비율은 3:1입니다.") == "비율은 3:1입니다."
 
     def test_url_host_normalized(self):
         assert (
@@ -52,11 +67,33 @@ class TestNormalizeUrls:
         assert '<a href="https://x.com">Repo</a>' in out
 
     def test_plain_comma_separated(self):
+        # Bare URLs are wrapped in sanitized anchors (consistent with the
+        # markdown-link path) rather than rendered as non-clickable text.
         out = _normalize_urls("https://a.com, https://b.com")
-        assert out == ["https://a.com", "https://b.com"]
+        assert out == [
+            '<a href="https://a.com">https://a.com</a>',
+            '<a href="https://b.com">https://b.com</a>',
+        ]
 
     def test_list_input(self):
-        assert _normalize_urls(["https://a.com"]) == ["https://a.com"]
+        assert _normalize_urls(["https://a.com"]) == [
+            '<a href="https://a.com">https://a.com</a>'
+        ]
+
+    def test_javascript_scheme_dropped(self):
+        # XSS guard: non-allow-listed schemes never reach the rendered output.
+        assert _normalize_urls("javascript:alert(1)") == []
+        assert _normalize_urls("[Click](javascript:alert(1))") == []
+        assert _normalize_urls(['<a href="javascript:alert(1)">x</a>']) == []
+
+    def test_data_and_relative_dropped(self):
+        assert _normalize_urls("data:text/html;base64,abcd") == []
+        assert _normalize_urls("/relative/path") == []
+        assert _normalize_urls("//scheme-relative.com") == []
+
+    def test_existing_anchor_rescheme_checked_and_escaped(self):
+        out = _normalize_urls(['<a href="https://ok.com">Safe</a>'])
+        assert out == ['<a href="https://ok.com">Safe</a>']
 
 
 class TestSummaryOutput:
@@ -79,7 +116,9 @@ class TestSummaryOutput:
             }
         )
         assert len(out.tags) <= 5
-        assert out.tags == sorted(set(out.tags))
+        # First-seen order preserved (model lists tags most-relevant-first),
+        # duplicates removed, capped at MAX_TAGS.
+        assert out.tags == ["a", "b", "c", "d", "e"]
 
     def test_html_replacements_applied(self):
         out = SummaryOutput.model_validate(
@@ -87,3 +126,46 @@ class TestSummaryOutput:
         )
         # codehilite/fenced_code wraps code; the <code> replacement adds a class.
         assert "highlight" in out.summary
+
+    def test_script_tag_stripped_from_summary(self):
+        out = SummaryOutput.model_validate(
+            {
+                "summary": "<p>ok</p><script>alert(1)</script>",
+                "tags": [],
+                "urls": [],
+            }
+        )
+        assert "<script" not in out.summary.lower()
+        assert "alert(1)" not in out.summary
+        assert "ok" in out.summary
+
+    def test_event_handler_attr_stripped(self):
+        out = SummaryOutput.model_validate(
+            {"summary": '<p onclick="evil()">text</p>', "tags": [], "urls": []}
+        )
+        assert "onclick" not in out.summary.lower()
+        assert "text" in out.summary
+
+    def test_javascript_href_stripped_in_summary(self):
+        out = SummaryOutput.model_validate(
+            {
+                "summary": '<p>see <a href="javascript:alert(1)">link</a></p>',
+                "tags": [],
+                "urls": [],
+            }
+        )
+        assert "javascript:" not in out.summary.lower()
+        # The text is preserved; only the unsafe href is removed.
+        assert "link" in out.summary
+
+    def test_safe_structural_tags_preserved(self):
+        out = SummaryOutput.model_validate(
+            {
+                "summary": "<h3>Title</h3><p><strong>bold</strong> and <em>em</em></p>",
+                "tags": [],
+                "urls": [],
+            }
+        )
+        assert "<h3>" in out.summary
+        assert "<strong>" in out.summary
+        assert "<em>" in out.summary
