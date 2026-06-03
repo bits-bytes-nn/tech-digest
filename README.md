@@ -1,90 +1,145 @@
-## 🤖 Weekly AI Tech Blog Digest
+# 🤖 Weekly AI Tech Blog Digest
 
-Automated newsletter service that curates and delivers AI tech insights from leading blogs using AWS services and AI-powered content filtering.
+Automated newsletter that curates, filters, summarizes, and delivers the week's
+best AI/ML engineering posts from leading tech blogs — powered by **Amazon
+Bedrock (Claude)** and orchestrated on AWS.
 
 ![Newsletter Preview](./app/assets/newsletter.png)
 
-### ✨ Features
+---
 
-- **AI-Powered Curation**: Uses Amazon Bedrock (Claude models) for content filtering and summarization
-- **Multi-Source Aggregation**: Monitors 15+ tech blogs (AWS, Google, Meta, OpenAI, Anthropic, etc.)
-- **Automated Infrastructure**: AWS Lambda/Batch with EventBridge scheduling
-- **Professional Email**: HTML templates with responsive design and company logos
+## ✨ Features
 
-### 📐 Documentation
+- **AI-powered curation** — Claude (via Amazon Bedrock) scores each post for
+  relevance and writes a structured, multi-section summary.
+- **Multi-source aggregation** — pulls from 15+ tech blogs via RSS and resilient
+  HTML scraping (AWS, Google, Meta, OpenAI, Anthropic, NVIDIA, and more).
+- **Content quality gate** — drops posts whose visible text is too thin to
+  summarize *before* they reach the LLM, so the digest never ships empty write-ups.
+- **Crawl-health monitoring** — tracks every source's fetch status and raises an
+  SNS alert when a source fails, so silent breakage surfaces fast.
+- **Serverless infrastructure** — AWS Lambda *or* Batch (config-selectable),
+  scheduled by EventBridge, defined as code with the AWS CDK.
+- **Professional email** — responsive HTML templates with dark-mode support,
+  per-source logos, and score badges, delivered through Amazon SES.
 
-- **Deep technical reference:** [`assets/tech-doc.md`](./assets/tech-doc.md) — line-by-line documentation of every module.
-- **AWS architecture diagram:** [`assets/diagrams/aws-architecture.png`](./assets/diagrams/aws-architecture.png)
-- **Processing pipeline diagram:** [`assets/diagrams/pipeline-flow.png`](./assets/diagrams/pipeline-flow.png)
+---
 
-### 🏗️ Architecture
+## 📐 Documentation
 
-#### Core Components
-- **Feed Parser** (`feed_parser.py`): RSS/web scraping with BeautifulSoup4
-- **Summarizer** (`summarizer.py`): AI filtering and summarization via Bedrock
-- **Newsletter Renderer** (`newsletter_renderer.py`): HTML generation with Jinja2
-- **AWS Helpers** (`aws_helpers.py`): S3, SES, and Batch operations
+- **Deep technical reference:** [`assets/tech-doc.md`](./assets/tech-doc.md) —
+  line-by-line documentation of every module.
 
-#### Infrastructure
-- **Lambda/Batch**: Configurable execution environment
-- **EventBridge**: Scheduled execution (default: Saturdays 1 AM UTC)
-- **S3**: Asset storage and configuration
-- **SES**: Email delivery
+**AWS architecture** — infrastructure & data flow:
 
-### 🛠️ Tech Stack
+![AWS architecture diagram](./assets/diagrams/aws-architecture.png)
 
-- Python 3.12+, AWS CDK, Docker
-- Amazon Bedrock, LangChain, Feedparser
-- BeautifulSoup4, Selenium, Jinja2
-- Pydantic validation, YAML configuration
+**Processing pipeline** — ingestion → delivery:
 
-### 📋 Configuration
+![Processing pipeline diagram](./assets/diagrams/pipeline-flow.png)
 
-Create `app/configs/config-{stage}.yaml`:
+---
+
+## 🏗️ Architecture
+
+### Core components
+
+| Module | Responsibility |
+| --- | --- |
+| `feed_parser.py` | RSS parsing + resilient HTML scraping (BeautifulSoup4 / Selenium), per-source health tracking |
+| `summarizer.py` | Content gate → relevance filter → rank/cap → summarize, all via Bedrock |
+| `newsletter_renderer.py` | HTML generation with Jinja2 (responsive, dark-mode, score badges) |
+| `aws_helpers.py` | S3, SES, SNS, SSM, and Batch operations |
+
+### Pipeline
+
+```
+collect → gate → filter → rank → summarize → greet → render → deliver
+```
+
+### Infrastructure
+
+- **Lambda / Batch** — execution environment selected by `lambda_or_batch`.
+- **EventBridge** — scheduled execution (default: Saturdays 01:00 UTC).
+- **S3** — config, recipients, generated newsletters, and article HTML.
+- **SSM Parameter Store** — LangChain API key and Batch queue/definition names.
+- **SES** — newsletter delivery. **SNS** — run/health notifications.
+- **Bedrock (us-west-2)** — Claude Sonnet 4.6 (filter + summarize), Claude
+  Haiku 4.5 (greeting).
+
+---
+
+## 🛠️ Tech Stack
+
+- **Language / IaC:** Python 3.12+, AWS CDK, Docker
+- **AI:** Amazon Bedrock, LangChain
+- **Scraping:** Feedparser, BeautifulSoup4, Selenium
+- **Rendering / config:** Jinja2, Pydantic, YAML
+
+---
+
+## 📋 Configuration
+
+Create `app/configs/config-{stage}.yaml` (e.g. `config-dev.yaml`). The four
+top-level sections map to the Pydantic models in
+[`app/configs/config.py`](./app/configs/config.py):
 
 ```yaml
 resources:
   project_name: tech-digest
   stage: dev
   lambda_or_batch: batch
-  cron_expression: "cron(0 1 ? * 6 *)"
+  cron_expression: "cron(0 1 ? * 6 *)"   # Saturdays 01:00 UTC
+
+scraping:
+  min_content_length: 600                # drop posts thinner than this (visible chars)
+  rss_urls:
+    - "https://aws.amazon.com/blogs/amazon-ai/feed/"
+    - "https://www.amazon.science/index.rss"
 
 summarization:
-  filtering_model_id: anthropic.claude-sonnet-4-5-20250929-v1:0
-  summarization_model_id: anthropic.claude-sonnet-4-5-20250929-v1:0
-  min_score: 0.8
-  max_posts: 5
+  filtering_model_id: anthropic.claude-sonnet-4-6
+  summarization_model_id: anthropic.claude-sonnet-4-6
+  greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
+  min_score: 0.7                         # keep posts scoring >= this
+  max_posts: 5                           # cap kept posts (applied before summarizing)
 
 newsletter:
-  sender: "your-email@example.com"
+  sender: "your-verified-sender@example.com"
   header_title: "Weekly AI Tech Blog Digest"
 ```
 
-### 🚀 Usage
+> Model IDs come from the `LanguageModelId` catalog in
+> [`app/src/constants.py`](./app/src/constants.py).
 
-#### Infrastructure Deployment
+---
+
+## 🚀 Usage
+
+### Deploy infrastructure
+
 ```bash
-# Deploy infrastructure
 python scripts/deploy_infra.py
 ```
 
-#### Development
+### Run locally
+
 ```bash
-# Install dependencies
+# Install runtime dependencies
 pip install -r requirements.txt
 
-# Set up environment
-cp .env.template .env
-# Edit .env with your configuration
+# Configure environment
+cp .env.template .env        # then edit .env
 
-# Run locally
-python app/main.py --end-date 2024-01-01 --recipients aldente0630@gmail.com
+# Generate and send a digest for a given week
+python app/main.py --end-date 2026-06-03 --recipients you@example.com
 
-# Submit batch job
-python app/run_batch.py --end-date 2024-01-01 --language ko --recipients aldente0630@gmail.com
+# Or submit it as a Batch job
+python app/run_batch.py --end-date 2026-06-03 --language ko --recipients you@example.com
 ```
 
-#### Testing & Quality
+### Test & quality gates
+
 ```bash
 # Install dev tooling (ruff, mypy, pytest)
 pip install -e ".[dev]"
@@ -92,6 +147,15 @@ pip install -e ".[dev]"
 # Lint, format-check, type-check, and test
 ruff check .
 ruff format --check .
-mypy app
-pytest            # fast, offline unit/integration suite
+cd app && mypy .             # run from app/ so the dual import layout resolves
+pytest                       # fast, offline unit/integration suite
 ```
+
+These same checks run in CI on every push and pull request
+([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
+
+---
+
+## 📄 License
+
+MIT
