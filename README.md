@@ -1,5 +1,7 @@
 # 🤖 Weekly AI Tech Blog Digest
 
+> **English** · [한국어](./README.ko.md)
+
 Automated newsletter that curates, filters, summarizes, and delivers the week's
 best AI/ML engineering posts from leading tech blogs — powered by **Amazon
 Bedrock (Claude)** and orchestrated on AWS.
@@ -12,8 +14,9 @@ Bedrock (Claude)** and orchestrated on AWS.
 
 - **AI-powered curation** — Claude (via Amazon Bedrock) scores each post for
   relevance and writes a structured, multi-section summary.
-- **Multi-source aggregation** — pulls from 15+ tech blogs via RSS and resilient
-  HTML scraping (AWS, Google, Meta, OpenAI, Anthropic, NVIDIA, and more).
+- **Multi-source aggregation** — pulls from ~20 tech blogs via RSS and resilient
+  HTML scraping (AWS, Google, Meta, OpenAI, Anthropic, NVIDIA, and more), with
+  SSRF-guarded requests and per-source health tracking.
 - **Content quality gate** — drops posts whose visible text is too thin to
   summarize *before* they reach the LLM, so the digest never ships empty write-ups.
 - **Crawl-health monitoring** — tracks every source's fetch status and raises an
@@ -26,9 +29,6 @@ Bedrock (Claude)** and orchestrated on AWS.
 ---
 
 ## 📐 Documentation
-
-- **Deep technical reference:** [`assets/tech-doc.md`](./assets/tech-doc.md) —
-  line-by-line documentation of every module.
 
 **AWS architecture** — infrastructure & data flow:
 
@@ -147,8 +147,8 @@ pip install -e ".[dev]"
 # Lint, format-check, type-check, and test
 ruff check .
 ruff format --check .
-cd app && mypy .             # run from app/ so the dual import layout resolves
-pytest                       # fast, offline unit/integration suite
+cd app && mypy src           # run from app/ so the dual import layout resolves
+pytest                       # fast, offline unit/integration suite (240 tests)
 ```
 
 These same checks run in CI on every push and pull request

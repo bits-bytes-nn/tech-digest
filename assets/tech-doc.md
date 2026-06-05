@@ -4,7 +4,7 @@
 > 레퍼런스입니다. 이 문서는 프로젝트의 단일한 심층 기술 출처이며 지속적으로
 > 갱신됩니다. 상위 수준의 사용법은 루트 `README.md`를 참고하세요.
 
-**최종 갱신:** 2026-06-02
+**최종 갱신:** 2026-06-05
 
 ---
 
@@ -43,7 +43,7 @@ Tech Digest는 AI/ML 엔지니어링 블로그 글을 매주 큐레이션해 이
 발동하면, 컨테이너화된 Python 애플리케이션이(설정에 따라 **AWS Lambda** 또는
 **AWS Batch**에서) 다음을 수행합니다.
 
-1. **수집(Collect)** — 약 21개 소스(RSS 피드 + 피드가 없는 사이트용 맞춤형 HTML
+1. **수집(Collect)** — 약 20개 소스(RSS 피드 + 피드가 없는 사이트용 맞춤형 HTML
    스크레이퍼)에서 후보 글을 모읍니다.
 2. **게이트(Gate)** — 본문이 너무 빈약해 요약 품질이 나오지 않을 글을 걸러냅니다.
 3. **필터(Filter)** — LLM(Amazon Bedrock / Claude)이 각 글의 ML 연구 관련성과
@@ -191,8 +191,9 @@ tech-digest/
 - **`FilteringCriteria`** — `ALL` | `AMAZON`; 필터링 프롬프트 선택.
 - **`Language`** — `EN` | `KO`; 요약/인사말 언어 선택.
 - **`LanguageModelId`** — Bedrock Claude 모델 ID 카탈로그. 최신 모델(Sonnet 4.6,
-  Opus 4.6, Haiku 4.5)이 레거시와 공존하며, 활성 기본값은 최신을 가리킵니다. 새
-  모델은 여기와 `_LANGUAGE_MODEL_INFO`(`utils.py`) 양쪽에 추가하세요.
+  Opus 4.6/4.7/4.8, Haiku 4.5)이 레거시와 공존하며, 활성 기본값은 Sonnet 4.6(필터·
+  요약)과 Haiku 4.5(인사말)입니다. 새 모델은 여기와
+  `_LANGUAGE_MODEL_INFO`(`utils.py`) 양쪽에 추가하세요.
 - **`LocalPaths`** — 디렉터리 및 파일명 상수(inputs, outputs, logs, templates,
   recipients).
 - **`SSMParams`** / **`S3Paths`** — SSM 파라미터 suffix와 S3 프리픽스.
