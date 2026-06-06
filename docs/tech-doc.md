@@ -71,11 +71,11 @@ Python 애플리케이션이 — 설정에 따라 **AWS Lambda** 또는 **AWS Ba
 
 **AWS 아키텍처** (인프라 & 데이터 흐름):
 
-![AWS 아키텍처 다이어그램](diagrams/aws-architecture.png)
+![AWS 아키텍처 다이어그램](../assets/diagrams/aws-architecture.png)
 
 **처리 파이프라인** (수집 → 전달):
 
-![처리 파이프라인 다이어그램](diagrams/pipeline-flow.png)
+![처리 파이프라인 다이어그램](../assets/diagrams/pipeline-flow.png)
 
 AWS 다이어그램은 전체 그림을 보여줍니다 — EventBridge 트리거, Lambda냐 Batch냐를
 가르는 컴퓨트 선택, 블로그 소스까지 나가기 위한 VPC/NAT 송신 경로, 그리고

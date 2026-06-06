@@ -1,12 +1,21 @@
+<div align="center">
+
 # 🤖 주간 AI 기술 블로그 다이제스트
 
-> [English](./README.md) · **한국어**
+**선도적인 기술 블로그에서 그 주의 가장 좋은 AI/ML 엔지니어링 글을 모아 큐레이션·필터링·요약한 뒤 이메일로 보내 주는 자동화 뉴스레터.**
 
-선도적인 기술 블로그에서 그 주의 가장 좋은 AI/ML 엔지니어링 글을 모아 큐레이션·
-필터링·요약한 뒤 이메일로 보내 주는 자동화 뉴스레터입니다. **Amazon Bedrock(Claude)**
-이 큐레이션을 맡고, 전체 파이프라인은 AWS 위에서 오케스트레이션됩니다.
+Amazon Bedrock (Claude) 기반 · AWS 위에서 CDK로 정의·오케스트레이션.
+
+[![CI](https://github.com/bits-bytes-nn/tech-digest/actions/workflows/ci.yml/badge.svg)](https://github.com/bits-bytes-nn/tech-digest/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12%2B-blue)
+![AWS CDK](https://img.shields.io/badge/IaC-AWS%20CDK-orange)
+![Bedrock](https://img.shields.io/badge/LLM-Amazon%20Bedrock%20(Claude)-green)
+
+🇺🇸 [English README](./README.md) · 📖 [기술 문서](./docs/tech-doc.md)
 
 ![뉴스레터 미리보기](./app/assets/newsletter.png)
+
+</div>
 
 ---
 
@@ -37,6 +46,8 @@
 **처리 파이프라인** — 수집 → 전달:
 
 ![처리 파이프라인 다이어그램](./assets/diagrams/pipeline-flow.png)
+
+> 📖 모듈 단위 동작, 전체 데이터 흐름, 설정 스키마, 모델 사용, 인프라를 줄 단위로 다룬 기술 레퍼런스는 [`docs/tech-doc.md`](./docs/tech-doc.md)에 있습니다.
 
 ---
 

@@ -1,12 +1,21 @@
+<div align="center">
+
 # 🤖 Weekly AI Tech Blog Digest
 
-> **English** · [한국어](./README.ko.md)
+**An automated newsletter that curates, filters, summarizes, and emails the week's best AI/ML engineering posts.**
 
-Automated newsletter that curates, filters, summarizes, and delivers the week's
-best AI/ML engineering posts from leading tech blogs — powered by **Amazon
-Bedrock (Claude)** and orchestrated on AWS.
+Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
+
+[![CI](https://github.com/bits-bytes-nn/tech-digest/actions/workflows/ci.yml/badge.svg)](https://github.com/bits-bytes-nn/tech-digest/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12%2B-blue)
+![AWS CDK](https://img.shields.io/badge/IaC-AWS%20CDK-orange)
+![Bedrock](https://img.shields.io/badge/LLM-Amazon%20Bedrock%20(Claude)-green)
+
+🇰🇷 [한국어 README](./README.ko.md) · 📖 [Technical reference](./docs/tech-doc.md)
 
 ![Newsletter Preview](./app/assets/newsletter.png)
+
+</div>
 
 ---
 
@@ -37,6 +46,8 @@ Bedrock (Claude)** and orchestrated on AWS.
 **Processing pipeline** — ingestion → delivery:
 
 ![Processing pipeline diagram](./assets/diagrams/pipeline-flow.png)
+
+> 📖 See [`docs/tech-doc.md`](./docs/tech-doc.md) for the full, line-by-line technical reference — every module, the end-to-end data flow, config schema, model usage, and infrastructure.
 
 ---
 
