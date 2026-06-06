@@ -11,7 +11,7 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
 ![AWS CDK](https://img.shields.io/badge/IaC-AWS%20CDK-orange)
 ![Bedrock](https://img.shields.io/badge/LLM-Amazon%20Bedrock%20(Claude)-green)
 
-🇰🇷 [한국어 README](./README.ko.md) · 📖 [Technical reference](./docs/tech-doc.md)
+🇰🇷 [한국어 README](./README.ko.md)
 
 ![Newsletter Preview](./app/assets/newsletter.png)
 
@@ -46,8 +46,6 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
 **Processing pipeline** — ingestion → delivery:
 
 ![Processing pipeline diagram](./assets/diagrams/pipeline-flow.png)
-
-> 📖 See [`docs/tech-doc.md`](./docs/tech-doc.md) for the full, line-by-line technical reference — every module, the end-to-end data flow, config schema, model usage, and infrastructure.
 
 ---
 
