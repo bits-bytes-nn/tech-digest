@@ -411,7 +411,11 @@ class NewsletterStack(Stack):
 
         compute_env_config = {
             "instance_role": self.role,
-            "instance_types": [ec2.InstanceType("optimal")],
+            # Let Batch pick from the optimal C/M/R instance classes. This is the
+            # supported way to express Batch "optimal"; passing
+            # InstanceType("optimal") is rejected as a malformed identifier by
+            # current aws-cdk-lib.
+            "use_optimal_instance_classes": True,
             "vpc": self.vpc,
             "security_groups": [self.security_group],
             "vpc_subnets": self.vpc_subnets,
