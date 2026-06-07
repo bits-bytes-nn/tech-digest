@@ -35,7 +35,15 @@ class TestResources:
         [
             ("cron(0 1 ? * 6 *)", True),
             ("cron(0 1 ? * 6 2026)", True),
+            # Valid AWS cron forms the old enumerated regex wrongly rejected:
+            ("cron(*/30 * * * ? *)", True),  # step
+            ("cron(0 1 ? * MON *)", True),  # day-of-week name
+            ("cron(0 9,17 ? * 2-6 *)", True),  # list + range
+            ("cron(0 1 L * ? *)", True),  # last-day-of-month
             ("not-a-cron", False),
+            ("cron(0 1 ? * 6)", False),  # only 5 fields
+            ("cron(0 1 ? * 6 * *)", False),  # 7 fields
+            ("cron()", False),
         ],
     )
     def test_cron_expression_pattern(self, cron, ok):
@@ -74,6 +82,22 @@ class TestSummarization:
             greeting_model_id=LanguageModelId.CLAUDE_V4_5_HAIKU,
         )
         assert s.max_posts is None
+
+
+class TestNewsletter:
+    def test_sender_required_when_sending(self):
+        # send_emails=True without a sender would make deploy_infra build the SES
+        # FromAddress condition / SNS subscription from str(None) == "None".
+        with pytest.raises(ValidationError):
+            Newsletter(send_emails=True)
+
+    def test_sender_optional_when_not_sending(self):
+        n = Newsletter(send_emails=False)
+        assert n.sender is None
+
+    def test_sender_accepted_when_sending(self):
+        n = Newsletter(send_emails=True, sender="ok@example.com")
+        assert str(n.sender) == "ok@example.com"
 
 
 class TestExplicitNullCoercion:

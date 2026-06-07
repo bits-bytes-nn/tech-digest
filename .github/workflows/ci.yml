@@ -42,8 +42,11 @@ jobs:
       - name: Mypy type-check
         # Run from inside app/ so the container import layout (`src`, `configs`)
         # resolves to single module names (matches Dockerfile WORKDIR=/app).
+        # `.` (not `src`) so the entrypoints main.py / run_batch.py — the
+        # highest-blast-radius files — are also checked; tests/ is excluded in
+        # pyproject. (cdk.out etc. are excluded there too.)
         working-directory: app
-        run: mypy src
+        run: mypy .
 
       - name: Run tests
         run: pytest --cov=app --cov-report=term-missing --cov-report=xml -m "not live"
@@ -84,7 +87,7 @@ jobs:
           pip install -r requirements.txt
           npm install -g aws-cdk
 
-      - name: CDK synth (validates infra compiles; no AWS credentials needed)
+      - name: CDK synth — Lambda path (validates infra compiles; no AWS creds)
         run: cdk synth --quiet
         env:
           CDK_DEFAULT_ACCOUNT: "111111111111"
@@ -92,3 +95,15 @@ jobs:
           CDK_SYNTH_DUMMY_AZS: "1"
           JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION: "1"
           CONFIG_FILE_SUFFIX: ci
+
+      - name: CDK synth — Batch path (the production compute topology)
+        # The Batch + new-VPC combination is what production deploys; synthesize
+        # it too so infra regressions on that path (compute envs, EventBridge ->
+        # Batch parameter wiring) are caught in CI, not at deploy time.
+        run: cdk synth --quiet
+        env:
+          CDK_DEFAULT_ACCOUNT: "111111111111"
+          CDK_DEFAULT_REGION: "ap-northeast-2"
+          CDK_SYNTH_DUMMY_AZS: "1"
+          JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION: "1"
+          CONFIG_FILE_SUFFIX: ci-batch

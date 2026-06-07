@@ -127,6 +127,14 @@ class TestSSRFGuard:
             "http://10.0.0.5/internal",  # RFC1918
             "http://192.168.1.1/",  # RFC1918
             "http://[::1]/",  # IPv6 loopback
+            "http://0.0.0.0/",  # unspecified
+            "http://[::ffff:169.254.169.254]/",  # IPv4-mapped IPv6 metadata
+            # Numeric IPv4 encodings the OS resolver accepts but a plain
+            # ip_address() parse would miss (all == 127.0.0.1 / metadata IP):
+            "http://2130706433/admin",  # decimal 127.0.0.1
+            "http://0x7f000001/admin",  # hex 127.0.0.1
+            "http://017700000001/admin",  # octal 127.0.0.1
+            "http://2852039166/latest/meta-data/",  # decimal 169.254.169.254
         ],
     )
     def test_blocks_internal_targets_without_requesting(self, monkeypatch, url):

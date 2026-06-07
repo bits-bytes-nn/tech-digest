@@ -152,6 +152,12 @@ class TestImageExtraction:
         imgs = Post._extract_images(html, "https://example.com/post")
         assert "https://example.com/b.png" in imgs
 
+    def test_resolves_relative_markdown_image(self):
+        # Relative markdown image paths must be joined to base_url (not dropped).
+        html = "text ![alt](/img/c.png) more"
+        imgs = Post._extract_images(html, "https://example.com/post")
+        assert "https://example.com/img/c.png" in imgs
+
     def test_empty_html(self):
         assert Post._extract_images("", "https://example.com") == []
 

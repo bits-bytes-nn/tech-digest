@@ -128,3 +128,25 @@ class TestHandlerControlFlow:
         result = main.handler({}, None)
         assert result["statusCode"] == 500
         assert "kaboom" in result["body"]
+
+    def test_exception_publishes_failure_notification(self, monkeypatch):
+        # On AWS with a topic configured, an unhandled error must surface via SNS
+        # (the "failures always surface" design promise), not just return 500.
+        self._patch_common(monkeypatch)
+        monkeypatch.setattr(main, "is_running_in_aws", lambda: True)
+        monkeypatch.setenv(main.EnvVars.TOPIC_ARN.value, "arn:topic")
+        # On AWS the handler uses the module-global session, not boto3.Session().
+        session = _FakeSession()
+        monkeypatch.setattr(main, "DEFAULT_BOTO_SESSION", session)
+        monkeypatch.setattr(main, "BEDROCK_BOTO_SESSION", session)
+
+        def _boom(*a, **k):
+            raise RuntimeError("kaboom")
+
+        monkeypatch.setattr(main, "_fetch_and_filter_posts", _boom)
+        monkeypatch.setattr(main, "_setup_aws_env", lambda *a, **k: None)
+
+        result = main.handler({}, None)
+        assert result["statusCode"] == 500
+        assert len(session.sns.published) == 1
+        assert "kaboom" in session.sns.published[0]["Message"]

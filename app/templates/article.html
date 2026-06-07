@@ -18,7 +18,7 @@
                                 <img
                                   src="{{ article.thumbnail }}"
                                   class="thumbnail"
-                                  alt="Thumbnail"
+                                  alt="{{ article.source_label ~ ' logo' if article.source_label else '' }}"
                                 />
                               </td>
                               <td class="title-container">
@@ -358,6 +358,7 @@
         padding: 12px 24px;
         display: inline-block;
         background: linear-gradient(135deg, #ff9900 0%, #ffb84d 100%);
+        background-color: #ff9900;
         box-shadow: 0 4px 12px rgba(255, 153, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.08);
         transition: all 0.3s ease;
         letter-spacing: 0.01em;

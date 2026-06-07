@@ -3,7 +3,11 @@
 # Lambda. Use the Batch image (Dockerfile-batch) for image conversion, or keep
 # convert_to_images=false. HtmlToImageConverter.convert() fails fast with a
 # clear message if a browser is missing.
-FROM public.ecr.aws/lambda/python:3.12-x86_64
+# Pinned by digest for reproducible builds. To update: refresh both the tag and
+# the digest together via `docker buildx imagetools inspect
+# public.ecr.aws/lambda/python:3.12-x86_64`. (Lambda runs this image as a
+# managed, non-root runtime, so no USER directive is needed here.)
+FROM public.ecr.aws/lambda/python:3.12-x86_64@sha256:c72ee3b3026d3629698cbaa30afaf7ee9a643ebb3e2e78758ac1e9f2bfdd6cc7
 
 COPY main.py requirements.txt ./
 COPY configs/ configs/

@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from jinja2 import Environment, FileSystemLoader, Template
+from markupsafe import escape
 from PIL import Image
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.chrome.options import Options
@@ -38,28 +39,6 @@ class NewsletterConfig:
         "first_section_intro": "This week's highlights showcase groundbreaking AI innovations and developments that are shaping the future of technology. We've carefully selected and summarized the most relevant articles to keep you informed of the latest advancements in artificial intelligence.",
         "footer_title": "Thank you for reading! Stay tuned for next week's AI insights and discoveries.",
     }
-    LOGOS: ClassVar[dict[str, str]] = {
-        "airbnb": "airbnb.png",
-        "amazon": "amazon.png",
-        "anthropic": "anthropic.png",
-        "aws": "aws.png",
-        "google": "google.png",
-        "huggingface": "huggingface.png",
-        "kakao": "kakao.png",
-        "linkedin": "linkedin.png",
-        "meta": "meta.png",
-        "microsoft": "microsoft.png",
-        "ncsoft": "ncsoft.png",
-        "netflix": "netflix.png",
-        "nvidia": "nvidia.png",
-        "openai": "openai.png",
-        "palantir": "palantir.png",
-        "pinterest": "pinterest.png",
-        "qwen": "qwen.png",
-        "xai": "xai.png",
-        "unknown": "unknown.png",
-        # NOTE: add new logos here
-    }
 
 
 def validate_date(v: str) -> str:
@@ -85,9 +64,13 @@ class Article(BaseModel):
     score: float = Field(default=1.0, ge=0.0, le=1.0)
     _validate_date = field_validator("published_date", mode="before")(validate_date)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def source_label(self) -> str:
-        """Human-friendly source name for alt text / accessibility."""
+        """Human-friendly source name for alt text / accessibility. Exposed as a
+        computed field so it appears in ``model_dump()`` and the templates can
+        use it directly (single source of truth instead of duplicating the
+        replace/title filter chain in each template)."""
         return "" if self.source == "unknown" else self.source.replace("_", " ").title()
 
 
@@ -107,6 +90,16 @@ class Header(BaseModel):
 
 class Section(BaseModel):
     introduction: str
+
+    @field_validator("introduction", mode="before")
+    @classmethod
+    def _escape_introduction(cls, v: Any) -> str:
+        # The greeting is LLM-generated plain text rendered into the template
+        # with Jinja `| safe`, so it is a trust boundary just like the summary
+        # HTML (see summarizer._sanitize_html). The greeting prompt asks for
+        # plain text, so HTML-escaping is a no-op for legitimate output while
+        # neutralizing any injected <script>/markup echoed from scraped titles.
+        return str(escape(v)) if v is not None else ""
 
 
 class NewsletterData(BaseModel):

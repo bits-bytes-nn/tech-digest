@@ -58,7 +58,7 @@
                                     max-width: 100%;
                                     height: auto;
                                   "
-                                  alt="{{ article.source|default('', true)|replace('_', ' ')|title }} logo"
+                                  alt="{{ article.source_label ~ ' logo' if article.source_label else '' }}"
                                 />
                               </td>
                               <td
@@ -119,8 +119,7 @@
                                       font-size: 0.8125rem;
                                       font-weight: 700;
                                       color: #ffffff;
-                                      background-color: #ff9900;
-                                      background: linear-gradient(135deg, #ff9900 0%, #ffb84d 100%);
+                                      background: #b35900;
                                     "
                                     title="Relevance score"
                                     >★ {{ '%.2f' | format(article.score) }}</span
@@ -185,32 +184,6 @@
                           <div style="max-width: 100%">
                             {{ article.summary | safe }}
                           </div>
-                          <style>
-                            img {
-                              max-width: 100%;
-                              height: auto;
-                            }
-                            pre,
-                            code {
-                              font-family: "Roboto Mono", monospace !important;
-                              font-size: 0.8125rem !important;
-                              line-height: 1.5 !important;
-                            }
-                            pre {
-                              background-color: #f8f9fa !important;
-                              padding: 1rem !important;
-                              border-radius: 4px !important;
-                              overflow-x: auto !important;
-                            }
-                            code {
-                              background-color: #f8f9fa !important;
-                              padding: 0.2em 0.4em !important;
-                              border-radius: 3px !important;
-                            }
-                            pre code {
-                              padding: 0 !important;
-                            }
-                          </style>
                         </td>
                       </tr>
                       <tr>
@@ -249,12 +222,12 @@
                                           border-radius: 4px;
                                           padding: 10px 20px;
                                           display: inline-block;
-                                          background-color: #ff9900;
                                           background: linear-gradient(
                                             135deg,
                                             #ff9900 0%,
                                             #ffb84d 100%
                                           );
+                                          background-color: #ff9900;
                                           box-shadow: 0 4px 8px
                                               rgba(0, 0, 0, 0.12),
                                             0 2px 4px rgba(0, 0, 0, 0.08);

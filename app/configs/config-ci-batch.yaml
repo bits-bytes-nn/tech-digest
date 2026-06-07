@@ -1,0 +1,39 @@
+# CI-only config used by `cdk synth` in GitHub Actions to validate that the
+# *Batch* infrastructure path compiles (job queue, on-demand + spot compute
+# environments, EcsEc2 container with Ref:: job parameters, EventBridge ->
+# Batch target). Mirrors config-ci.yaml but in batch mode. Values are dummy
+# placeholders, not real resources.
+#
+# The Batch + new-VPC topology is the production combination; synthesizing it in
+# CI (alongside the Lambda path) catches infra regressions there too. New-VPC
+# creation works without credentials thanks to CDK_SYNTH_DUMMY_AZS=1.
+resources:
+  project_name: tech-digest
+  stage: dev
+  default_region_name: ap-northeast-2
+  bedrock_region_name: us-west-2
+  s3_bucket_name: tech-digest-ci-placeholder-bucket
+  s3_prefix: tech-digest
+  lambda_or_batch: batch
+  cron_expression: "cron(0 1 ? * 6 *)"
+
+scraping:
+  rss_urls:
+    - "https://openai.com/news/rss.xml"
+  days_back: 7
+  min_content_length: 600
+
+summarization:
+  use_filtering: True
+  filtering_criteria: all
+  filtering_model_id: anthropic.claude-sonnet-4-6
+  summarization_model_id: anthropic.claude-sonnet-4-6
+  greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
+  max_concurrency: 5
+  min_score: 0.7
+  max_posts: 3
+
+newsletter:
+  send_emails: False
+  sender: "ci@example.com"
+  header_title: "Weekly AI Tech Blog Digest"

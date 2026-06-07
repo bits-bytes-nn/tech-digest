@@ -217,3 +217,4 @@ outputs/
 app/configs/config-*.yaml
 !app/configs/config-template.yaml
 !app/configs/config-ci.yaml
+!app/configs/config-ci-batch.yaml

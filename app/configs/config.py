@@ -1,13 +1,23 @@
 import os
+import re
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from pydantic_core import PydanticUndefined
 
 from app.src import EnvVars, FilteringCriteria, LanguageModelId
+
+# AWS EventBridge cron has exactly six fields:
+#   cron(minutes hours day-of-month month day-of-week year)
+# We validate the structural shape — six non-empty, whitespace-free fields — and
+# let EventBridge enforce the per-field semantics at deploy time. The previous
+# regex enumerated only single numeric/*/? tokens and so rejected perfectly
+# valid expressions (ranges `1-5`, lists `1,15`, steps `*/30`, names `MON`,
+# `L`/`W`/`#`). Structural validation generalizes instead of overfitting.
+_CRON_EXPRESSION_RE = re.compile(r"^cron\((?:\S+\s+){5}\S+\)$")
 
 
 class BaseModelWithDefaults(BaseModel):
@@ -44,10 +54,17 @@ class Resources(BaseModelWithDefaults):
     vpc_id: str | None = Field(default=None)
     subnet_ids: list[str] | None = Field(default=None)
     lambda_or_batch: Literal["lambda", "batch"] = Field(default="lambda")
-    cron_expression: str | None = Field(
-        default=None,
-        pattern=r"^cron\(([0-9]|[1-5][0-9]) ([0-9]|1[0-9]|2[0-3]) (([1-9]|[12][0-9]|3[01])|\*|\?) (([1-9]|1[0-2])|\*) (([1-7])|\*|\?) (\*|[0-9]{4})\)$",
-    )
+    cron_expression: str | None = Field(default=None)
+
+    @field_validator("cron_expression")
+    @classmethod
+    def _validate_cron_expression(cls, v: str | None) -> str | None:
+        if v is not None and not _CRON_EXPRESSION_RE.match(v):
+            raise ValueError(
+                f"cron_expression must be a 6-field AWS cron, e.g. "
+                f"'cron(0 1 ? * 6 *)' — got {v!r}"
+            )
+        return v
 
 
 class Scraping(BaseModelWithDefaults):
@@ -104,6 +121,16 @@ class Newsletter(BaseModelWithDefaults):
     header_thumbnail: str | None = Field(default=None, min_length=1)
     footer_title: str | None = Field(default=None, min_length=1)
     logos: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _require_sender_when_sending(self) -> "Newsletter":
+        # Without a sender, deploy_infra builds the SES FromAddress condition and
+        # the SNS subscription from ``str(None)`` == "None", which silently
+        # produces an always-denied SES policy and an invalid email subscription.
+        # Fail fast at config-load instead of at deploy/runtime.
+        if self.send_emails and self.sender is None:
+            raise ValueError("newsletter.sender is required when send_emails is true")
+        return self
 
 
 class Config(BaseModelWithDefaults):

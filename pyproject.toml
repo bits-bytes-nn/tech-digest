@@ -37,6 +37,9 @@ dev = [
     "ruff>=0.6.0",
     "mypy>=1.10.0",
     "boto3-stubs[bedrock-runtime,s3,ses,sns,ssm,batch,sts]>=1.35.0",
+    # Stubs so `mypy .` (which now also checks main.py / run_batch.py) is clean.
+    "types-PyYAML>=6.0",
+    "types-pytz>=2024.1",
 ]
 
 [tool.setuptools]

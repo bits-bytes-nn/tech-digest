@@ -53,6 +53,21 @@ class TestArticleModel:
             Article.model_validate(sample_article_data)
 
 
+class TestSectionGreetingEscaping:
+    """The greeting is plain text rendered with Jinja `| safe`, so the Section
+    model HTML-escapes it as a trust boundary (parallel to summary sanitizing)."""
+
+    def test_script_injection_neutralized(self):
+        section = Section(introduction="Hi <script>alert(1)</script> there")
+        assert "<script>" not in section.introduction
+        assert "&lt;script&gt;" in section.introduction
+
+    def test_plain_text_without_metachars_is_unchanged(self):
+        text = "Hello friends. This week the highlights are excellent."
+        # No HTML metacharacters -> escaping leaves legitimate output intact.
+        assert Section(introduction=text).introduction == text
+
+
 class TestNewsletterRendering:
     def _build_data(self, article_data) -> NewsletterData:
         return NewsletterData(
@@ -85,6 +100,16 @@ class TestNewsletterRendering:
         renderer = NewsletterRenderer(templates_dir)
         html = renderer.render_article(Article.model_validate(sample_article_data))
         assert sample_article_data["title"] in html
+
+    def test_single_article_has_descriptive_alt(
+        self, templates_dir, sample_article_data
+    ):
+        sample_article_data["source"] = "openai"
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_article(Article.model_validate(sample_article_data))
+        # Standalone-article thumbnail uses the source label, not a generic alt.
+        assert 'alt="Openai logo"' in html
+        assert 'alt="Thumbnail"' not in html
 
     def test_score_badge_rendered(self, templates_dir, sample_article_data):
         renderer = NewsletterRenderer(templates_dir)

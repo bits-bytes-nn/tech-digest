@@ -1,4 +1,7 @@
-FROM public.ecr.aws/ubuntu/ubuntu:24.04
+# Pinned by digest for reproducible builds. To update: refresh both the tag and
+# the digest together via `docker buildx imagetools inspect
+# public.ecr.aws/ubuntu/ubuntu:24.04`.
+FROM public.ecr.aws/ubuntu/ubuntu:24.04@sha256:8c10ecc59261c77dd866fa8587f1b9cbf172ad8f1253f0af96eaae0fa390c132
 
 # Ubuntu 24.04 ships Python 3.12, matching the project's requires-python.
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -38,5 +41,12 @@ COPY requirements.txt ./
 RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY . ./
+
+# Run as a non-root user. Chrome already runs with --no-sandbox /
+# --disable-dev-shm-usage (see newsletter_renderer._configure_chrome_options),
+# so it works without root. On AWS the app writes under /tmp (ROOT_DIR), not
+# /app, so the read-only app dir owned by this user is sufficient.
+RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
+USER appuser
 
 CMD ["python3", "main.py"]

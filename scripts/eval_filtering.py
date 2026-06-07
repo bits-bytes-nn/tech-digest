@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from app.src import logger
-from app.src.eval_metrics import build_report
+from app.src.eval_metrics import band_of_score, build_report, is_on_grid
 
 EVAL_SET = (
     Path(__file__).resolve().parent.parent
@@ -38,6 +38,20 @@ EVAL_SET = (
 
 def load_eval_set(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _band_anchor_score(band: str) -> float:
+    """A representative on-grid (0.05) score that lands in ``band``.
+
+    Derived by scanning the grid through ``band_of_score`` rather than hardcoding
+    thresholds, so it stays correct if the band cutoffs change. Used only by the
+    zero-cost dry-run to exercise the reporting path.
+    """
+    candidates = [i * 0.05 for i in range(20, -1, -1)]  # 1.00 .. 0.00
+    for score in candidates:
+        if is_on_grid(score) and band_of_score(score) == band:
+            return round(score, 2)
+    return 0.0
 
 
 def _score_live(
@@ -123,9 +137,27 @@ def main() -> int:
     logger.info("Loaded %d eval articles from %s", len(data["articles"]), EVAL_SET)
 
     if not args.live:
+        # Exercise the full analysis wiring (build_report + format_table) at zero
+        # cost by feeding each article a synthetic on-grid score in its expected
+        # band. This is what makes the CI dry-run a real smoke test of the
+        # reporting path — not just "the JSON parsed" — without any Bedrock call.
+        synthetic = {
+            a["id"]: [_band_anchor_score(a["expected_band"])] for a in data["articles"]
+        }
+        report = build_report(synthetic, expected)
+        print(report.format_table())
+        if not (report.grid_rate == 1.0 and report.band_match_rate == 1.0):
+            logger.error(
+                "Dry-run self-check failed: synthetic scores should be 100%% "
+                "on-grid and band-matching (got grid=%.0f%%, band=%.0f%%). "
+                "This indicates a regression in the eval-metrics wiring.",
+                report.grid_rate * 100,
+                report.band_match_rate * 100,
+            )
+            return 1
         logger.info(
-            "DRY RUN (no AWS, no cost). %d articles validated; expected bands: %s. "
-            "Re-run with --live to score against Bedrock.",
+            "DRY RUN (no AWS, no cost): analysis wiring OK for %d articles; "
+            "expected bands: %s. Re-run with --live to score against Bedrock.",
             len(data["articles"]),
             sorted(set(expected.values())),
         )

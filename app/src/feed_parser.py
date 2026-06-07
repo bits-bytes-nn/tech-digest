@@ -26,21 +26,10 @@ from .logger import logger
 MAX_REDIRECTS: int = 5
 
 
-def _is_blocked_host(host: str) -> bool:
-    """True if ``host`` is an IP literal in a private / loopback / link-local /
-    reserved range — the SSRF-sensitive targets (notably the cloud metadata
-    endpoint 169.254.169.254). Hostnames are not resolved here: this is a
-    cheap literal guard, not a full DNS-rebinding defense. Crawl targets are an
-    operator-controlled allow-list (config rss_urls), so the realistic risk is a
-    source REDIRECTING to an internal address, which this catches for IP-literal
-    redirect targets.
-    """
-    if not host:
-        return True
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return False  # Not an IP literal; treat as a normal external hostname.
+def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True if ``ip`` falls in an SSRF-sensitive range (private / loopback /
+    link-local / reserved / multicast / unspecified) — notably the cloud
+    metadata endpoint 169.254.169.254."""
     return (
         ip.is_private
         or ip.is_loopback
@@ -49,6 +38,36 @@ def _is_blocked_host(host: str) -> bool:
         or ip.is_multicast
         or ip.is_unspecified
     )
+
+
+def _is_blocked_host(host: str) -> bool:
+    """True if ``host`` is an IP literal in a private / loopback / link-local /
+    reserved range — the SSRF-sensitive targets (notably the cloud metadata
+    endpoint 169.254.169.254). Hostnames are not resolved here: this is a
+    cheap literal guard, not a full DNS-rebinding defense. Crawl targets are an
+    operator-controlled allow-list (config rss_urls), so the realistic risk is a
+    source REDIRECTING to an internal address, which this catches for IP-literal
+    redirect targets.
+
+    Besides canonical dotted-quad / bracketed-IPv6, this also normalizes the
+    decimal / hex / octal integer forms of an IPv4 address (e.g. ``2130706433``,
+    ``0x7f000001``, ``017700000001`` all == 127.0.0.1) via ``inet_aton`` — the
+    OS resolver accepts those, so without this they would slip past a plain
+    ``ip_address`` parse and defeat the metadata-endpoint guard.
+    """
+    if not host:
+        return True
+    try:
+        return _is_blocked_ip(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    # Not canonical text. Try the integer IPv4 encodings inet_aton accepts
+    # (decimal/hex/octal) before concluding it's a normal external hostname.
+    try:
+        packed = socket.inet_aton(host)
+    except OSError:
+        return False  # Genuine hostname; treat as a normal external target.
+    return _is_blocked_ip(ipaddress.ip_address(packed))
 
 
 SourceType: TypeAlias = Literal[
@@ -408,8 +427,12 @@ class Post(BaseModel):
                 for img in soup.find_all("img")
                 if img.get("src")
             }
+            # Resolve markdown image URLs against base_url too (same as <img
+            # src> above), so relative paths like ![](/img/x.png) aren't dropped
+            # by the http filter below.
             image_urls.update(
-                ScraperConfig.MARKDOWN_IMAGE_PATTERN.findall(content_html)
+                urljoin(base_url, m)
+                for m in ScraperConfig.MARKDOWN_IMAGE_PATTERN.findall(content_html)
             )
             return [url for url in image_urls if url.startswith("http")]
         except Exception as e:
@@ -1098,10 +1121,6 @@ class SourceHealth:
     status: SourceStatus
     post_count: int = 0
     error: str | None = None
-
-    @property
-    def is_failure(self) -> bool:
-        return self.status is SourceStatus.FAILED
 
 
 @dataclass

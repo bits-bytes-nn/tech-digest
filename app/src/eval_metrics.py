@@ -49,10 +49,6 @@ class ArticleScoreStats:
     scores: list[float] = field(default_factory=list)
 
     @property
-    def n(self) -> int:
-        return len(self.scores)
-
-    @property
     def mean_score(self) -> float:
         return mean(self.scores) if self.scores else 0.0
 

@@ -62,11 +62,29 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
         margin: 0 auto;
         text-align: center;
       }
-      /* Code blocks scroll horizontally instead of overflowing on mobile. */
+      /* Code-block styling. Kept in <head> (not in a <td> style block, which
+         Gmail strips) so it survives in the most clients. Long lines wrap
+         rather than overflow the card on mobile. */
+      pre,
+      code {
+        font-family: "Roboto Mono", monospace !important;
+        font-size: 0.8125rem !important;
+        line-height: 1.5 !important;
+        background-color: #f8f9fa !important;
+        border-radius: 4px !important;
+      }
       pre {
+        padding: 1rem !important;
         overflow-x: auto !important;
         white-space: pre-wrap;
         word-wrap: break-word;
+      }
+      code {
+        padding: 0.2em 0.4em !important;
+      }
+      pre code {
+        padding: 0 !important;
+        background-color: transparent !important;
       }
       @media only screen and (max-width: 800px) {
         .wrapper {

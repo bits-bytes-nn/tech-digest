@@ -61,7 +61,6 @@ class NewsletterStack(Stack):
         email_addresses: list[str] | None = None,
         default_region_name: str | None = None,
         bedrock_region_name: str | None = None,
-        langchain_api_key: str | None = None,
         environment_vars: dict[str, str] | None = None,
         parameters: dict[str, str] | None = None,
         **kwargs,
@@ -106,9 +105,7 @@ class NewsletterStack(Stack):
                 common_env_vars, cron_expression, parameters
             )
 
-        self._store_ssm_parameters(
-            langchain_api_key, job_queue_name, job_definition_name
-        )
+        self._store_ssm_parameters(job_queue_name, job_definition_name)
 
     @property
     def availability_zones(self) -> list[str]:
@@ -256,10 +253,21 @@ class NewsletterStack(Stack):
                     f"{self._get_resource_name('newsletter')}"
                 ],
             ),
-            # SSM: read this project's parameters (e.g. LangChain API key).
+            # SSM: read this project's parameters (e.g. LangChain API key,
+            # stored as a SecureString — see _put_secure_ssm_parameter).
             iam.PolicyStatement(
                 actions=["ssm:GetParameter", "ssm:GetParameters"],
                 resources=[param_arn],
+            ),
+            # KMS: decrypt the SecureString SSM parameter. Scoped to the
+            # account's default SSM key via the ViaService condition, so the role
+            # can only use it through SSM, not for arbitrary decryption.
+            iam.PolicyStatement(
+                actions=["kms:Decrypt"],
+                resources=[f"arn:aws:kms:{region}:{account}:key/*"],
+                conditions={
+                    "StringEquals": {"kms:ViaService": f"ssm.{region}.amazonaws.com"}
+                },
             ),
             # Bedrock: invoke Claude models, including via cross-region
             # inference profiles. A cross-region profile (us./apac./global.)
@@ -485,24 +493,28 @@ class NewsletterStack(Stack):
             "NewsletterEventRule",
             schedule=events.Schedule.expression(cron_expression),
             description=f"Event rule to trigger Newsletter {self.lambda_or_batch}",
-            rule_name=self._get_resource_name(f"{self.lambda_or_batch}-ko"),
+            # The scheduled run's language is carried in the job parameters, not
+            # the rule name — don't bake a fixed "-ko" into the resource name.
+            rule_name=self._get_resource_name(self.lambda_or_batch),
         )
         rule.add_target(target)
 
     def _store_ssm_parameters(
         self,
-        langchain_api_key: str | None,
         job_queue_name: str | None,
         job_definition_name: str | None,
     ) -> None:
+        # NOTE: the LangChain API key is intentionally NOT created here. CDK can
+        # only emit a plaintext `String` SSM parameter (CloudFormation cannot
+        # create a `SecureString`), which would leak the key into the synthesized
+        # template / CloudFormation console. It is written out-of-band as a
+        # SecureString by `_put_secure_ssm_parameter` at deploy time instead.
         ssm_params_to_create = {
-            SSMParams.LANGCHAIN_API_KEY: langchain_api_key,
             SSMParams.BATCH_JOB_QUEUE: job_queue_name,
             SSMParams.BATCH_JOB_DEFINITION: job_definition_name,
         }
 
         descriptions = {
-            SSMParams.LANGCHAIN_API_KEY: "Langchain API Key",
             SSMParams.BATCH_JOB_QUEUE: "AWS Batch Job Queue Name for Tech Digest Newsletter",
             SSMParams.BATCH_JOB_DEFINITION: "AWS Batch Job Definition Name for Tech Digest Newsletter",
         }
@@ -518,6 +530,24 @@ class NewsletterStack(Stack):
                     description=descriptions[param_enum],
                     tier=ssm.ParameterTier.STANDARD,
                 )
+
+
+def _put_secure_ssm_parameter(
+    boto_session: boto3.Session, name: str, value: str
+) -> None:
+    """Write a secret to SSM as a SecureString (encrypted with the account's
+    default SSM KMS key). Done via the API rather than CDK because
+    CloudFormation cannot create a SecureString — a CDK StringParameter would
+    leak the value in plaintext into the synthesized template."""
+    ssm_client = boto_session.client("ssm")
+    ssm_client.put_parameter(
+        Name=name,
+        Value=value,
+        Type="SecureString",
+        Overwrite=True,
+        Description="LangChain API Key (Tech Digest)",
+    )
+    logger.info("Stored SecureString SSM parameter '%s'", name)
 
 
 def main() -> None:
@@ -546,16 +576,22 @@ def main() -> None:
                 "STS unavailable; using CDK_DEFAULT_ACCOUNT=%s for synth", account_id
             )
 
-        env_vars = {
-            key.value: os.environ.get(key.value, default)
-            for key, default in [
-                (EnvVars.LANGCHAIN_TRACING_V2, "false"),
-                (EnvVars.LANGCHAIN_ENDPOINT, ""),
-                (EnvVars.LANGCHAIN_API_KEY, None),
-            ]
+        # Non-secret tracing config goes into the container environment block.
+        env_vars: dict[str, str] = {
+            EnvVars.LANGCHAIN_TRACING_V2.value: os.environ.get(
+                EnvVars.LANGCHAIN_TRACING_V2.value, "false"
+            ),
+            EnvVars.LANGCHAIN_ENDPOINT.value: os.environ.get(
+                EnvVars.LANGCHAIN_ENDPOINT.value, ""
+            ),
+            EnvVars.LANGCHAIN_PROJECT.value: config.resources.project_name,
         }
-        env_vars[EnvVars.LANGCHAIN_PROJECT.value] = config.resources.project_name
-        env_vars = {k: v for k, v in env_vars.items() if v is not None}
+
+        # The LangChain API key is a secret, so it must NOT be baked into the
+        # synthesized CloudFormation template or the Lambda/Batch environment
+        # block. Keep it out of env_vars entirely and write it separately as an
+        # SSM SecureString once the stack is deployed.
+        langchain_api_key = os.environ.get(EnvVars.LANGCHAIN_API_KEY.value)
 
         parameters = {
             "end_date": AppConstants.NULL_STRING,
@@ -582,12 +618,22 @@ def main() -> None:
             email_addresses=[str(config.newsletter.sender)],
             default_region_name=config.resources.default_region_name,
             bedrock_region_name=config.resources.bedrock_region_name,
-            langchain_api_key=env_vars.pop(EnvVars.LANGCHAIN_API_KEY.value, None),
             environment_vars=env_vars,
             parameters=parameters,
             env=env,
         )
         app.synth()
+
+        # Write the secret out-of-band as an SSM SecureString. Skipped during a
+        # credential-less synth (e.g. CI) — there's nothing to write and no
+        # session to write it with.
+        if langchain_api_key and os.environ.get("CDK_SYNTH_ONLY") != "1":
+            _put_secure_ssm_parameter(
+                boto_session,
+                f"/{config.resources.project_name}/{config.resources.stage}/"
+                f"{SSMParams.LANGCHAIN_API_KEY.value}",
+                langchain_api_key,
+            )
 
     except Exception as e:
         logger.error("Error occurred: %s", e, exc_info=True)
