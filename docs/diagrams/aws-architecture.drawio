@@ -3,7 +3,7 @@
     <mxCell id="0"/>
     <mxCell id="1" parent="0"/>
 
-    <mxCell id="title" value="tech-digest — Weekly AI Tech Blog Digest Newsletter (AWS Architecture)" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#232F3E;" vertex="1" parent="1">
+    <mxCell id="title" value="Tech Digest — AWS Architecture" style="text;html=1;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;fontColor=#232F3E;" vertex="1" parent="1">
       <mxGeometry x="300" y="22" width="940" height="40" as="geometry"/>
     </mxCell>
 
@@ -91,15 +91,15 @@
       <mxGeometry x="1370" y="775" width="78" height="78" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_sched_mode" value="triggers" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#E7157B;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.13;entryDx=0;entryDy=0;" edge="1" parent="1" source="scheduler" target="modegrp">
+    <mxCell id="e_sched_mode" value="triggers" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#E7157B;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.13;entryDx=0;entryDy=0;" edge="1" parent="1" source="scheduler" target="modegrp">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_mode_container" value="runs pipeline" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#5A6C72;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.38;entryDx=0;entryDy=0;" edge="1" parent="1" source="modegrp" target="container">
+    <mxCell id="e_mode_container" value="runs pipeline" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#5A6C72;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.38;entryDx=0;entryDy=0;" edge="1" parent="1" source="modegrp" target="container">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_nat_net" value="pull RSS / scrape HTML via NAT" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8C4FFF;strokeWidth=2;endArrow=block;startArrow=block;fontSize=11;fontColor=#5A6C72;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="nat" target="internet">
+    <mxCell id="e_nat_net" value="pull RSS / scrape HTML via NAT" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#8C4FFF;strokeWidth=2;endArrow=block;startArrow=block;fontSize=11;fontColor=#5A6C72;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="nat" target="internet">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
@@ -107,31 +107,31 @@
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_c_bedrock" value="invoke models" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#01A88D;strokeWidth=2;endArrow=block;startArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.06;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="bedrock">
+    <mxCell id="e_c_bedrock" value="invoke models" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#01A88D;strokeWidth=2;endArrow=block;startArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.06;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="bedrock">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_c_s3" value="read / write" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#7AA116;strokeWidth=2;endArrow=block;startArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.295;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="s3">
+    <mxCell id="e_c_s3" value="read / write" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#7AA116;strokeWidth=2;endArrow=block;startArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.295;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="s3">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_c_ssm" value="read params" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#E7157B;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.525;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="ssm">
+    <mxCell id="e_c_ssm" value="read params" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#E7157B;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.525;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="ssm">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_c_ses" value="send email" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#DD344C;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.76;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="ses">
+    <mxCell id="e_c_ses" value="send email" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#DD344C;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.76;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="ses">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_c_sns" value="publish run / health" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#E7157B;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.985;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="sns">
+    <mxCell id="e_c_sns" value="publish run / health" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#E7157B;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.985;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="container" target="sns">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_ses_sub" value="deliver newsletter" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#DD344C;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="ses" target="subscribers">
+    <mxCell id="e_ses_sub" value="deliver newsletter" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#DD344C;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="ses" target="subscribers">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
-    <mxCell id="e_sns_op" value="email operator" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#E7157B;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="sns" target="operator">
+    <mxCell id="e_sns_op" value="email operator" style="edgeStyle=orthogonalEdgeStyle;labelBackgroundColor=#FFFFFF;rounded=1;html=1;strokeColor=#E7157B;strokeWidth=2;endArrow=block;fontSize=11;fontColor=#5A6C72;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="sns" target="operator">
       <mxGeometry relative="1" as="geometry"/>
     </mxCell>
 
