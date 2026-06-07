@@ -41,11 +41,11 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
 
 **AWS architecture** — infrastructure & data flow:
 
-![AWS architecture diagram](./assets/diagrams/aws-architecture.png)
+![AWS architecture diagram](./docs/diagrams/aws-architecture.png)
 
 **Processing pipeline** — ingestion → delivery:
 
-![Processing pipeline diagram](./assets/diagrams/pipeline-flow.png)
+![Processing pipeline diagram](./docs/diagrams/pipeline-flow.png)
 
 ---
 

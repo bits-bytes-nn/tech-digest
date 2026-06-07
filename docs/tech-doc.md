@@ -71,11 +71,11 @@ Python 애플리케이션이 — 설정에 따라 **AWS Lambda** 또는 **AWS Ba
 
 **AWS 아키텍처** (인프라 & 데이터 흐름):
 
-![AWS 아키텍처 다이어그램](../assets/diagrams/aws-architecture.png)
+![AWS 아키텍처 다이어그램](./diagrams/aws-architecture.png)
 
 **처리 파이프라인** (수집 → 전달):
 
-![처리 파이프라인 다이어그램](../assets/diagrams/pipeline-flow.png)
+![처리 파이프라인 다이어그램](./diagrams/pipeline-flow.png)
 
 AWS 다이어그램은 전체 그림을 보여줍니다 — EventBridge 트리거, Lambda냐 Batch냐를
 가르는 컴퓨트 선택, 블로그 소스까지 나가기 위한 VPC/NAT 송신 경로, 그리고
@@ -97,7 +97,8 @@ tech-digest/
 │   ├── configs/
 │   │   ├── config.py            # Pydantic 설정 모델 + YAML 로더
 │   │   ├── config-template.yaml # 주석 달린 템플릿 (커밋됨)
-│   │   ├── config-ci.yaml       # CI 전용 synth 검증 설정 (커밋됨)
+│   │   ├── config-ci.yaml       # CI synth 검증 (Lambda 경로, 커밋됨)
+│   │   ├── config-ci-batch.yaml # CI synth 검증 (Batch 경로, 커밋됨)
 │   │   ├── config-dev.yaml      # 개발 설정 (gitignore)
 │   │   └── config-prod.yaml     # 운영 설정 (gitignore)
 │   ├── src/
@@ -114,7 +115,7 @@ tech-digest/
 │   └── assets/                  # 런타임 로고 + 수신자 파일
 ├── scripts/deploy_infra.py      # AWS CDK 스택 (Lambda/Batch + IAM + 스케줄)
 ├── tests/                       # pytest 스위트
-├── assets/                      # 문서 (이 파일 + 다이어그램)
+├── docs/                        # 기술 문서 (이 파일 + 다이어그램)
 ├── pyproject.toml               # 도구 설정: ruff, mypy, pytest
 └── .github/workflows/ci.yml     # CI: lint, type-check, test, cdk synth
 ```
@@ -642,7 +643,8 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
 - **IAM(최소 권한)** — 광범위한 `*FullAccess` 매니지드 정책을 붙이는 대신, 역할에
   앱이 실제로 하는 일에 딱 맞춘 **범위 지정 인라인 정책**을 부여합니다: 설정 버킷의
   S3 객체/리스트 작업, **설정된 발신자로 제한된**(`ses:FromAddress` 조건) SES
-  발송, 이 스택 토픽으로의 SNS publish, 이 프로젝트 파라미터 경로의 SSM 읽기,
+  발송, 이 스택 토픽으로의 SNS publish, 이 프로젝트 파라미터 경로의 SSM 읽기와
+  (SecureString 복호화를 위한, `kms:ViaService=ssm`으로 제한된) `kms:Decrypt`,
   해당 리전의 **Anthropic 파운데이션 모델 + 추론 프로파일 ARN으로 범위 지정된**
   Bedrock invoke(프로파일 탐색만은 계정 레벨로 유지), 프로젝트 Batch 로그 그룹으로
   범위 지정된 CloudWatch Logs. 끝까지 매니지드 정책으로 남겨 둔 건 런타임 서비스
@@ -652,7 +654,10 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
 - **SNS** — 토픽을 만들고, 선택적으로 운영자 이메일을 구독시킵니다.
 - **컴퓨트** — `DockerImageFunction`(Lambda) 또는 EC2 온디맨드 + 스팟 컴퓨트
   환경의 Batch 잡 정의 중 하나입니다. 어느 쪽이든 EventBridge 스케줄에 연결됩니다.
-- **SSM** — LangChain API 키와 Batch 큐/정의 이름을 저장합니다.
+- **SSM** — Batch 큐/정의 이름은 CDK `StringParameter`로, LangChain API 키는
+  **SecureString**으로 저장합니다. CloudFormation은 SecureString을 만들지 못하고
+  평문 `StringParameter`는 키를 synth 템플릿에 노출시키므로, 키만은 배포 시점에
+  `boto3`로 따로 기록합니다(런타임은 `WithDecryption=True`로 읽습니다).
 
 ---
 
@@ -660,11 +665,16 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
 
 - **`Dockerfile-lambda`** — `public.ecr.aws/lambda/python:3.12-x86_64` 기반.
   **브라우저가 없어서** 이미지 변환은 여기서 지원하지 않습니다(파일에 명시했고,
-  §13의 fail-fast 가드로 강제합니다).
+  §13의 fail-fast 가드로 강제합니다). Lambda 런타임이 비루트로 실행하므로 별도
+  `USER` 지시는 없습니다.
 - **`Dockerfile-batch`** — `ubuntu:24.04`(Python 3.12)에 `google-chrome-stable`,
   한국어/CJK/이모지 폰트, `xvfb`를 설치합니다. `CHROME_BINARY`를 고정해, Selenium이
   불안정한 네트워크 다운로드 없이 맞는 드라이버를 찾게 합니다. `convert_to_images`를
-  켰다면 Batch를 씁니다.
+  켰다면 Batch를 씁니다. **비루트 사용자**(`appuser`)로 실행하며(Chrome은 이미
+  `--no-sandbox`/`--disable-dev-shm-usage`로 띄우므로 호환), 런타임 쓰기는 `/app`이
+  아니라 `/tmp`(`ROOT_DIR`)로 갑니다.
+- 두 이미지의 베이스는 **digest로 고정**해 재현 가능한 빌드를 보장합니다(태그와
+  digest를 함께 갱신).
 
 ---
 
@@ -708,10 +718,11 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
   "재현 가능한 점수"라는 목표와 앵커 점수제가 실측으로 확인됐습니다.
 - **`.github/workflows/ci.yml`** — push와 PR마다 실행합니다: 의존성 설치,
   `ruff check`, `ruff format --check`, **`mypy`**(차단형이며, 컨테이너 임포트
-  루트와 맞추려고 `cd app && mypy src`로 실행), 커버리지 포함 `pytest`, 평가 하버스
-  **드라이런**. 별도 잡이 `config-ci.yaml`로 **`cdk synth`**(차단형)를 돌려
-  인프라가 컴파일되는지 검증하며, `CDK_SYNTH_DUMMY_AZS=1`로 AWS 자격증명 없이도
-  VPC가 synth되게 합니다.
+  루트와 맞추려고 `cd app && mypy .`로 실행 — 진입점 `main.py`/`run_batch.py`까지
+  포함), 커버리지 포함 `pytest`, 평가 하버스 **드라이런**. 별도 잡이 **`cdk synth`**
+  (차단형)를 **Lambda 경로(`config-ci.yaml`)와 Batch 경로(`config-ci-batch.yaml`)
+  양쪽**으로 돌려 인프라가 컴파일되는지 검증하며(Batch가 운영 컴퓨트 토폴로지),
+  `CDK_SYNTH_DUMMY_AZS=1`로 AWS 자격증명 없이도 VPC가 synth되게 합니다.
 
 ---
 
