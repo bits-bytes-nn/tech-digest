@@ -3,13 +3,14 @@ parser, and BatchProcessor fallback semantics. No network access."""
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, datetime
 
 import pytest
 
 from app.src.utils import (
     BatchProcessor,
     HTMLTagOutputParser,
+    format_alarm,
     get_date_range,
     validate_email,
     validate_emails,
@@ -35,6 +36,44 @@ class TestEmailValidation:
     def test_validate_emails_filters_invalid(self):
         out = validate_emails(["a@example.com", "bad", "b@example.com"])
         assert out == ["a@example.com", "b@example.com"]
+
+
+class TestFormatAlarm:
+    _TS = datetime(2026, 6, 10, 4, 12, 0, tzinfo=UTC)
+
+    def test_subject_format(self):
+        subject, _ = format_alarm(
+            event="Newsletter Delivery", status="FAILED", fields={"Error": "boom"}
+        )
+        assert subject == "[tech-digest] Newsletter Delivery — FAILED"
+
+    def test_custom_project_in_subject(self):
+        subject, _ = format_alarm(
+            event="Crawl Health", status="ALERT", fields={}, project="paper-bridge"
+        )
+        assert subject == "[paper-bridge] Crawl Health — ALERT"
+
+    def test_inline_fields_aligned(self):
+        _, msg = format_alarm(
+            event="Newsletter Delivery",
+            status="ALERT",
+            fields={"Delivered": "2/3", "Failed recipients": "a@b.com"},
+            timestamp=self._TS,
+        )
+        assert "Delivered:         2/3" in msg
+        assert "Failed recipients: a@b.com" in msg
+        assert msg.startswith("Newsletter Delivery ALERT\n\n")
+        assert msg.endswith("— 2026-06-10 04:12:00 UTC")
+
+    def test_multiline_field_rendered_as_block(self):
+        _, msg = format_alarm(
+            event="Crawl Health",
+            status="ALERT",
+            fields={"Failing sources": "2", "Detail": "line1\nline2"},
+            timestamp=self._TS,
+        )
+        assert "Failing sources: 2" in msg
+        assert "Detail:\nline1\nline2" in msg
 
 
 class TestGetDateRange:

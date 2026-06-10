@@ -63,7 +63,8 @@ class TestCrawlHealthAlert:
         main._send_crawl_health_alert(session, "arn:topic", failing_report)
         assert len(session.sns.published) == 1
         msg = session.sns.published[0]
-        assert "crawl source(s) failing" in msg["Subject"]
+        assert "Crawl Health" in msg["Subject"]
+        assert "ALERT" in msg["Subject"]
         assert "ai.meta.com/blog" in msg["Message"]
         assert "anti-bot block" in msg["Message"]
 
@@ -72,21 +73,37 @@ class TestCrawlHealthAlert:
         assert len(failing_report.ok) == 1
 
 
-class TestSuccessNotificationIncludesCrawlSummary:
-    def test_summary_line_in_message(self, failing_report):
+class TestPartialDeliveryAlert:
+    def test_alert_on_partial_failure_includes_crawl_summary(self, failing_report):
         session = _FakeSession()
-        main._send_success_notification(
+        main._maybe_send_partial_delivery_alert(
+            session,
+            "arn:topic",
+            success_count=2,
+            total_recipients=3,
+            failed_recipients=["bad@example.com"],
+            crawl_report=failing_report,
+        )
+        assert len(session.sns.published) == 1
+        published = session.sns.published[0]
+        assert "ALERT" in published["Subject"]
+        msg = published["Message"]
+        assert "2/3" in msg
+        assert "bad@example.com" in msg
+        assert "Crawl health:" in msg
+        assert "1 ok" in msg and "1 failed" in msg
+
+    def test_no_alert_on_full_success(self, failing_report):
+        session = _FakeSession()
+        main._maybe_send_partial_delivery_alert(
             session,
             "arn:topic",
             success_count=3,
             total_recipients=3,
             failed_recipients=[],
-            filtered_out_posts=[],
             crawl_report=failing_report,
         )
-        msg = session.sns.published[0]["Message"]
-        assert "Crawl health:" in msg
-        assert "1 ok" in msg and "1 failed" in msg
+        assert session.sns.published == []
 
 
 class TestHandlerControlFlow:

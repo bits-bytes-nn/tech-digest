@@ -28,6 +28,7 @@ from src import (
     SSMParams,
     Summarizer,
     check_and_download_from_s3,
+    format_alarm,
     get_date_range,
     get_ssm_param_value,
     is_running_in_aws,
@@ -80,7 +81,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         # filtering — as before — left the greeting and output filenames stuck on
         # the KO default even when --language en was requested.
         language = Language(language_str) if language_str else Language.KO
-        posts, date_suffix, filtered_out_posts, crawl_report = _fetch_and_filter_posts(
+        posts, date_suffix, _filtered_out_posts, crawl_report = _fetch_and_filter_posts(
             config,
             bedrock_boto_session,
             end_date_str=end_date_str,
@@ -109,13 +110,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                 None if recipients is None else recipients.split(","),
             )
             if is_running_in_aws() and topic_arn:
-                _send_success_notification(
+                _maybe_send_partial_delivery_alert(
                     default_boto_session,
                     topic_arn,
                     success,
                     total,
                     failed,
-                    filtered_out_posts,
                     crawl_report,
                 )
         return {"statusCode": 200, "body": "Newsletter processed successfully"}
@@ -422,33 +422,29 @@ def _send_emails_to_recipients(
     return success_count, failed_recipients
 
 
-def _send_success_notification(
+def _maybe_send_partial_delivery_alert(
     boto_session: boto3.Session,
     topic_arn: str,
     success_count: int,
     total_recipients: int,
     failed_recipients: list[str],
-    filtered_out_posts: list[tuple[Post, str]],
     crawl_report: CrawlReport | None = None,
 ) -> None:
+    """Alert when delivery completed but some recipients failed. A fully
+    successful run is not alarm-worthy, so nothing is sent in that case."""
+    if not failed_recipients:
+        return
     sns_client = boto_session.client("sns")
-    filtered_out_info = "\nFiltered out posts:\n"
-    for post, reason in filtered_out_posts:
-        filtered_out_info += f"- {post.title} ({post.link})\n  Score: {post.score}\n  Reason:\n{reason}\n\n"
-    status = "with some failures" if failed_recipients else "successfully"
-    subject_status = "Partial Success" if failed_recipients else "Success"
-    message = f"Newsletter delivery completed {status}.\n"
-    message += f"Successfully sent: {success_count}/{total_recipients}\n"
-    if failed_recipients:
-        message += f"Failed recipients: {', '.join(failed_recipients)}\n"
+    fields = {
+        "Delivered": f"{success_count}/{total_recipients}",
+        "Failed recipients": ", ".join(failed_recipients),
+    }
     if crawl_report is not None:
-        message += f"\nCrawl health: {crawl_report.summary_line()}\n"
-    message += filtered_out_info
-    sns_client.publish(
-        TopicArn=topic_arn,
-        Subject=f"Newsletter Delivery - {subject_status}",
-        Message=message.rstrip(),
+        fields["Crawl health"] = crawl_report.summary_line()
+    subject, message = format_alarm(
+        event="Newsletter Delivery", status="ALERT", fields=fields
     )
+    sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
 
 
 def _send_crawl_health_alert(
@@ -457,22 +453,28 @@ def _send_crawl_health_alert(
     """Notify when one or more crawl sources failed, so a broken source is
     noticed promptly instead of silently dropping out of the digest."""
     sns_client = boto_session.client("sns")
-    sns_client.publish(
-        TopicArn=topic_arn,
-        Subject=(f"Tech Digest - {len(crawl_report.failed)} crawl source(s) failing"),
-        Message=crawl_report.format_alert(),
+    subject, message = format_alarm(
+        event="Crawl Health",
+        status="ALERT",
+        fields={
+            "Failing sources": str(len(crawl_report.failed)),
+            "Summary": crawl_report.summary_line(),
+            "Detail": crawl_report.format_alert(),
+        },
     )
+    sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
 
 
 def _send_failure_notification(
     boto_session: boto3.Session, topic_arn: str, error_message: str
 ) -> None:
     sns_client = boto_session.client("sns")
-    sns_client.publish(
-        TopicArn=topic_arn,
-        Subject="Newsletter Delivery - Failed",
-        Message=f"Newsletter delivery failed with error: {error_message}",
+    subject, message = format_alarm(
+        event="Newsletter Delivery",
+        status="FAILED",
+        fields={"Error": error_message},
     )
+    sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
 
 
 if __name__ == "__main__":

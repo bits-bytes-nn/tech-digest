@@ -41,6 +41,7 @@ from .newsletter_renderer import BuildConfiguration, NewsletterBuilder
 from .summarizer import Summarizer
 from .utils import (
     HTMLTagOutputParser,
+    format_alarm,
     get_date_range,
     measure_execution_time,
     validate_email,
@@ -78,6 +79,7 @@ __all__ = [
     "Summarizer",
     "XAIBlogScraper",
     "check_and_download_from_s3",
+    "format_alarm",
     "get_account_id",
     "get_date_range",
     "get_ssm_param_value",

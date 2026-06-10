@@ -676,6 +676,48 @@ def validate_emails(emails: list[str]) -> list[str]:
     return valid_emails
 
 
+def format_alarm(
+    *,
+    event: str,
+    status: str,
+    fields: dict[str, str],
+    project: str = "tech-digest",
+    timestamp: datetime | None = None,
+) -> tuple[str, str]:
+    """Build a ``(subject, message)`` pair in the project family's unified alarm
+    format, shared verbatim across omnisummary/paper-bridge/scholar-lens:
+
+        Subject: [<project>] <event> — <STATUS>
+
+        <event> <STATUS>
+
+        Key:   Value
+
+        — 2026-06-10 04:12:00 UTC
+
+    ``status`` is a short uppercase state (``FAILED``/``ALERT``). ``fields`` is an
+    ordered mapping; single-line values render as an aligned ``Key: Value`` block,
+    multi-line values render under their own ``Key:`` header. Omit a row by leaving
+    it out of the dict.
+    """
+    ts = (timestamp or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M:%S")
+    subject = f"[{project}] {event} — {status}"
+
+    inline = {k: v for k, v in fields.items() if "\n" not in v}
+    block = {k: v for k, v in fields.items() if "\n" in v}
+
+    lines = [f"{event} {status}", ""]
+    if inline:
+        width = max(len(k) for k in inline)
+        lines += [f"{k + ':':<{width + 1}} {v}" for k, v in inline.items()]
+    for k, v in block.items():
+        lines += ["", f"{k}:", v.strip("\n")]
+    lines.append("")
+    lines.append(f"— {ts} UTC")
+
+    return subject, "\n".join(lines)
+
+
 def get_date_range(
     end_date_str: str | None, days_back: int
 ) -> tuple[datetime, datetime]:
