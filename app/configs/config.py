@@ -141,8 +141,8 @@ class Config(BaseModelWithDefaults):
     summarization: Summarization = Field(
         default_factory=lambda: Summarization(
             filtering_criteria=FilteringCriteria.ALL,
-            filtering_model_id=LanguageModelId.CLAUDE_V4_6_SONNET,
-            summarization_model_id=LanguageModelId.CLAUDE_V4_6_SONNET,
+            filtering_model_id=LanguageModelId.CLAUDE_V5_SONNET,
+            summarization_model_id=LanguageModelId.CLAUDE_V5_SONNET,
             greeting_model_id=LanguageModelId.CLAUDE_V4_5_HAIKU,
         )
     )

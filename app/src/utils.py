@@ -89,6 +89,13 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
         supports_1m_context_window=True,
     ),
+    LanguageModelId.CLAUDE_V5_SONNET: LanguageModelInfo(
+        context_window_size=1000000,
+        max_output_tokens=64000,
+        supports_prompt_caching=True,
+        supports_thinking=True,
+        supports_1m_context_window=True,
+    ),
     LanguageModelId.CLAUDE_V4_OPUS: LanguageModelInfo(
         context_window_size=200000,
         max_output_tokens=64000,

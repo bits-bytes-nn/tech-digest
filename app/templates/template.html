@@ -49,6 +49,22 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
         table-layout: fixed;
         margin: 0 auto;
       }
+      table.table-bordered {
+        width: 100%;
+        margin: 16px 0;
+        border: 1px solid #dee2e6;
+      }
+      table.table-bordered th,
+      table.table-bordered td {
+        border: 1px solid #dee2e6;
+        padding: 8px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+      table.table-bordered th {
+        background-color: #f1f3f5;
+        font-weight: 600;
+      }
       .wrapper {
         max-width: 800px !important;
         width: 800px;

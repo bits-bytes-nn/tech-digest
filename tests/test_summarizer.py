@@ -146,6 +146,24 @@ class TestSummaryOutput:
         assert "onclick" not in out.summary.lower()
         assert "text" in out.summary
 
+    def test_markdown_table_gets_bordered_class(self):
+        # A markdown table (via the `tables` extension) must render with the
+        # email-safe presentation class so it isn't borderless in mail clients.
+        md = "| Metric | Value |\n| --- | --- |\n| speedup | 5x |"
+        out = SummaryOutput.model_validate({"summary": md, "tags": [], "urls": []})
+        assert '<table class="table table-bordered">' in out.summary
+
+    def test_attributed_table_normalized_to_bordered_class(self):
+        # Raw HTML tables the model emits with attributes (border/cellpadding)
+        # used to slip past the old literal "<table>" string replace and render
+        # unstyled. The sanitizer now forces the class on every table and strips
+        # the stray presentational attributes.
+        html = '<table border="0" cellpadding="0"><tr><td>a</td></tr></table>'
+        out = SummaryOutput.model_validate({"summary": html, "tags": [], "urls": []})
+        assert '<table class="table table-bordered">' in out.summary
+        assert "border=" not in out.summary
+        assert "cellpadding" not in out.summary
+
     def test_javascript_href_stripped_in_summary(self):
         out = SummaryOutput.model_validate(
             {

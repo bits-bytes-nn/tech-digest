@@ -345,8 +345,10 @@ in the tech community."""
 
 **REQUIREMENTS:**
 1. Start with "Hey friends! I'm Peccy 😎"
-2. Include one interesting tech fact, historical insight, or industry observation
-3. Preview this week's content with enthusiasm
+2. Include one interesting tech fact, historical insight, or industry observation that connects
+   DIRECTLY to a theme actually covered in this week's articles (see the context). Avoid a generic
+   "back then X, now Y" nostalgia template and avoid facts unrelated to this week's topics
+3. Preview this week's content with enthusiasm, hinting at what the articles share in common
 4. Create smooth transition to main articles
 5. Keep total length 50-70 words
 6. Use casual, confident tone with technical expertise
@@ -360,13 +362,16 @@ in the tech community."""
 
 **REQUIREMENTS:**
 1. Start with "안녕 친구들! 난 Peccy야 😎"
-2. Include one interesting tech fact, historical insight, or industry observation
-3. Preview this week's content with enthusiasm
+2. Include one interesting tech fact, historical insight, or industry observation that connects
+   DIRECTLY to a theme actually covered in this week's articles (see the context). Avoid the
+   generic "예전엔 X였는데 이제 Y야" nostalgia template and avoid facts unrelated to this week's topics
+3. Preview this week's content with enthusiasm, hinting at what the articles share in common
 4. Create smooth transition to main articles
-5. Keep total length 50-70 words
+5. Keep total length 100-140 Korean characters (한글 기준 100~140자), roughly 3-4 sentences
 6. Use casual speech (반말) with confident tone
 7. Keep technical terms in English when appropriate
-8. Output plain text only - no markdown formatting
+8. Use consistent spacing for common phrases (e.g. always "이번 주", never "이번주")
+9. Output plain text only - no markdown formatting
 
 **OUTPUT:** Newsletter introduction in Korean only.""",
     }
@@ -421,6 +426,16 @@ explanations that make complex technical concepts accessible without sacrificing
    - Connect technical details to practical implications
    - Make complex ideas accessible without oversimplifying
 
+4. **Section Distinctiveness**
+   - Each section must carry NEW information. Never restate figures, sentences, or conclusions
+     already given in an earlier section
+   - The 📊 Results section is NOT a place to re-list metrics already stated in 📌/🛠️
+     (e.g. "5x faster", "30% cost reduction"). Focus on the business/practical implications of
+     those results, or outcomes not yet mentioned
+   - The 🔮 Future section is NOT a place to re-state limitations already listed in 🛠️. Cover the
+     roadmap, expansion directions, and opportunities the article explicitly mentions. If there is
+     nothing new and forward-looking to add, OMIT this section
+
 **SECTION SKIP RULE:**
 - If the source material does not contain sufficient information for a section, OMIT that section entirely
 - Do NOT write sections that merely state "no information is available" or "the article does not mention this"
@@ -432,12 +447,14 @@ Provide your analysis within <summary> tags using the following sections. Includ
 source material provides sufficient substantive content:
 
 <h3>📌 Why This Matters</h3>
-Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is 
-noteworthy, and who should care. Write as a flowing narrative without subsections. Be concise while covering essential 
-points.
+Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is
+noteworthy, and who should care. Write as a flowing narrative without subsections. Be concise while covering essential
+points. Open and close with the specific reason THIS article matters (the problem it solves, what is new). Do NOT end
+with a formulaic audience call-out like "a noteworthy read for developers and architects" — when every article ends the
+same way, it reads as boilerplate.
 
 <h3>🔄 Core Architecture and Workflow</h3>
-Describe the system design and workflow clearly. Cover main components, their interactions, and key design choices. 
+Describe the system design and workflow clearly. Cover main components, their interactions, and key design choices.
 Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs only: 
 https://example.com/image.jpg). Write as a cohesive narrative without subsection headers. Avoid redundancy with the 
 technical deep dive section.
@@ -514,6 +531,21 @@ Korean:
    - Connect technical details to practical implications
    - Make complex ideas accessible without oversimplifying
 
+4. **일관된 문체 (Consistent Register)**
+   - 모든 섹션의 모든 문장을 **정중한 합니다체**로 통일하세요 (예: "제안합니다", "달성했습니다",
+     "확인되지 않았습니다"). 절대 문어체 평서형(한다체: "제안한다", "달성했다")과 섞지 마세요
+   - 원문 블로그의 어조를 따라가지 말고, 위 합니다체를 처음부터 끝까지 유지하세요
+   - 이 뉴스레터는 여러 아티클을 하나로 묶어 발송하므로, 아티클마다 문체가 다르면 독자가 이질감을
+     느낍니다. 문체 통일은 필수입니다
+
+5. **섹션 간 정보 차별화 (Section Distinctiveness)**
+   - 각 섹션은 **새로운 정보**를 담아야 합니다. 앞 섹션에서 이미 말한 수치·문장·결론을 뒤 섹션에서
+     그대로 반복하지 마세요
+   - 특히 📊 성과 섹션은 📌·🛠️에서 이미 제시한 수치(예: "5배 향상", "30% 절감")를 재나열하는 곳이
+     아닙니다. 그 수치가 의미하는 **비즈니스·실무적 함의**나 아직 언급하지 않은 결과에 집중하세요
+   - 🔮 향후 섹션은 🛠️에서 이미 열거한 한계점을 뒤집어 재서술하는 곳이 아닙니다. 원문이 명시한
+     **로드맵·확장 방향·기회**를 다루세요. 새로 덧붙일 forward-looking 내용이 없으면 이 섹션을 생략하세요
+
 **섹션 생략 규칙:**
 - 원문에 해당 섹션을 채울 충분한 정보가 없으면, 그 섹션을 통째로 생략하세요
 - "원문에 관련 정보가 없습니다" 또는 "언급되지 않았습니다" 같은 내용으로 섹션을 채우지 마세요
@@ -525,11 +557,13 @@ Provide your analysis within <summary> tags using the following sections. Includ
 source material provides sufficient substantive content:
 
 <h3>📌 왜 이 아티클에 주목해야 하나요?</h3>
-Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is 
-noteworthy, and who should care. Write as a flowing narrative without subsections. Be concise while covering essential 
-points.
+Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is
+noteworthy, and who should care. Write as a flowing narrative without subsections. Be concise while covering essential
+points. 이 아티클만의 구체적인 이유(해결하는 문제, 새로운 점)로 시작하고 끝맺으세요. "~개발자와 아키텍트에게
+주목할 만한 참고 자료입니다" 같은 정형화된 대상·권유 문구로 마무리하지 마세요 — 매주 여러 아티클이 똑같은 문구로
+끝나면 독자에게 상투적으로 읽힙니다.
 
-<h3>🔄 아이디어, 아키텍처, 또는 워크플로우 개요</h3>
+<h3>🔄 핵심 아키텍처와 동작 방식</h3>
 Describe the system design and workflow clearly. Cover main components, their interactions, and key design choices. 
 Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs only: 
 https://example.com/image.jpg). Write as a cohesive narrative without subsection headers. Avoid redundancy with the 

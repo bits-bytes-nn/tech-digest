@@ -73,7 +73,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **S3** — config, recipients, generated newsletters, and article HTML.
 - **SSM Parameter Store** — LangChain API key and Batch queue/definition names.
 - **SES** — newsletter delivery. **SNS** — run/health notifications.
-- **Bedrock (us-west-2)** — Claude Sonnet 4.6 (filter + summarize), Claude
+- **Bedrock (us-west-2)** — Claude Sonnet 5 (filter + summarize), Claude
   Haiku 4.5 (greeting).
 
 ---
@@ -107,8 +107,8 @@ scraping:
     - "https://www.amazon.science/index.rss"
 
 summarization:
-  filtering_model_id: anthropic.claude-sonnet-4-6
-  summarization_model_id: anthropic.claude-sonnet-4-6
+  filtering_model_id: anthropic.claude-sonnet-5
+  summarization_model_id: anthropic.claude-sonnet-5
   greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
   min_score: 0.7                         # keep posts scoring >= this
   max_posts: 5                           # cap kept posts (applied before summarizing)
@@ -157,7 +157,7 @@ pip install -e ".[dev]"
 ruff check .
 ruff format --check .
 cd app && mypy src           # run from app/ so the dual import layout resolves
-pytest                       # fast, offline unit/integration suite (240 tests)
+pytest                       # fast, offline unit/integration suite (268 tests)
 ```
 
 These same checks run in CI on every push and pull request

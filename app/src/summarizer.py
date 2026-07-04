@@ -26,9 +26,11 @@ from .utils import (
 class SummarizerConfig:
     CONVERT_MARKDOWN_TO_HTML: ClassVar[bool] = True
     DEFAULT_TAGS: ClassVar[list[str]] = ["uncategorized"]
+    # NOTE: <table> is class-injected in _sanitize_html (BeautifulSoup catches
+    # every table regardless of attributes; a literal "<table>" string match
+    # here silently missed attributed tables and left them unstyled).
     HTML_REPLACEMENTS: ClassVar[dict[str, str]] = {
         "<code>": '<code class="highlight">',
-        "<table>": '<table class="table table-bordered">',
         "<pre>": '<pre class="pre-scrollable">',
     }
     MARKDOWN_EXTENSIONS: ClassVar[list[str]] = [
@@ -227,6 +229,13 @@ def _sanitize_html(html: str) -> str:
                 # Allow-listed attribute but unsafe scheme — drop the whole tag's
                 # link rather than leave a javascript:/data: payload.
                 del tag[attr]
+        # Force the presentation class on EVERY table, regardless of how the
+        # model emitted it (bare ``<table>`` from markdown, or a ``<table ...>``
+        # with attributes in raw HTML). The old ``"<table>" -> classed`` string
+        # replace silently missed attributed tables, leaving them unstyled — so
+        # a metrics table rendered borderless/cramped in email clients.
+        if name == "table":
+            tag["class"] = "table table-bordered"
     return str(soup)
 
 

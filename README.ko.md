@@ -73,7 +73,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **S3** — 설정, 수신자 목록, 생성된 뉴스레터, 글 HTML을 보관합니다.
 - **SSM Parameter Store** — LangChain API 키와 Batch 큐/정의 이름을 저장합니다.
 - **SES** — 뉴스레터를 전달합니다. **SNS** — 실행/헬스 알림을 보냅니다.
-- **Bedrock(us-west-2)** — Claude Sonnet 4.6(필터 + 요약), Claude Haiku 4.5(인사말).
+- **Bedrock(us-west-2)** — Claude Sonnet 5(필터 + 요약), Claude Haiku 4.5(인사말).
 
 ---
 
@@ -106,8 +106,8 @@ scraping:
     - "https://www.amazon.science/index.rss"
 
 summarization:
-  filtering_model_id: anthropic.claude-sonnet-4-6
-  summarization_model_id: anthropic.claude-sonnet-4-6
+  filtering_model_id: anthropic.claude-sonnet-5
+  summarization_model_id: anthropic.claude-sonnet-5
   greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
   min_score: 0.7                         # 이 점수 이상인 글만 유지
   max_posts: 5                           # 남길 글 수 상한(요약 전에 적용)
@@ -156,7 +156,7 @@ pip install -e ".[dev]"
 ruff check .
 ruff format --check .
 cd app && mypy src           # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행
-pytest                       # 빠른 오프라인 단위/통합 스위트(240개 테스트)
+pytest                       # 빠른 오프라인 단위/통합 스위트(268개 테스트)
 ```
 
 이 검사들은 모든 푸시와 풀 리퀘스트에서 CI로도 똑같이 실행됩니다
