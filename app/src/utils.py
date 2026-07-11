@@ -36,6 +36,16 @@ class LanguageModelInfo(BaseModel):
     supports_prompt_caching: bool = False
     supports_thinking: bool = False
     supports_1m_context_window: bool = False
+    # Newer models (Sonnet 5 and up) removed the sampling parameters
+    # (temperature/top_k/top_p) and reject requests that include them with a
+    # ValidationException. Default True for backward compatibility; set False
+    # for models that no longer accept sampling params.
+    supports_sampling_params: bool = True
+    # Newer models (Sonnet 5 and up) also replaced the explicit thinking budget
+    # (thinking.type="enabled" + budget_tokens) with adaptive thinking
+    # (thinking.type="adaptive"); the old form is rejected. Depth is instead
+    # controlled by output_config.effort. Set True for those models.
+    uses_adaptive_thinking: bool = False
 
 
 _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
@@ -95,6 +105,8 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_prompt_caching=True,
         supports_thinking=True,
         supports_1m_context_window=True,
+        supports_sampling_params=False,
+        uses_adaptive_thinking=True,
     ),
     LanguageModelId.CLAUDE_V4_OPUS: LanguageModelInfo(
         context_window_size=200000,
@@ -130,6 +142,8 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_prompt_caching=True,
         supports_thinking=True,
         supports_1m_context_window=True,
+        supports_sampling_params=False,
+        uses_adaptive_thinking=True,
     ),
     LanguageModelId.CLAUDE_V4_8_OPUS: LanguageModelInfo(
         context_window_size=1000000,
@@ -137,6 +151,8 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_prompt_caching=True,
         supports_thinking=True,
         supports_1m_context_window=True,
+        supports_sampling_params=False,
+        uses_adaptive_thinking=True,
     ),
     # NOTE: add new models here
 }
@@ -326,15 +342,18 @@ class BedrockLanguageModelFactory(
         final_max_tokens = self._validate_max_tokens(
             kwargs.get("max_tokens"), model_info
         )
-        config = self._build_base_config(resolved_model_id, is_cross_region, **kwargs)
+        config = self._build_base_config(
+            resolved_model_id, is_cross_region, model_info, **kwargs
+        )
+        # Newer models (Sonnet 5+) removed sampling params and reject requests
+        # that include `temperature`; only send it where the model accepts it.
+        sampling_params: dict[str, Any] = {"max_tokens": final_max_tokens}
+        if model_info.supports_sampling_params:
+            sampling_params["temperature"] = final_temperature
         if is_cross_region:
-            config.update(
-                {"max_tokens": final_max_tokens, "temperature": final_temperature}
-            )
+            config.update(sampling_params)
         else:
-            config["model_kwargs"].update(
-                {"max_tokens": final_max_tokens, "temperature": final_temperature}
-            )
+            config["model_kwargs"].update(sampling_params)
         if supports_1m_context_window and model_info.supports_1m_context_window:
             if is_cross_region:
                 config.setdefault("additional_model_request_fields", {}).update(
@@ -349,7 +368,11 @@ class BedrockLanguageModelFactory(
         return config
 
     def _build_base_config(
-        self, resolved_model_id: str, is_cross_region: bool, **kwargs: Any
+        self,
+        resolved_model_id: str,
+        is_cross_region: bool,
+        model_info: LanguageModelInfo,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         config = {
             "model_id": resolved_model_id,
@@ -368,10 +391,11 @@ class BedrockLanguageModelFactory(
         if is_cross_region:
             config.update(common_params)
         else:
-            config["model_kwargs"] = {
-                "top_k": kwargs.get("top_k", self.DEFAULT_TOP_K),
-                **common_params,
-            }
+            model_kwargs: dict[str, Any] = {**common_params}
+            # top_k is a sampling param; newer models (Sonnet 5+) reject it.
+            if model_info.supports_sampling_params:
+                model_kwargs["top_k"] = kwargs.get("top_k", self.DEFAULT_TOP_K)
+            config["model_kwargs"] = model_kwargs
         return config
 
     def _apply_model_features(
@@ -392,43 +416,74 @@ class BedrockLanguageModelFactory(
                 "Applied performance optimization (latency_mode='%s')", latency
             )
         if self._should_enable_thinking(enable_think, model_info):
-            budget = kwargs.get(
-                "thinking_budget_tokens", self.DEFAULT_THINKING_BUDGET_TOKENS
-            )
-            # Bedrock requires MIN_THINKING_BUDGET <= budget < max_tokens (the
-            # budget is drawn from the output allowance).
-            effective_max = self._validate_max_tokens(
-                kwargs.get("max_tokens"), model_info
-            )
-            if effective_max <= self.MIN_THINKING_BUDGET:
-                # No budget can satisfy MIN_THINKING_BUDGET <= budget < max_tokens;
-                # thinking is impossible at this max_tokens. Skip it rather than
-                # send a request Bedrock will reject.
-                logger.warning(
-                    "max_tokens (%d) too small for thinking (min budget %d); "
-                    "disabling thinking for this request.",
-                    effective_max,
-                    self.MIN_THINKING_BUDGET,
-                )
-                return
-            if budget >= effective_max:
-                clamped = max(self.MIN_THINKING_BUDGET, effective_max - 1024)
-                logger.warning(
-                    "thinking_budget_tokens (%d) >= max_tokens (%d); clamping to %d",
-                    budget,
-                    effective_max,
-                    clamped,
-                )
-                budget = clamped
-            budget = max(budget, self.MIN_THINKING_BUDGET)
-            think_config = {"thinking": {"type": "enabled", "budget_tokens": budget}}
-            if is_cross_region:
-                config.setdefault("additional_model_request_fields", {}).update(
-                    think_config
-                )
+            if model_info.uses_adaptive_thinking:
+                self._apply_adaptive_thinking(config, is_cross_region, **kwargs)
             else:
-                config.setdefault("model_kwargs", {}).update(think_config)
-            logger.debug("Applied thinking mode (budget_tokens=%d)", budget)
+                self._apply_budget_thinking(
+                    config, model_info, is_cross_region, **kwargs
+                )
+
+    def _apply_adaptive_thinking(
+        self, config: dict[str, Any], is_cross_region: bool, **kwargs: Any
+    ) -> None:
+        # Newer models (Sonnet 5+) require adaptive thinking; the model
+        # self-moderates how much it thinks. Depth is optionally steered via
+        # output_config.effort ("low"|"medium"|"high"|"max") rather than a token
+        # budget. Omitting effort uses the model default.
+        think_config: dict[str, Any] = {"thinking": {"type": "adaptive"}}
+        effort = kwargs.get("effort")
+        if effort:
+            think_config["output_config"] = {"effort": effort}
+        if is_cross_region:
+            config.setdefault("additional_model_request_fields", {}).update(
+                think_config
+            )
+        else:
+            config.setdefault("model_kwargs", {}).update(think_config)
+        logger.debug("Applied adaptive thinking (effort='%s')", effort or "default")
+
+    def _apply_budget_thinking(
+        self,
+        config: dict[str, Any],
+        model_info: LanguageModelInfo,
+        is_cross_region: bool,
+        **kwargs: Any,
+    ) -> None:
+        budget = kwargs.get(
+            "thinking_budget_tokens", self.DEFAULT_THINKING_BUDGET_TOKENS
+        )
+        # Bedrock requires MIN_THINKING_BUDGET <= budget < max_tokens (the
+        # budget is drawn from the output allowance).
+        effective_max = self._validate_max_tokens(kwargs.get("max_tokens"), model_info)
+        if effective_max <= self.MIN_THINKING_BUDGET:
+            # No budget can satisfy MIN_THINKING_BUDGET <= budget < max_tokens;
+            # thinking is impossible at this max_tokens. Skip it rather than
+            # send a request Bedrock will reject.
+            logger.warning(
+                "max_tokens (%d) too small for thinking (min budget %d); "
+                "disabling thinking for this request.",
+                effective_max,
+                self.MIN_THINKING_BUDGET,
+            )
+            return
+        if budget >= effective_max:
+            clamped = max(self.MIN_THINKING_BUDGET, effective_max - 1024)
+            logger.warning(
+                "thinking_budget_tokens (%d) >= max_tokens (%d); clamping to %d",
+                budget,
+                effective_max,
+                clamped,
+            )
+            budget = clamped
+        budget = max(budget, self.MIN_THINKING_BUDGET)
+        think_config = {"thinking": {"type": "enabled", "budget_tokens": budget}}
+        if is_cross_region:
+            config.setdefault("additional_model_request_fields", {}).update(
+                think_config
+            )
+        else:
+            config.setdefault("model_kwargs", {}).update(think_config)
+        logger.debug("Applied thinking mode (budget_tokens=%d)", budget)
 
     @staticmethod
     def _validate_max_tokens(

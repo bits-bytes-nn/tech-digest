@@ -157,7 +157,7 @@ pip install -e ".[dev]"
 ruff check .
 ruff format --check .
 cd app && mypy src           # run from app/ so the dual import layout resolves
-pytest                       # fast, offline unit/integration suite (268 tests)
+pytest                       # fast, offline unit/integration suite (276 tests)
 ```
 
 These same checks run in CI on every push and pull request

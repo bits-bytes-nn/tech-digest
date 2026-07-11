@@ -156,7 +156,7 @@ pip install -e ".[dev]"
 ruff check .
 ruff format --check .
 cd app && mypy src           # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행
-pytest                       # 빠른 오프라인 단위/통합 스위트(268개 테스트)
+pytest                       # 빠른 오프라인 단위/통합 스위트(276개 테스트)
 ```
 
 이 검사들은 모든 푸시와 풀 리퀘스트에서 CI로도 똑같이 실행됩니다
