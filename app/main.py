@@ -81,7 +81,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         # filtering — as before — left the greeting and output filenames stuck on
         # the KO default even when --language en was requested.
         language = Language(language_str) if language_str else Language.KO
-        posts, date_suffix, _filtered_out_posts, crawl_report = _fetch_and_filter_posts(
+        posts, date_suffix, filtered_out_posts, crawl_report = _fetch_and_filter_posts(
             config,
             bedrock_boto_session,
             end_date_str=end_date_str,
@@ -91,6 +91,17 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         if is_running_in_aws() and topic_arn and crawl_report.failed:
             _send_crawl_health_alert(default_boto_session, topic_arn, crawl_report)
         if not posts:
+            # Distinguish "nothing survived filtering" from "nothing was
+            # collected". The former — especially when every post was dropped by
+            # a model error — is a silent failure worth alerting on, since the
+            # run still exits successfully and no email goes out.
+            if is_running_in_aws() and topic_arn:
+                _maybe_send_empty_digest_alert(
+                    default_boto_session,
+                    topic_arn,
+                    crawl_report,
+                    filtered_out_posts,
+                )
             logger.info("No posts to process. Exiting gracefully.")
             return {"statusCode": 200, "body": "No posts found to process."}
         newsletter_path = _process_posts_and_create_newsletter(
@@ -443,6 +454,42 @@ def _maybe_send_partial_delivery_alert(
         fields["Crawl health"] = crawl_report.summary_line()
     subject, message = format_alarm(
         event="Newsletter Delivery", status="ALERT", fields=fields
+    )
+    sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
+
+
+def _maybe_send_empty_digest_alert(
+    boto_session: boto3.Session,
+    topic_arn: str,
+    crawl_report: CrawlReport,
+    filtered_out_posts: list[tuple[Post, str]],
+) -> None:
+    """Alert when posts were collected but none survived filtering, so the run
+    produced an empty digest and sent no email. A genuinely empty crawl (nothing
+    collected at all) is not alarm-worthy here — crawl-health alerts cover source
+    failures. The reason breakdown lets the reader tell a mass model failure
+    (e.g. every call rejected) from an unusually strict but healthy week."""
+    if crawl_report.total_posts == 0 or not filtered_out_posts:
+        return
+    reason_counts: dict[str, int] = {}
+    for _post, reason in filtered_out_posts:
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    breakdown = "\n".join(
+        f"  - {count}x {reason}"
+        for reason, count in sorted(
+            reason_counts.items(), key=lambda kv: kv[1], reverse=True
+        )
+    )
+    sns_client = boto_session.client("sns")
+    subject, message = format_alarm(
+        event="Empty Digest",
+        status="ALERT",
+        fields={
+            "Collected": str(crawl_report.total_posts),
+            "Survived filtering": "0",
+            "Filtered out": str(len(filtered_out_posts)),
+            "Reasons": breakdown,
+        },
     )
     sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
 

@@ -106,6 +106,60 @@ class TestPartialDeliveryAlert:
         assert session.sns.published == []
 
 
+class TestEmptyDigestAlert:
+    def _post(self, title: str):
+        from datetime import datetime
+
+        from src.feed_parser import Post
+
+        return Post(
+            title=title, link="https://x.com", published_date=datetime(2026, 7, 11)
+        )
+
+    def _report(self, total: int) -> CrawlReport:
+        return CrawlReport(
+            sources=[
+                SourceHealth(
+                    url="https://x.com/rss",
+                    fetcher="RssFetcher",
+                    status=SourceStatus.OK,
+                    post_count=total,
+                )
+            ]
+        )
+
+    def test_alert_when_all_posts_filtered_out(self):
+        session = _FakeSession()
+        filtered_out = [
+            (self._post("A"), "Filtering failed (no model response)."),
+            (self._post("B"), "Filtering failed (no model response)."),
+            (self._post("C"), "Low relevance score."),
+        ]
+        main._maybe_send_empty_digest_alert(
+            session, "arn:topic", self._report(3), filtered_out
+        )
+        assert len(session.sns.published) == 1
+        msg = session.sns.published[0]["Message"]
+        assert "Empty Digest" in session.sns.published[0]["Subject"]
+        assert "ALERT" in session.sns.published[0]["Subject"]
+        # Reason breakdown surfaces the dominant cause (mass model failure here).
+        assert "2x Filtering failed (no model response)." in msg
+        assert "1x Low relevance score." in msg
+
+    def test_no_alert_when_nothing_collected(self):
+        # An empty crawl is covered by crawl-health alerts, not this one.
+        session = _FakeSession()
+        main._maybe_send_empty_digest_alert(session, "arn:topic", self._report(0), [])
+        assert session.sns.published == []
+
+    def test_no_alert_when_no_filtered_out_posts(self):
+        # Defensive: total>0 but nothing recorded as filtered out (shouldn't
+        # normally happen) must not fire a misleading alert.
+        session = _FakeSession()
+        main._maybe_send_empty_digest_alert(session, "arn:topic", self._report(5), [])
+        assert session.sns.published == []
+
+
 class TestHandlerControlFlow:
     """Exercise handler's early-return and error paths without AWS/Bedrock by
     stubbing config, boto sessions, AWS-env detection, and the fetch step."""
