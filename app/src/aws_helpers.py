@@ -175,13 +175,13 @@ def wait_for_batch_job_completion(
             # after submit); `.get("jobs", [{}])[0]` would raise IndexError on a
             # present-but-empty list, so guard the empty case explicitly.
             jobs = response.get("jobs") or []
-            job = jobs[0] if jobs else {}
-            status = job.get("status")
+            status = jobs[0].get("status") if jobs else None
             if not status:
                 logger.error(
                     "Could not find status for job ID '%s'. Aborting wait.", job_id
                 )
                 return False
+            job = jobs[0]
             if status == "SUCCEEDED":
                 logger.info("Job '%s' completed successfully.", job_id)
                 return True
