@@ -55,8 +55,14 @@ summarization:
   max_posts: 5
   # Extended-thinking budgets (tokens), used only when *_enable_thinking is True.
   # Must be >= 1024 and < the model's max output tokens (auto-clamped otherwise).
+  # NOTE: adaptive-thinking models (Sonnet 5+) IGNORE these budgets — they are
+  # steered by `thinking_effort` below. The budgets apply only to legacy
+  # budget-thinking models (Sonnet 4.x / older).
   filtering_thinking_budget_tokens: 4096
   summarization_thinking_budget_tokens: 8192
+  # Adaptive-thinking depth for newer models (Sonnet 5+): low | medium | high |
+  # max. Blank = model default. Ignored by legacy budget-thinking models.
+  thinking_effort:
   # Optional cap on summary output tokens (blank = use the model's maximum).
   summarization_max_tokens:
 

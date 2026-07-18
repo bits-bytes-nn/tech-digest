@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -195,6 +196,7 @@ def _fetch_and_filter_posts(
             config.summarization.summarization_thinking_budget_tokens
         ),
         summarization_max_tokens=config.summarization.summarization_max_tokens,
+        thinking_effort=config.summarization.thinking_effort,
     )
 
     # The score-rank and max_posts cap are applied inside process_posts BEFORE
@@ -259,7 +261,13 @@ def _prepare_and_save_posts(posts: list[Post], date_suffix: str) -> Path:
 
 def _generate_post_filename(post: Post) -> str:
     sanitized_title = re.sub(r"[^\w\s-]", "", post.title.lower()).replace(" ", "_")
-    return f"{post.source}-{sanitized_title}.json"
+    # Append a short stable hash of the link so two distinct posts (different
+    # URLs) that share a source and sanitize to the same title string don't
+    # overwrite each other on disk — which would silently drop one from the
+    # digest after we already paid to summarize it. The link is unique per post
+    # (the collector dedupes on it), so the hash disambiguates deterministically.
+    link_hash = hashlib.sha1(post.link.encode("utf-8")).hexdigest()[:8]
+    return f"{post.source}-{sanitized_title}-{link_hash}.json"
 
 
 def _save_post_to_file(post: Post, path: Path) -> None:

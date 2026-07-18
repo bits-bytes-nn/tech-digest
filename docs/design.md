@@ -351,6 +351,21 @@ URL 패턴 조각을 스크레이퍼 클래스에 매핑합니다. `get_fetcher`
 수집되지 않은 경우(`total_posts == 0`)는 크롤 헬스 알림이 담당하므로 여기서는 보내지
 않습니다.
 
+여기서 "필터를 통과한 게 하나도 없다"에는 **요약 단계 실패**도 포함됩니다.
+`_summarize_posts`는 요약이 실패한 글(모델 무응답 또는 검증 실패)을
+`filtered_out_posts`에 사유와 함께 기록하고, `process_posts`는 요약이 실제로
+채워진 글만 반환합니다. 따라서 세 글이 필터는 통과했으나 요약이 전부 실패하면
+`posts`가 비어 이 경보가 발동합니다 — 예전처럼 글 없는 뉴스레터를 조용히 보내지
+않습니다.
+
+**인프라 레벨 경보.** 위 경보들은 컨테이너/Lambda가 살아서 `handler`의 제어
+흐름에 도달해야 발동합니다. 그 이전(초기화 크래시, OOM 등)에 죽는 경우를 위해
+스택은 앱 코드와 무관한 CloudWatch/EventBridge 경보를 둡니다: (1) Batch 작업의
+FAILED 종료 상태를 EventBridge 규칙으로 잡아 SNS로 전달, (2) Lambda `Errors`
+지표 경보, (3) 예약 호출이 재시도 후에도 배달되지 못하면 이벤트를 SQS
+데드레터 큐에 넣고 그 큐 깊이에 경보를 걸어, 그 주 다이제스트가 조용히
+누락되지 않게 합니다.
+
 ---
 
 ## 8. Bedrock 모델 팩토리 & 배치 처리 (`app/src/utils.py`)
@@ -747,7 +762,7 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
 - **`pyproject.toml`** 이 도구 설정을 한곳에 모읍니다: `pytest`(`unit`/
   `integration`/`live` 마커와 importlib 임포트 모드), `ruff`(lint + format),
   `mypy`.
-- **`tests/`** — 빠르고 네트워크를 타지 않는 pytest 스위트입니다(279개 테스트).
+- **`tests/`** — 빠르고 네트워크를 타지 않는 pytest 스위트입니다(324개 테스트).
   커버하는 범위는 다음과 같습니다.
   - 날짜 파싱(fail-closed `try_parse_published_date` 포함), 소스/이미지 파싱.
   - **사이트별 스크레이퍼 골든 테스트** — `tests/fixtures/scrapers/`에 저장해 둔

@@ -160,6 +160,93 @@ class TestEmptyDigestAlert:
         assert session.sns.published == []
 
 
+class TestGeneratePostFilename:
+    """Two distinct posts (different links) that sanitize to the same
+    source+title must map to DIFFERENT filenames, or one silently overwrites
+    the other on disk and vanishes from the digest."""
+
+    def _post(self, title: str, link: str):
+        from datetime import datetime
+
+        from src.feed_parser import Post
+
+        return Post(
+            title=title,
+            link=link,
+            published_date=datetime(2026, 7, 11),
+            source="aws",
+        )
+
+    def test_same_title_distinct_links_get_distinct_filenames(self):
+        a = self._post("GPT-4 is here!", "https://aws.amazon.com/a")
+        b = self._post("GPT-4 is here?", "https://aws.amazon.com/b")
+        fa = main._generate_post_filename(a)
+        fb = main._generate_post_filename(b)
+        assert fa != fb
+        assert fa.startswith("aws-gpt-4_is_here-") and fa.endswith(".json")
+
+    def test_filename_is_stable_for_same_link(self):
+        p = self._post("Title", "https://aws.amazon.com/x")
+        assert main._generate_post_filename(p) == main._generate_post_filename(p)
+
+
+class TestEmailOrchestration:
+    """_process_newsletter_emails counts successes/failures correctly so the
+    partial-delivery alert fires on an all-failed (silent) delivery."""
+
+    class _Cfg:
+        class newsletter:
+            header_title = "Digest"
+            sender = "sender@example.com"
+
+    def test_all_sends_fail_reports_all_as_failed(self, monkeypatch, tmp_path):
+        newsletter = tmp_path / "n.html"
+        newsletter.write_text("<html>body</html>", encoding="utf-8")
+        monkeypatch.setattr(main, "send_email", lambda *a, **k: False)
+        success, failed, total = main._process_newsletter_emails(
+            newsletter,
+            "2026-07-11",
+            self._Cfg(),
+            object(),
+            recipients=["a@example.com", "b@example.com"],
+        )
+        assert success == 0
+        assert total == 2
+        assert set(failed) == {"a@example.com", "b@example.com"}
+
+    def test_unreadable_newsletter_reports_all_failed(self, monkeypatch, tmp_path):
+        missing = tmp_path / "does-not-exist.html"
+        monkeypatch.setattr(main, "send_email", lambda *a, **k: True)
+        success, failed, total = main._process_newsletter_emails(
+            missing,
+            "2026-07-11",
+            self._Cfg(),
+            object(),
+            recipients=["a@example.com"],
+        )
+        assert success == 0
+        assert total == 1
+        assert failed == ["a@example.com"]
+
+    def test_partial_success_counts_split(self, monkeypatch, tmp_path):
+        newsletter = tmp_path / "n.html"
+        newsletter.write_text("<html>body</html>", encoding="utf-8")
+        # First recipient succeeds, second fails.
+        outcomes = iter([True, False])
+        monkeypatch.setattr(main, "send_email", lambda *a, **k: next(outcomes))
+        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
+        success, failed, total = main._process_newsletter_emails(
+            newsletter,
+            "2026-07-11",
+            self._Cfg(),
+            object(),
+            recipients=["ok@example.com", "bad@example.com"],
+        )
+        assert success == 1
+        assert failed == ["bad@example.com"]
+        assert total == 2
+
+
 class TestHandlerControlFlow:
     """Exercise handler's early-return and error paths without AWS/Bedrock by
     stubbing config, boto sessions, AWS-env detection, and the fetch step."""
@@ -199,6 +286,62 @@ class TestHandlerControlFlow:
         result = main.handler({}, None)
         assert result["statusCode"] == 500
         assert "kaboom" in result["body"]
+
+    def test_empty_digest_after_filtering_publishes_alert(self, monkeypatch):
+        # On AWS: posts were collected but none survived filtering. The handler
+        # must return 200 AND fire exactly one 'Empty Digest' SNS alert (the
+        # silent-failure guard). Uses an all-OK crawl report so the crawl-health
+        # alert does not also fire.
+        self._patch_common(monkeypatch)
+        monkeypatch.setattr(main, "is_running_in_aws", lambda: True)
+        monkeypatch.setenv(main.EnvVars.TOPIC_ARN.value, "arn:topic")
+        session = _FakeSession()
+        monkeypatch.setattr(main, "DEFAULT_BOTO_SESSION", session)
+        monkeypatch.setattr(main, "BEDROCK_BOTO_SESSION", session)
+        monkeypatch.setattr(main, "_setup_aws_env", lambda *a, **k: None)
+
+        from datetime import datetime
+
+        from src.feed_parser import Post
+
+        report = CrawlReport(
+            sources=[
+                SourceHealth(
+                    url="https://x.com/rss",
+                    fetcher="RssFetcher",
+                    status=SourceStatus.OK,
+                    post_count=2,
+                )
+            ]
+        )
+        filtered_out = [
+            (
+                Post(
+                    title="A",
+                    link="https://x.com/a",
+                    published_date=datetime(2026, 7, 11),
+                ),
+                "Summarization failed (no model response).",
+            ),
+            (
+                Post(
+                    title="B",
+                    link="https://x.com/b",
+                    published_date=datetime(2026, 7, 11),
+                ),
+                "Summarization failed (no model response).",
+            ),
+        ]
+        monkeypatch.setattr(
+            main,
+            "_fetch_and_filter_posts",
+            lambda *a, **k: ([], "2026-07-11", filtered_out, report),
+        )
+
+        result = main.handler({}, None)
+        assert result["statusCode"] == 200
+        assert len(session.sns.published) == 1
+        assert "Empty Digest" in session.sns.published[0]["Subject"]
 
     def test_exception_publishes_failure_notification(self, monkeypatch):
         # On AWS with a topic configured, an unhandled error must surface via SNS

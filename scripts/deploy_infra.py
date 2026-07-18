@@ -13,6 +13,12 @@ from aws_cdk import (
     aws_batch as batch,
 )
 from aws_cdk import (
+    aws_cloudwatch as cloudwatch,
+)
+from aws_cdk import (
+    aws_cloudwatch_actions as cloudwatch_actions,
+)
+from aws_cdk import (
     aws_ec2 as ec2,
 )
 from aws_cdk import (
@@ -34,10 +40,13 @@ from aws_cdk import (
     aws_sns_subscriptions as subscriptions,
 )
 from aws_cdk import (
+    aws_sqs as sqs,
+)
+from aws_cdk import (
     aws_ssm as ssm,
 )
 from aws_cdk.aws_ecr_assets import DockerImageAsset, Platform
-from aws_cdk.aws_events_targets import BatchJob, LambdaFunction
+from aws_cdk.aws_events_targets import BatchJob, LambdaFunction, SnsTopic
 from constructs import Construct
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -87,6 +96,10 @@ class NewsletterStack(Stack):
         self.security_group = self._create_security_group()
         self.role = self._create_iam_role()
         self.topic = self._create_sns_topic(email_addresses)
+        # Dead-letter queue for scheduled-invocation delivery failures. Without
+        # it, if EventBridge cannot deliver the weekly trigger after its retries
+        # the event is dropped silently and the digest is missed with no signal.
+        self.schedule_dlq = self._create_schedule_dlq()
 
         common_env_vars = self._get_common_environment_vars(
             default_region_name,
@@ -325,6 +338,36 @@ class NewsletterStack(Stack):
                 topic.add_subscription(subscriptions.EmailSubscription(email))
         return topic
 
+    def _create_schedule_dlq(self) -> sqs.Queue:
+        """SQS dead-letter queue for the EventBridge schedule target, plus an
+        alarm on it so a dropped weekly trigger surfaces to the SNS topic
+        instead of vanishing silently."""
+        dlq = sqs.Queue(
+            self,
+            "ScheduleDlq",
+            queue_name=self._get_resource_name("schedule-dlq"),
+            retention_period=Duration.days(14),
+            enforce_ssl=True,
+        )
+        alarm = cloudwatch.Alarm(
+            self,
+            "ScheduleDlqAlarm",
+            alarm_name=self._get_resource_name("schedule-dlq"),
+            alarm_description=(
+                "A scheduled newsletter invocation was dropped and sent to the "
+                "dead-letter queue — the run likely did not start."
+            ),
+            metric=dlq.metric_approximate_number_of_messages_visible(
+                period=Duration.minutes(5), statistic="Maximum"
+            ),
+            threshold=0,
+            evaluation_periods=1,
+            comparison_operator=(cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD),
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        alarm.add_alarm_action(cloudwatch_actions.SnsAction(self.topic))
+        return dlq
+
     def _get_common_environment_vars(
         self,
         default_region_name: str | None,
@@ -349,7 +392,24 @@ class NewsletterStack(Stack):
         if function.role:
             self.topic.grant_publish(function.role)
         if cron_expression:
-            self._create_event_rule(cron_expression, target=LambdaFunction(function))
+            self._create_event_rule(
+                cron_expression,
+                target=LambdaFunction(function, dead_letter_queue=self.schedule_dlq),
+            )
+        # Alarm on Lambda execution errors that never reach main.py's in-app
+        # alert (e.g. init crash, OOM, timeout) so infra-level failures surface.
+        error_alarm = cloudwatch.Alarm(
+            self,
+            "LambdaErrorAlarm",
+            alarm_name=self._get_resource_name("lambda-errors"),
+            alarm_description="Newsletter Lambda reported one or more errors.",
+            metric=function.metric_errors(period=Duration.minutes(5), statistic="Sum"),
+            threshold=0,
+            evaluation_periods=1,
+            comparison_operator=(cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD),
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        error_alarm.add_alarm_action(cloudwatch_actions.SnsAction(self.topic))
 
     def _setup_batch_resources(
         self,
@@ -367,6 +427,7 @@ class NewsletterStack(Stack):
                 job_definition_scope=job_definition,
                 job_name=self._get_resource_name("newsletter"),
                 retry_attempts=2,
+                dead_letter_queue=self.schedule_dlq,
                 event=(
                     events.RuleTargetInput.from_object({"Parameters": parameters})
                     if parameters
@@ -374,7 +435,29 @@ class NewsletterStack(Stack):
                 ),
             )
             self._create_event_rule(cron_expression, target=batch_target)
+        # AWS Batch emits no per-job "failed" CloudWatch metric, so watch the
+        # terminal FAILED state via EventBridge and forward it to SNS. This
+        # catches failures (OOM, init crash) that never reach main.py's in-app
+        # alert branches — the silent-failure class that motivated this.
+        self._create_batch_failure_alarm(job_queue)
         return job_queue.job_queue_name, job_definition.job_definition_name
+
+    def _create_batch_failure_alarm(self, job_queue: batch.JobQueue) -> None:
+        rule = events.Rule(
+            self,
+            "BatchJobFailedRule",
+            rule_name=self._get_resource_name("batch-job-failed"),
+            description="Forward FAILED Batch jobs for this queue to SNS.",
+            event_pattern=events.EventPattern(
+                source=["aws.batch"],
+                detail_type=["Batch Job State Change"],
+                detail={
+                    "status": ["FAILED"],
+                    "jobQueue": [job_queue.job_queue_arn],
+                },
+            ),
+        )
+        rule.add_target(SnsTopic(self.topic))
 
     def _create_lambda_function(
         self, environment: dict[str, str]
@@ -409,6 +492,21 @@ class NewsletterStack(Stack):
             compute_environments=[],
         )
 
+        # Require IMDSv2 (token-authenticated) and drop the hop limit to 1 so a
+        # single unauthenticated GET to 169.254.169.254 can no longer read the
+        # instance role's credentials — defense-in-depth that neutralizes the
+        # SSRF -> credential-theft path even if the URL filter is bypassed. The
+        # container's job-role credentials come from the ECS agent endpoint
+        # (169.254.170.2), not IMDS, so this does not affect the app. No AMI is
+        # pinned here — Batch fills in the ECS-optimized AMI and user data.
+        launch_template = ec2.LaunchTemplate(
+            self,
+            "NewsletterLaunchTemplate",
+            launch_template_name=self._get_resource_name("newsletter"),
+            require_imdsv2=True,
+            http_put_response_hop_limit=1,
+        )
+
         compute_env_config = {
             "instance_role": self.role,
             # Let Batch pick from the optimal C/M/R instance classes. This is the
@@ -416,6 +514,7 @@ class NewsletterStack(Stack):
             # InstanceType("optimal") is rejected as a malformed identifier by
             # current aws-cdk-lib.
             "use_optimal_instance_classes": True,
+            "launch_template": launch_template,
             "vpc": self.vpc,
             "security_groups": [self.security_group],
             "vpc_subnets": self.vpc_subnets,
@@ -461,8 +560,12 @@ class NewsletterStack(Stack):
             self,
             "NewsletterContainerDef",
             image=ecs.ContainerImage.from_docker_image_asset(docker_image),
-            cpu=1,
-            memory=core.Size.mebibytes(512),
+            # The Batch image bundles headless Chrome + xvfb for the optional
+            # convert_to_images render step, which routinely needs well over
+            # 512 MiB; 512 MiB would OOM-kill the job. 2 vCPU / 2 GiB is a safe
+            # floor (the browserless Lambda path keeps its smaller 512 MiB).
+            cpu=2,
+            memory=core.Size.mebibytes(2048),
             job_role=self.role,
             command=[
                 "python",

@@ -52,6 +52,18 @@ class TestArticleModel:
         with pytest.raises(ValueError):
             Article.model_validate(sample_article_data)
 
+    def test_unsafe_link_scheme_blanked(self, sample_article_data):
+        # A javascript:/data: link from scraped content must not be rendered as
+        # a clickable href; it is blanked rather than raising.
+        sample_article_data["link"] = "javascript:alert(1)"
+        article = Article.model_validate(sample_article_data)
+        assert article.link == ""
+
+    def test_safe_link_scheme_preserved(self, sample_article_data):
+        sample_article_data["link"] = "https://example.com/post"
+        article = Article.model_validate(sample_article_data)
+        assert article.link == "https://example.com/post"
+
 
 class TestSectionGreetingEscaping:
     """The greeting is plain text rendered with Jinja `| safe`, so the Section
@@ -122,6 +134,29 @@ class TestNewsletterRendering:
         assert "prefers-color-scheme: dark" in html
         assert 'lang="ko"' in html
         assert 'role="article"' in html
+
+    def test_dark_mode_darkens_content_cells_and_table_headers(
+        self, templates_dir, sample_article_data
+    ):
+        # Regression guard: the dark-mode block must darken the content-cell
+        # backgrounds (.card-body/.td-padding) and the markdown table header, or
+        # light text renders on light cells and is unreadable in dark mode.
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._build_data(sample_article_data))
+        dark_block = html.split("prefers-color-scheme: dark", 1)[1]
+        assert ".td-padding" in dark_block
+        assert "table.table-bordered th" in dark_block
+        # The article title must NOT keep an inline `!important` color that would
+        # defeat the dark-mode rule.
+        assert "color: #212121 !important" not in html
+
+    def test_content_tables_use_auto_layout_and_wrap(
+        self, templates_dir, sample_article_data
+    ):
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._build_data(sample_article_data))
+        assert "table-layout: auto" in html
+        assert "overflow-wrap: anywhere" in html
 
     def test_source_alt_text(self, templates_dir, sample_article_data):
         sample_article_data["source"] = "openai"

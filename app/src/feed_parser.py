@@ -25,6 +25,28 @@ from .logger import logger
 # keeps a misbehaving source from looping us.
 MAX_REDIRECTS: int = 5
 
+# Only these URL schemes may appear in a rendered link (article link, resource
+# links). The summary/link fields ultimately originate from scraped/feed
+# content and are rendered into the outbound email, so an unchecked scheme like
+# ``javascript:`` or ``data:`` would be a phishing / injection vector. Shared
+# by the summarizer's link sanitizer and the Post/Article link validators so
+# there is a single allow-list.
+SAFE_URL_SCHEMES: frozenset[str] = frozenset({"http", "https", "mailto"})
+
+
+def is_safe_url(url: str) -> bool:
+    """True only for absolute URLs whose scheme is explicitly allow-listed.
+
+    Rejects ``javascript:``, ``data:``, ``vbscript:``, scheme-relative
+    ``//evil`` and bare/relative strings — none of which belong in a trusted
+    outbound link.
+    """
+    try:
+        scheme = urlparse(url.strip()).scheme.lower()
+    except (ValueError, AttributeError):
+        return False
+    return scheme in SAFE_URL_SCHEMES
+
 
 def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """True if ``ip`` falls in an SSRF-sensitive range (private / loopback /
@@ -41,19 +63,25 @@ def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
 
 
 def _is_blocked_host(host: str) -> bool:
-    """True if ``host`` is an IP literal in a private / loopback / link-local /
-    reserved range — the SSRF-sensitive targets (notably the cloud metadata
-    endpoint 169.254.169.254). Hostnames are not resolved here: this is a
-    cheap literal guard, not a full DNS-rebinding defense. Crawl targets are an
-    operator-controlled allow-list (config rss_urls), so the realistic risk is a
-    source REDIRECTING to an internal address, which this catches for IP-literal
-    redirect targets.
+    """True if ``host`` targets an SSRF-sensitive address (private / loopback /
+    link-local / reserved range — notably the cloud metadata endpoint
+    169.254.169.254).
 
-    Besides canonical dotted-quad / bracketed-IPv6, this also normalizes the
-    decimal / hex / octal integer forms of an IPv4 address (e.g. ``2130706433``,
-    ``0x7f000001``, ``017700000001`` all == 127.0.0.1) via ``inet_aton`` — the
-    OS resolver accepts those, so without this they would slip past a plain
-    ``ip_address`` parse and defeat the metadata-endpoint guard.
+    Two layers:
+      1. IP-literal check (cheap): canonical dotted-quad / bracketed-IPv6, plus
+         the decimal / hex / octal integer forms of an IPv4 address (e.g.
+         ``2130706433``, ``0x7f000001``, ``017700000001`` all == 127.0.0.1) via
+         ``inet_aton`` — the OS resolver accepts those, so without this they
+         would slip past a plain ``ip_address`` parse.
+      2. DNS resolution: a *hostname* is resolved and every returned A/AAAA
+         address is checked, so a name that resolves to an internal address
+         (e.g. attacker-controlled DNS pointing at 169.254.169.254) is blocked
+         too. This is validated again on every redirect hop in ``_try_request``.
+
+    This is not a full DNS-rebinding defense (the address that ``requests``
+    ultimately connects to could differ from the one resolved here), but it
+    closes the practical gap — a source that links or redirects to an internal
+    hostname — well beyond the previous IP-literal-only guard.
     """
     if not host:
         return True
@@ -61,13 +89,36 @@ def _is_blocked_host(host: str) -> bool:
         return _is_blocked_ip(ipaddress.ip_address(host))
     except ValueError:
         pass
-    # Not canonical text. Try the integer IPv4 encodings inet_aton accepts
-    # (decimal/hex/octal) before concluding it's a normal external hostname.
+    # Not canonical IP text. Try the integer IPv4 encodings inet_aton accepts
+    # (decimal/hex/octal) before treating it as a name to resolve.
     try:
         packed = socket.inet_aton(host)
     except OSError:
-        return False  # Genuine hostname; treat as a normal external target.
-    return _is_blocked_ip(ipaddress.ip_address(packed))
+        pass
+    else:
+        return _is_blocked_ip(ipaddress.ip_address(packed))
+    # A genuine hostname: resolve it and block if ANY resolved address is
+    # sensitive. Resolution failure is treated as not-blocked here (the request
+    # will simply fail to connect); only a positive hit on an internal address
+    # blocks it.
+    return _host_resolves_to_blocked(host)
+
+
+def _host_resolves_to_blocked(host: str) -> bool:
+    """Resolve ``host`` and return True if any resolved IP is SSRF-sensitive."""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (OSError, UnicodeError):
+        return False
+    for info in infos:
+        sockaddr = info[4]
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            continue
+        if _is_blocked_ip(ip):
+            return True
+    return False
 
 
 SourceType: TypeAlias = Literal[
@@ -221,6 +272,35 @@ def _visible_text_length(html: str) -> int:
         return len(html)
 
 
+def _get_following_redirects(
+    session: requests.Session, url: str
+) -> requests.Response | None:
+    """GET ``url``, following up to ``MAX_REDIRECTS`` redirects manually and
+    SSRF-validating every hop's host before connecting. Returns the final
+    response, or None if any hop targets a blocked host or the chain is too
+    long. Raises RequestException (via session.get) so the caller's retry
+    logic still applies to transient errors.
+    """
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        host = urlparse(current).hostname or ""
+        if _is_blocked_host(host):
+            logger.warning("Refusing request to blocked host: '%s'", current)
+            return None
+        response = session.get(
+            current,
+            timeout=ScraperConfig.REQUEST_TIMEOUT,
+            allow_redirects=False,
+            verify=True,
+        )
+        if response.is_redirect and response.headers.get("location"):
+            current = urljoin(current, response.headers["location"])
+            continue
+        return response
+    logger.warning("Too many redirects for '%s'; refusing.", url)
+    return None
+
+
 def _try_request(
     session: requests.Session, url: str, headers: dict[str, str]
 ) -> requests.Response | None:
@@ -231,23 +311,16 @@ def _try_request(
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
-            response = session.get(
-                url,
-                timeout=ScraperConfig.REQUEST_TIMEOUT,
-                allow_redirects=True,
-                verify=True,
-            )
-            response.raise_for_status()
-            # Re-check the host we actually landed on: a source could redirect to
-            # an internal IP literal (e.g. the cloud metadata endpoint). Block it.
-            final_host = urlparse(response.url).hostname or ""
-            if _is_blocked_host(final_host):
-                logger.warning(
-                    "Request to '%s' redirected to blocked host '%s'; refusing.",
-                    url,
-                    final_host,
-                )
+            # Follow redirects MANUALLY so every hop's host is SSRF-validated
+            # before we connect to it — allow_redirects=True would connect to an
+            # internal redirect target before we ever saw its URL. Each Location
+            # is re-checked with _is_blocked_host (which now also resolves
+            # hostnames), closing the "source redirects to the metadata endpoint"
+            # gap for intermediate hops, not just the final landing URL.
+            response = _get_following_redirects(session, url)
+            if response is None:
                 return None
+            response.raise_for_status()
             return response
         except RequestException as e:
             resp = getattr(e, "response", None)
@@ -369,8 +442,15 @@ class Post(BaseModel):
         # raw-HTML threshold yet have little readable prose; measuring visible
         # text keeps the scrape decision consistent with the content gate (\u00a711)
         # so we don't skip scraping and then drop the thin post.
-        if _visible_text_length(content) < ScraperConfig.MIN_CONTENT_LENGTH and (
-            scraped_content := cls._scrape_full_content(link)
+        feed_text_len = _visible_text_length(content)
+        # Only adopt the scrape if it actually has MORE readable prose than the
+        # feed content. A JS-rendered/consent-walled page can yield a thin body
+        # that, if it blindly replaced a decent feed teaser, would push the post
+        # below the downstream content gate and silently drop a healthy post.
+        if (
+            feed_text_len < ScraperConfig.MIN_CONTENT_LENGTH
+            and (scraped_content := cls._scrape_full_content(link))
+            and _visible_text_length(scraped_content) > feed_text_len
         ):
             content = scraped_content
         return content.replace("\u202f", " ")
@@ -758,7 +838,12 @@ class LinkedInBlogScraper(GenericPageScraper):
 
         return feedparser.FeedParserDict(
             title=title_link_elem.text.strip(),
-            link=str(href),
+            # Resolve relative hrefs against the page URL, matching every other
+            # scraper. A bare "/blog/engineering/x" would otherwise become the
+            # Post link verbatim, resolving source to "unknown" and making the
+            # full-content scrape refuse an empty host. urljoin is a no-op on
+            # already-absolute URLs.
+            link=urljoin(self.page_url, str(href)),
             published=date_elem.text.strip(),
             source=self.source,
             tags=[{"term": tag} for tag in tags],
@@ -950,17 +1035,16 @@ class QwenBlogScraper(GenericPageScraper):
             return None
 
         title_lower = title.lower().replace("\xa0", " ").strip()
-        nav_keywords = [
-            "«",
-            "»",
-            "continue",
-            "more",
-            "next",
-            "page",
-            "prev",
-            "previous",
-        ]
-        if any(keyword in title_lower for keyword in nav_keywords):
+        # Pagination arrows are non-word chars, so a plain substring test is
+        # correct for them.
+        if "«" in title_lower or "»" in title_lower:
+            return None
+        # Match navigation WORDS as whole tokens, not substrings: a substring
+        # test dropped legitimate titles like "Preventing..." (contains "prev"),
+        # "Continued Pretraining" ("continue"), "PageRank" ("page").
+        nav_words = {"continue", "more", "next", "page", "prev", "previous"}
+        title_words = set(re.findall(r"[a-z]+", title_lower))
+        if title_words & nav_words:
             return None
 
         title = title.replace("| Qwen", "").replace("- Qwen", "").strip()

@@ -155,8 +155,9 @@ pip install -e ".[dev]"
 # 린트, 포맷 검사, 타입 검사, 테스트
 ruff check .
 ruff format --check .
-cd app && mypy src           # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행
-pytest                       # 빠른 오프라인 단위/통합 스위트(279개 테스트)
+cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
+                             # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
+pytest                       # 빠른 오프라인 단위/통합 스위트(324개 테스트)
 ```
 
 이 검사들은 모든 푸시와 풀 리퀘스트에서 CI로도 똑같이 실행됩니다

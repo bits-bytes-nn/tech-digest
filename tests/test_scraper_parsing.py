@@ -104,6 +104,27 @@ class TestLinkedInScraper:
         assert "Building A Feature Store" in titles
         assert "Ancient Post Outside Window" not in titles
 
+    def test_relative_href_resolved_absolute(self, monkeypatch, window):
+        # A root-relative LinkedIn href must be resolved against page_url (like
+        # every other scraper) so the Post link is absolute — otherwise source
+        # resolves to 'unknown' and the full-content scrape refuses the empty
+        # host.
+        html = (
+            '<li class="post-list__item">'
+            '<p class="grid-post__date">May 25, 2026</p>'
+            '<a class="grid-post__link" href="/blog/engineering/rel-post">'
+            "Relative Link Post</a></li>"
+        )
+        scraper = LinkedInBlogScraper(
+            page_url="https://www.linkedin.com/blog/engineering", source="linkedin"
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        monkeypatch.setattr(scraper, "_fetch_page", lambda: soup)
+        posts = scraper.fetch(*window)
+        assert posts
+        assert posts[0].link.startswith("https://www.linkedin.com/blog/engineering/")
+        assert posts[0].source == "linkedin"
+
 
 class TestQwenScraper:
     def test_parses_and_skips_nav(self, monkeypatch, window):
@@ -120,6 +141,43 @@ class TestQwenScraper:
         # Nav links ("Blog Home", "Next Page") must not become posts.
         assert "Blog Home" not in titles
         assert not any("Next Page" in t for t in titles)
+
+
+class TestQwenNavWordBoundary:
+    """Nav-keyword filtering must match whole words, not substrings, so ML
+    titles that merely CONTAIN a nav word ('Preventing' -> 'prev', 'PageRank'
+    -> 'page', 'Continued' -> 'continue') are not silently dropped."""
+
+    def _parse_title(self, title: str, monkeypatch):
+        scraper = QwenBlogScraper(
+            page_url="https://qwenlm.github.io/blog/", source="qwen"
+        )
+        # The anchor text is the title; the date lives as a sibling in the
+        # parent (where _parse_item searches via str(item.parent)).
+        html = (
+            f'<div><a href="/blog/some-post/">{title}</a>'
+            f"<span>May 25, 2026</span></div>"
+        )
+        item = BeautifulSoup(html, "html.parser").find("a")
+        result = scraper._parse_item(item)
+        return None if result is None else result.get("title")
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Preventing Reward Hacking in RLHF",
+            "Continued Pretraining of Qwen3",
+            "Improving PageRank with LLMs",
+        ],
+    )
+    def test_ml_titles_with_nav_substrings_survive(self, title, monkeypatch):
+        assert self._parse_title(title, monkeypatch) == title
+
+    @pytest.mark.parametrize(
+        "title", ["Next Page", "Previous", "Read more", "Continue reading"]
+    )
+    def test_real_nav_strings_still_dropped(self, title, monkeypatch):
+        assert self._parse_title(title, monkeypatch) is None
 
 
 class TestMetaScraper:

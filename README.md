@@ -156,8 +156,9 @@ pip install -e ".[dev]"
 # Lint, format-check, type-check, and test
 ruff check .
 ruff format --check .
-cd app && mypy src           # run from app/ so the dual import layout resolves
-pytest                       # fast, offline unit/integration suite (279 tests)
+cd app && mypy .             # run from app/ so the dual import layout resolves;
+                             # `.` (not `src`) also checks main.py / run_batch.py
+pytest                       # fast, offline unit/integration suite (324 tests)
 ```
 
 These same checks run in CI on every push and pull request

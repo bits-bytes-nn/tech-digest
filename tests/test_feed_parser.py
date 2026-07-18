@@ -257,3 +257,41 @@ class TestPostFromEntry:
         post = Post.from_entry(entry)
         assert post.title == "Hello World"
         assert post.source == "openai"
+
+    def test_thin_scrape_does_not_overwrite_richer_feed_content(self, monkeypatch):
+        # A feed teaser below MIN_CONTENT_LENGTH triggers a scrape, but if the
+        # scrape yields LESS visible text it must NOT replace the feed content
+        # (which would push the post below the downstream gate and drop it).
+        from app.src import feed_parser
+
+        feed_body = "<p>" + ("word " * 400) + "</p>"  # ~2000 visible chars
+        monkeypatch.setattr(
+            feed_parser.Post,
+            "_scrape_full_content",
+            staticmethod(lambda url: "<p>tiny</p>"),
+        )
+        entry = feedparser.FeedParserDict(
+            title="T",
+            link="https://openai.com/news/x",
+            published="2026-05-30T10:00:00Z",
+            content=[{"value": feed_body}],
+        )
+        post = Post.from_entry(entry)
+        assert "word" in post.content
+        assert "tiny" not in post.content
+
+    def test_richer_scrape_replaces_thin_feed_content(self, monkeypatch):
+        from app.src import feed_parser
+
+        rich = "<p>" + ("word " * 800) + "</p>"
+        monkeypatch.setattr(
+            feed_parser.Post, "_scrape_full_content", staticmethod(lambda url: rich)
+        )
+        entry = feedparser.FeedParserDict(
+            title="T",
+            link="https://openai.com/news/x",
+            published="2026-05-30T10:00:00Z",
+            content=[{"value": "<p>short teaser</p>"}],
+        )
+        post = Post.from_entry(entry)
+        assert post.content == rich

@@ -148,7 +148,7 @@
                                 <table border="0" cellspacing="0" cellpadding="0" style="width: 100%">
                                   <tr>
                                     <td align="center" style="width: 160px">
-                                      <a href="{{ article.link }}" target="_blank" class="view-more-btn">
+                                      <a href="{{ article.link }}" target="_blank" rel="noopener noreferrer" class="view-more-btn">
                                         View More
                                       </a>
                                     </td>
@@ -238,6 +238,9 @@
         width: 100%;
         margin: 16px 0;
         border: 1px solid #dee2e6;
+        /* Size columns to content (not the equal split the global fixed layout
+           forces) so narrow-label/wide-value markdown tables render sanely. */
+        table-layout: auto;
       }
 
       table.table-bordered th,
@@ -246,6 +249,9 @@
         padding: 8px 12px;
         text-align: left;
         vertical-align: top;
+        /* Break long tokens (URLs, code) so a cell can't overflow the card. */
+        word-break: break-word;
+        overflow-wrap: anywhere;
       }
 
       table.table-bordered th {
@@ -536,4 +542,4 @@
       {{ main_content(article) }}
     </table>
   </body>
-</html>10
+</html>

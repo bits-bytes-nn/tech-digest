@@ -32,6 +32,26 @@ class TestPostprocessSummary:
     def test_ratio_colon_is_preserved(self):
         assert _postprocess_summary("비율은 3:1입니다.") == "비율은 3:1입니다."
 
+    def test_block_list_introducing_colon_preserved(self):
+        # After markdown, a sentence introducing a BULLETED list renders as
+        # "<p>...습니다:</p>\n<ul>...". The colon is at a tag boundary yet still
+        # legitimately introduces the list, so it must NOT become a period.
+        text = "<p>주요 구성 요소는 다음과 같습니다:</p>\n<ul>\n<li>A</li>\n</ul>"
+        assert _postprocess_summary(text) == text
+
+    def test_br_list_introducing_colon_preserved(self):
+        # Same under nl2br: "습니다:<br>\n<ul>".
+        text = "같습니다:<br>\n<ul><li>x</li></ul>"
+        assert _postprocess_summary(text) == text
+
+    def test_terminal_colon_before_paragraph_still_converted(self):
+        # A genuine terminal colon before the NEXT paragraph (not a list) is
+        # still corrected to a period.
+        assert (
+            _postprocess_summary("<p>동작합니다:</p>\n<p>다음</p>")
+            == "<p>동작합니다.</p>\n<p>다음</p>"
+        )
+
     def test_url_host_normalized(self):
         assert (
             _postprocess_summary("see magazine.sebastianraschka.com")

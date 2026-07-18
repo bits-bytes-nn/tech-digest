@@ -7,9 +7,9 @@ resources:
   bedrock_region_name: us-west-2
   s3_bucket_name: tech-digest-ci-placeholder-bucket
   s3_prefix: tech-digest
-  # Lambda mode synthesizes without AWS context lookups (the Batch EC2 path
-  # needs AMI/context lookups that require credentials); CI validates the
-  # Lambda stack. The Batch path is exercised by unit tests and real deploys.
+  # CI synthesizes BOTH paths without AWS credentials (CDK_SYNTH_DUMMY_AZS=1):
+  # this file exercises the Lambda path; config-ci-batch.yaml exercises the
+  # Batch EC2 path. This file selects Lambda mode.
   lambda_or_batch: lambda
   cron_expression: "cron(0 1 ? * 6 *)"
 

@@ -53,6 +53,10 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
         width: 100%;
         margin: 16px 0;
         border: 1px solid #dee2e6;
+        /* Content tables (from markdown) must size columns to content, not
+           split width equally as the global `table-layout: fixed` would —
+           otherwise a narrow-label/wide-value table renders 50/50 and cramped. */
+        table-layout: auto;
       }
       table.table-bordered th,
       table.table-bordered td {
@@ -60,6 +64,10 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
         padding: 8px 12px;
         text-align: left;
         vertical-align: top;
+        /* Break long unbreakable tokens (URLs, code) so a cell can't overflow
+           the 800px card under auto layout. */
+        word-break: break-word;
+        overflow-wrap: anywhere;
       }
       table.table-bordered th {
         background-color: #f1f3f5;
@@ -124,9 +132,24 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
         .card-1 {
           background-color: #283543 !important;
         }
+        /* The summary/resources content cells carry a presentational
+           bgcolor="#FFFFFF"; darken their background too, else the light text
+           below renders on a white cell and the whole article body is
+           unreadable in dark mode. */
+        .card-body,
+        .td-padding {
+          background-color: #283543 !important;
+        }
         .card-body,
         .card-body * {
           color: #e6edf3 !important;
+        }
+        /* The article title and date carry an inline color:...!important, which
+           outranks a stylesheet !important rule — so lighten them explicitly at
+           higher specificity, or they render dark-on-dark. */
+        .card-title,
+        .card-title * {
+          color: #f0f4f8 !important;
         }
         .muted {
           color: #9fb0c0 !important;
@@ -136,6 +159,17 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
         }
         .tag-chip span {
           color: #cdd9e5 !important;
+        }
+        /* Markdown table header: light-gray bg with no dark override rendered
+           light-on-light (invisible headers). Darken bg + lighten text. */
+        table.table-bordered th {
+          background-color: #3a4a5c !important;
+          color: #e6edf3 !important;
+        }
+        table.table-bordered,
+        table.table-bordered th,
+        table.table-bordered td {
+          border-color: #3a4a5c !important;
         }
         pre,
         code {

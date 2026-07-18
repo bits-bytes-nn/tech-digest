@@ -24,12 +24,22 @@ def no_sleep(monkeypatch):
 
 
 class _FakeResponse:
-    def __init__(self, status_code=200, headers=None, url="https://example.com"):
+    def __init__(
+        self,
+        status_code=200,
+        headers=None,
+        url="https://example.com",
+        is_redirect=False,
+    ):
         self.status_code = status_code
         self.headers = headers or {}
         # The robust request re-checks the final landing host for SSRF; tests
         # default to an external URL so the guard is a no-op unless overridden.
         self.url = url
+        # Redirects are now followed manually and every hop is SSRF-validated,
+        # so the fake must advertise whether it is a redirect (and carry a
+        # Location header) to drive the redirect loop.
+        self.is_redirect = is_redirect
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -145,15 +155,53 @@ class TestSSRFGuard:
         assert session.calls == 0
 
     def test_blocks_redirect_to_internal_host(self, monkeypatch):
-        # External target that redirects to the metadata IP: the request is made
-        # but the final landing host is rejected. The block is deterministic
-        # across header sets, so every set lands on the blocked host -> None.
+        # External target that 302-redirects to the metadata IP: each hop is
+        # validated BEFORE connecting, so the redirect target is rejected before
+        # any request is made to it. The block is deterministic across header
+        # sets, so every set hits the same redirect -> None.
         meta = "http://169.254.169.254/latest/meta-data/"
-        session = _FakeSession([_FakeResponse(200, url=meta)] * 3)
+        redirect = _FakeResponse(302, headers={"location": meta}, is_redirect=True)
+        session = _FakeSession([redirect] * 3)
         _patch_session(monkeypatch, session)
         assert _make_robust_request("https://example.com") is None
 
+    def test_follows_external_redirect(self, monkeypatch):
+        # A redirect to another EXTERNAL host is followed to completion.
+        redirect = _FakeResponse(
+            302,
+            headers={"location": "https://example.org/final"},
+            is_redirect=True,
+        )
+        final = _FakeResponse(200, url="https://example.org/final")
+        session = _FakeSession([redirect, final])
+        _patch_session(monkeypatch, session)
+        resp = _make_robust_request("https://example.com")
+        assert resp is not None
+        assert session.calls == 2
+
     def test_allows_normal_external_host(self, monkeypatch):
+        session = _FakeSession([_FakeResponse(200, url="https://example.com/post")])
+        _patch_session(monkeypatch, session)
+        assert _make_robust_request("https://example.com") is not None
+
+    def test_blocks_hostname_resolving_to_internal_ip(self, monkeypatch):
+        # A hostname (not an IP literal) that resolves to the metadata IP must
+        # be blocked before any network call — the DNS-resolution layer of the
+        # SSRF guard. getaddrinfo is stubbed to return the metadata address.
+        def fake_getaddrinfo(host, *a, **k):
+            return [(2, 1, 6, "", ("169.254.169.254", 0))]
+
+        monkeypatch.setattr(feed_parser.socket, "getaddrinfo", fake_getaddrinfo)
+        session = _FakeSession([_FakeResponse(200)])
+        _patch_session(monkeypatch, session)
+        assert _make_robust_request("http://evil.example.com/") is None
+        assert session.calls == 0
+
+    def test_allows_hostname_resolving_to_public_ip(self, monkeypatch):
+        def fake_getaddrinfo(host, *a, **k):
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]  # example.com public IP
+
+        monkeypatch.setattr(feed_parser.socket, "getaddrinfo", fake_getaddrinfo)
         session = _FakeSession([_FakeResponse(200, url="https://example.com/post")])
         _patch_session(monkeypatch, session)
         assert _make_robust_request("https://example.com") is not None

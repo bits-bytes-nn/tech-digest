@@ -1,7 +1,6 @@
 import re
 from html import escape
 from typing import Any, ClassVar
-from urllib.parse import urlparse
 
 import boto3
 import markdown
@@ -12,7 +11,8 @@ from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field, field_validator
 
 from .constants import FilteringCriteria, Language, LanguageModelId
-from .feed_parser import Post
+from .eval_metrics import is_on_grid
+from .feed_parser import Post, is_safe_url
 from .logger import logger
 from .prompts.prompts import FilteringPrompt, SummarizationPrompt
 from .utils import (
@@ -125,7 +125,16 @@ _KO_SENTENCE_END_SYLLABLES = "다요죠"
 # corrupts legitimate list-introducing colons (e.g. "결과는 다음과 같습니다: 첫째").
 # Post-processing runs AFTER markdown->HTML, so a terminal colon is always
 # followed by a closing tag; an introducing colon is followed by text.
-_KO_TERMINAL_COLON = re.compile(rf"([{_KO_SENTENCE_END_SYLLABLES}]):(?=\s*(?:<|$))")
+#
+# The trailing negative lookahead preserves a colon that introduces a BLOCK
+# list: markdown renders "...다음과 같습니다:" before a bulleted list as
+# "<p>...습니다:</p>\n<ul>" (or "...습니다:<br>\n<ul>" under nl2br), where the
+# colon IS at a boundary yet legitimately introduces the list — so skip it when
+# a <ul>/<ol> follows past the intervening closing tags / <br>.
+_KO_TERMINAL_COLON = re.compile(
+    rf"([{_KO_SENTENCE_END_SYLLABLES}]):(?=\s*(?:<|$))"
+    r"(?!\s*(?:(?:</[^>]+>|<br\s*/?>)\s*)*<[uo]l\b)"
+)
 
 # Host aliases: a source occasionally surfaces under a CDN/subdomain variant
 # that should be normalized to its canonical host in rendered links. These are
@@ -142,26 +151,6 @@ def _postprocess_summary(summary: str) -> str:
     return summary
 
 
-# Only these URL schemes may appear in a rendered <a href>. The summary fields
-# are emitted by the LLM and rendered with Jinja's ``| safe`` (autoescape off),
-# so an unchecked href like ``javascript:...`` or ``data:...`` would execute /
-# phish. Anything not on this list is dropped.
-_SAFE_URL_SCHEMES: frozenset[str] = frozenset({"http", "https", "mailto"})
-
-
-def _is_safe_url(url: str) -> bool:
-    """True only for absolute URLs whose scheme is explicitly allow-listed.
-
-    Rejects ``javascript:``, ``data:``, ``vbscript:``, scheme-relative ``//evil``
-    and bare/relative strings — none of which belong in a trusted outbound link.
-    """
-    try:
-        scheme = urlparse(url.strip()).scheme.lower()
-    except (ValueError, AttributeError):
-        return False
-    return scheme in _SAFE_URL_SCHEMES
-
-
 def _safe_anchor(url: str, text: str) -> str:
     """Build an <a> tag with both href and text HTML-escaped."""
     return f'<a href="{escape(url.strip(), quote=True)}">{escape(text.strip())}</a>'
@@ -176,7 +165,7 @@ def _normalize_urls(urls_input: Any) -> list[str]:
             return [
                 _safe_anchor(url, desc)
                 for desc, url in markdown_links
-                if _is_safe_url(url)
+                if is_safe_url(url)
             ]
         raw_items = [url.strip() for url in urls_input.split(",") if url.strip()]
     elif isinstance(urls_input, list):
@@ -193,9 +182,9 @@ def _normalize_urls(urls_input: Any) -> list[str]:
             # bs4's .get may return a list for multi-valued attrs; coerce to str.
             href = str(anchor.get("href", "")) if anchor else ""
             text = anchor.get_text(strip=True) if anchor else ""
-            if _is_safe_url(href):
+            if is_safe_url(href):
                 sanitized.append(_safe_anchor(href, text or href))
-        elif _is_safe_url(item):
+        elif is_safe_url(item):
             sanitized.append(_safe_anchor(item, item))
     return sanitized
 
@@ -223,7 +212,7 @@ def _sanitize_html(html: str) -> str:
         for attr in list(tag.attrs):
             if attr.lower() not in allowed:
                 del tag[attr]
-            elif attr.lower() in ("href", "src") and not _is_safe_url(
+            elif attr.lower() in ("href", "src") and not is_safe_url(
                 str(tag.get(attr, ""))
             ):
                 # Allow-listed attribute but unsafe scheme — drop the whole tag's
@@ -298,12 +287,15 @@ class Summarizer:
         filtering_thinking_budget_tokens: int = 4096,
         summarization_thinking_budget_tokens: int = 8192,
         summarization_max_tokens: int | None = None,
+        thinking_effort: str | None = None,
     ) -> None:
         self.boto_session = boto_session
         self.filtering_criteria = filtering_criteria
         self.language = language
         self.min_score = min_score
         self.min_content_length = min_content_length
+        # Adaptive-thinking depth (Sonnet 5+); ignored by legacy budget models.
+        self.thinking_effort = thinking_effort
         self.filtered_out_posts: list[tuple[Post, str]] = []
         self.batch_processor = BatchProcessor(
             max_concurrency=max_concurrency, batch_size=max_concurrency
@@ -347,6 +339,7 @@ class Summarizer:
             enable_thinking=use_thinking,
             thinking_budget_tokens=thinking_budget_tokens
             or self.llm_factory.DEFAULT_THINKING_BUDGET_TOKENS,
+            effort=self.thinking_effort,
         )
         # The large, static filtering rubric is sent on every post — cache it as
         # a system prefix so only the per-post content is billed at full rate.
@@ -393,6 +386,7 @@ class Summarizer:
             thinking_budget_tokens=thinking_budget_tokens
             or self.llm_factory.DEFAULT_THINKING_BUDGET_TOKENS,
             max_tokens=max_tokens,
+            effort=self.thinking_effort,
         )
         # Cache the static analysis instructions as a system prefix; only the
         # per-post body varies and is billed at the full input rate.
@@ -440,7 +434,22 @@ class Summarizer:
             )
             posts_to_process = posts_to_process[:max_posts]
         self._summarize_posts(posts_to_process)
-        return posts_to_process
+        # Return ONLY posts that were actually summarized. A post whose summary
+        # call failed (or whose output failed validation) is recorded in
+        # filtered_out_posts by _summarize_posts and dropped here — otherwise it
+        # would be counted as a surviving post, the newsletter renderer would
+        # silently drop it (Article.summary has min_length=1), and if EVERY
+        # summary failed the run would email an empty digest with no alert (the
+        # empty-digest guard in main.py only fires when `posts` is empty).
+        summarized_posts = [p for p in posts_to_process if p.summary]
+        dropped = len(posts_to_process) - len(summarized_posts)
+        if dropped:
+            logger.warning(
+                "%d/%d posts had no usable summary and were dropped.",
+                dropped,
+                len(posts_to_process),
+            )
+        return summarized_posts
 
     def _gate_by_content_length(self, posts: list[Post]) -> list[Post]:
         """Drop posts whose visible text is too thin to summarize well.
@@ -512,7 +521,26 @@ class Summarizer:
                 logger.warning("No filter response for '%s'; skipping.", post.title)
                 continue
             try:
-                score = float(response.get("score", 0.0))
+                raw_score = float(response.get("score", 0.0))
+                # Clamp to [0,1]: the model occasionally emits an out-of-range
+                # value (e.g. "8.5" for an intended 0.85), which would both pass
+                # the min_score gate and sort to the top of the rank, evicting
+                # genuinely better posts. Off-grid values are logged (not
+                # rejected — the rubric allows a ±0.05 step) for observability.
+                score = min(1.0, max(0.0, raw_score))
+                if score != raw_score:
+                    logger.warning(
+                        "Filter score %.3f for '%s' out of [0,1]; clamped to %.2f.",
+                        raw_score,
+                        post.title,
+                        score,
+                    )
+                elif not is_on_grid(score):
+                    logger.info(
+                        "Filter score %.3f for '%s' is off the 0.05 anchor grid.",
+                        score,
+                        post.title,
+                    )
                 reason = response.get("reason", "No reason provided.")
                 post.score = score
                 if title := response.get("title"):
@@ -563,6 +591,12 @@ class Summarizer:
                 logger.warning(
                     "No summary produced for '%s' (model call failed).", post.title
                 )
+                # Record so the post is accounted for in the run report and, if
+                # every summary fails, the empty-digest alert fires instead of a
+                # silent empty send. Mirrors _filter_posts' failure handling.
+                self.filtered_out_posts.append(
+                    (post, "Summarization failed (no model response).")
+                )
                 continue
             try:
                 summary_output = SummaryOutput.model_validate(summary_data)
@@ -575,4 +609,7 @@ class Summarizer:
                     post.title,
                     e,
                     summary_data,
+                )
+                self.filtered_out_posts.append(
+                    (post, f"Summary validation failed: {e}")
                 )

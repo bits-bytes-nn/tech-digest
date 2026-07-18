@@ -6,6 +6,7 @@ table, max-token validation, and cross-region id construction.
 
 from __future__ import annotations
 
+import app.src.utils as utils_mod
 from app.src.constants import LanguageModelId
 from app.src.utils import (
     _LANGUAGE_MODEL_INFO,
@@ -171,6 +172,42 @@ class TestAdaptiveThinking:
         assert config["model_kwargs"]["thinking"] == {"type": "adaptive"}
         assert "output_config" not in config["model_kwargs"]
 
+    def _capture_warnings(self, caplog, factory, **kwargs):
+        # The project 'app' logger has propagate=False, so caplog's root handler
+        # never sees its records; attach caplog's handler to it directly.
+        import logging
+
+        info = _LANGUAGE_MODEL_INFO[LanguageModelId.CLAUDE_V5_SONNET]
+        config: dict = {"additional_model_request_fields": {}}
+        app_logger = logging.getLogger("app")
+        app_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level(logging.WARNING, logger="app"):
+                factory._apply_model_features(
+                    config, info, is_cross_region=True, enable_thinking=True, **kwargs
+                )
+        finally:
+            app_logger.removeHandler(caplog.handler)
+        return caplog.records
+
+    def test_non_default_budget_warns_on_adaptive_model(self, caplog):
+        # A tuned thinking_budget_tokens is a no-op for adaptive models; the
+        # operator must be warned rather than silently ignored.
+        factory = self._factory()
+        records = self._capture_warnings(caplog, factory, thinking_budget_tokens=20000)
+        assert any("ignored for adaptive" in r.message for r in records)
+
+    def test_default_budget_does_not_warn_on_adaptive_model(self, caplog):
+        factory = self._factory()
+        records = self._capture_warnings(
+            caplog,
+            factory,
+            thinking_budget_tokens=(
+                BedrockLanguageModelFactory.DEFAULT_THINKING_BUDGET_TOKENS
+            ),
+        )
+        assert not any("ignored for adaptive" in r.message for r in records)
+
     def test_legacy_model_still_uses_budget_form(self):
         factory = self._factory()
         info = _LANGUAGE_MODEL_INFO[LanguageModelId.CLAUDE_V4_6_SONNET]
@@ -250,6 +287,100 @@ class TestSamplingParamGating:
         assert "temperature" not in config
 
 
+class TestGetModelRouting:
+    """End-to-end wiring of get_model() — the composition glue that decides
+    ChatBedrock vs ChatBedrockConverse and where sampling/thinking params land.
+    This is exactly where the Sonnet-5 400s lived; the other tests bypass it by
+    calling the private helpers directly."""
+
+    def _factory(self):
+        factory = BedrockLanguageModelFactory.__new__(BedrockLanguageModelFactory)
+        factory.region_name = "us-west-2"
+        factory._client = None
+
+        class _Session:
+            profile_name = "default"
+
+        factory.boto_session = _Session()
+        return factory
+
+    def _capture(self, monkeypatch):
+        """Stub both model classes; return a dict capturing which was built and
+        with what kwargs."""
+        captured: dict = {}
+
+        def make(name):
+            def _ctor(**kwargs):
+                captured["class"] = name
+                captured["kwargs"] = kwargs
+                return object()
+
+            return _ctor
+
+        monkeypatch.setattr(utils_mod, "ChatBedrock", make("ChatBedrock"))
+        monkeypatch.setattr(
+            utils_mod, "ChatBedrockConverse", make("ChatBedrockConverse")
+        )
+        return captured
+
+    def test_sonnet5_thinking_local_uses_converse_and_adaptive_no_temp(
+        self, monkeypatch
+    ):
+        factory = self._factory()
+        # Resolve to the bare (non-cross-region) id so is_cross_region=False but
+        # use_converse=True (Sonnet 5 supports thinking).
+        monkeypatch.setattr(
+            BedrockCrossRegionModelHelper,
+            "get_cross_region_model_id",
+            classmethod(lambda cls, s, m, r: m.value),
+        )
+        captured = self._capture(monkeypatch)
+        factory.get_model(
+            LanguageModelId.CLAUDE_V5_SONNET,
+            enable_thinking=True,
+            temperature=0.0,
+            max_tokens=4096,
+        )
+        assert captured["class"] == "ChatBedrockConverse"
+        kwargs = captured["kwargs"]
+        assert "temperature" not in kwargs
+        amrf = kwargs.get("additional_model_request_fields", {})
+        assert amrf.get("thinking") == {"type": "adaptive"}
+
+    def test_transitional_cross_region_keeps_temperature(self, monkeypatch):
+        factory = self._factory()
+        monkeypatch.setattr(
+            BedrockCrossRegionModelHelper,
+            "get_cross_region_model_id",
+            classmethod(lambda cls, s, m, r: f"us.{m.value}"),
+        )
+        captured = self._capture(monkeypatch)
+        factory.get_model(
+            LanguageModelId.CLAUDE_V4_6_SONNET,
+            temperature=0.0,
+            max_tokens=4096,
+        )
+        assert captured["class"] == "ChatBedrockConverse"  # cross-region
+        assert captured["kwargs"]["temperature"] == 0.0
+
+    def test_local_non_thinking_uses_chatbedrock(self, monkeypatch):
+        factory = self._factory()
+        monkeypatch.setattr(
+            BedrockCrossRegionModelHelper,
+            "get_cross_region_model_id",
+            classmethod(lambda cls, s, m, r: m.value),
+        )
+        captured = self._capture(monkeypatch)
+        factory.get_model(
+            LanguageModelId.CLAUDE_V3_5_SONNET,
+            temperature=0.0,
+            max_tokens=4096,
+        )
+        assert captured["class"] == "ChatBedrock"
+        # Sampling params live under model_kwargs on the non-converse path.
+        assert captured["kwargs"]["model_kwargs"]["temperature"] == 0.0
+
+
 class TestCrossRegionIdConstruction:
     def test_global_prefix(self):
         out = BedrockCrossRegionModelHelper._build_cross_region_model_id(
@@ -268,3 +399,113 @@ class TestCrossRegionIdConstruction:
             LanguageModelId.CLAUDE_V4_6_SONNET, "ap-northeast-2", is_global=False
         )
         assert out == "apac.anthropic.claude-sonnet-4-6"
+
+
+class _FakeBedrock:
+    def __init__(self, profile_ids: list[str]):
+        self._profile_ids = profile_ids
+        self.calls = 0
+
+    def list_inference_profiles(self, **kwargs):
+        self.calls += 1
+        return {
+            "inferenceProfileSummaries": [
+                {"inferenceProfileId": pid} for pid in self._profile_ids
+            ]
+        }
+
+
+class _FakeSession:
+    def __init__(self, bedrock):
+        self._bedrock = bedrock
+
+    def client(self, service, region_name=None):
+        assert service == "bedrock"
+        return self._bedrock
+
+
+class TestCrossRegionResolution:
+    """The availability-driven selection + memoization + error fallback in
+    get_cross_region_model_id (previously untested — only the pure id builder
+    was covered)."""
+
+    def setup_method(self):
+        # The profile-set cache is class-level; clear it between tests.
+        BedrockCrossRegionModelHelper._profile_set_cache.clear()
+
+    def teardown_method(self):
+        BedrockCrossRegionModelHelper._profile_set_cache.clear()
+
+    def test_regional_profile_chosen_when_available(self):
+        bedrock = _FakeBedrock(["apac.anthropic.claude-sonnet-5"])
+        session = _FakeSession(bedrock)
+        out = BedrockCrossRegionModelHelper.get_cross_region_model_id(
+            session, LanguageModelId.CLAUDE_V5_SONNET, "ap-northeast-2"
+        )
+        assert out == "apac.anthropic.claude-sonnet-5"
+
+    def test_global_profile_preferred(self):
+        bedrock = _FakeBedrock(
+            ["global.anthropic.claude-sonnet-5", "apac.anthropic.claude-sonnet-5"]
+        )
+        session = _FakeSession(bedrock)
+        out = BedrockCrossRegionModelHelper.get_cross_region_model_id(
+            session, LanguageModelId.CLAUDE_V5_SONNET, "ap-northeast-2"
+        )
+        assert out == "global.anthropic.claude-sonnet-5"
+
+    def test_falls_back_to_bare_id_when_no_profile(self):
+        bedrock = _FakeBedrock(["us.some.other.model"])
+        session = _FakeSession(bedrock)
+        out = BedrockCrossRegionModelHelper.get_cross_region_model_id(
+            session, LanguageModelId.CLAUDE_V5_SONNET, "us-west-2"
+        )
+        assert out == "anthropic.claude-sonnet-5"
+
+    def test_falls_back_and_does_not_raise_on_list_error(self):
+        class _BoomBedrock:
+            def list_inference_profiles(self, **kwargs):
+                raise RuntimeError("AccessDenied: ListInferenceProfiles")
+
+        session = _FakeSession(_BoomBedrock())
+        out = BedrockCrossRegionModelHelper.get_cross_region_model_id(
+            session, LanguageModelId.CLAUDE_V5_SONNET, "us-west-2"
+        )
+        assert out == "anthropic.claude-sonnet-5"
+
+    def test_profile_list_memoized_per_region(self):
+        bedrock = _FakeBedrock(["apac.anthropic.claude-sonnet-5"])
+        session = _FakeSession(bedrock)
+        for _ in range(4):
+            BedrockCrossRegionModelHelper.get_cross_region_model_id(
+                session, LanguageModelId.CLAUDE_V5_SONNET, "ap-northeast-2"
+            )
+        # Resolved 4 times but the profile catalog is listed only ONCE.
+        assert bedrock.calls == 1
+
+    def test_transient_error_not_cached(self):
+        # A failed listing must not be pinned: a later successful call resolves.
+        class _FlakyBedrock:
+            def __init__(self):
+                self.calls = 0
+
+            def list_inference_profiles(self, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("throttled")
+                return {
+                    "inferenceProfileSummaries": [
+                        {"inferenceProfileId": "us.anthropic.claude-sonnet-5"}
+                    ]
+                }
+
+        bedrock = _FlakyBedrock()
+        session = _FakeSession(bedrock)
+        first = BedrockCrossRegionModelHelper.get_cross_region_model_id(
+            session, LanguageModelId.CLAUDE_V5_SONNET, "us-west-2"
+        )
+        assert first == "anthropic.claude-sonnet-5"  # fell back
+        second = BedrockCrossRegionModelHelper.get_cross_region_model_id(
+            session, LanguageModelId.CLAUDE_V5_SONNET, "us-west-2"
+        )
+        assert second == "us.anthropic.claude-sonnet-5"  # retried and resolved

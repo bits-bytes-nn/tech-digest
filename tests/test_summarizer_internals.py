@@ -58,6 +58,24 @@ class TestFilterPosts:
         assert [p.title for p in kept] == ["a"]
         assert len(s.filtered_out_posts) == 1
 
+    def test_out_of_range_score_clamped(self):
+        # A dropped decimal point ('8.5' for 0.85) must be clamped to [0,1] so it
+        # can't dominate the rank and evict genuinely better posts.
+        s = _summarizer(min_score=0.7)
+        posts = [_post("a")]
+        s.filter = _FakeChain([{"score": "8.5", "reason": "x", "title": ""}])
+        kept = s._filter_posts(posts, [], [])
+        assert kept[0].score == 1.0
+
+    def test_negative_score_clamped_to_zero(self):
+        s = _summarizer(min_score=0.7)
+        posts = [_post("a")]
+        s.filter = _FakeChain([{"score": "-0.3", "reason": "x", "title": ""}])
+        kept = s._filter_posts(posts, [], [])
+        # Clamped to 0.0, below min_score -> filtered out, not kept.
+        assert kept == []
+        assert posts[0].score == 0.0
+
     def test_title_overwrite_applied(self):
         s = _summarizer(min_score=0.5)
         posts = [_post("orig")]
@@ -135,8 +153,12 @@ class TestProcessPostsCapBeforeSummarize:
         s = _summarizer(min_score=0.0)
         summarized: list[str] = []
 
-        # Spy: record which posts reach summarization.
+        # Spy: record which posts reach summarization. Set a non-empty summary
+        # to mimic a successful summarize (process_posts now returns only posts
+        # that were actually summarized).
         def fake_summarize(posts):
+            for p in posts:
+                p.summary = f"summary of {p.title}"
             summarized.extend(p.title for p in posts)
 
         s._summarize_posts = fake_summarize  # type: ignore[method-assign]
@@ -161,3 +183,51 @@ class TestProcessPostsCapBeforeSummarize:
         assert [p.title for p in result] == ["high", "mid"]
         assert summarized == ["high", "mid"]
         assert "low" not in summarized
+
+    def test_all_summaries_fail_returns_empty_and_records_reasons(self):
+        """If every summary call fails, process_posts must return [] and record
+        a reason per post so main.py's empty-digest guard + alert fire instead
+        of silently emailing an article-less newsletter."""
+        s = _summarizer(min_score=0.0)
+        posts = [_post("a"), _post("b")]
+        s.filter = _FakeChain(
+            [
+                {"score": "0.90", "reason": "", "title": ""},
+                {"score": "0.80", "reason": "", "title": ""},
+            ]
+        )
+        # Model returns None for every post (call failed even after fallback).
+        s.summarizer = _FakeChain([None, None])
+        result = s.process_posts(
+            posts,
+            use_filtering=True,
+            included_topics=[],
+            excluded_topics=[],
+        )
+        assert result == []
+        reasons = [r for _p, r in s.filtered_out_posts]
+        assert reasons.count("Summarization failed (no model response).") == 2
+
+    def test_partial_summary_failure_keeps_successful_posts(self):
+        """A post whose summary fails is dropped; successfully summarized posts
+        still ship."""
+        s = _summarizer(min_score=0.0)
+        posts = [_post("ok"), _post("bad")]
+        s.filter = _FakeChain(
+            [
+                {"score": "0.90", "reason": "", "title": ""},
+                {"score": "0.80", "reason": "", "title": ""},
+            ]
+        )
+        s.summarizer = _FakeChain([{"summary": "good", "tags": [], "urls": []}, None])
+        result = s.process_posts(
+            posts,
+            use_filtering=True,
+            included_topics=[],
+            excluded_topics=[],
+        )
+        assert [p.title for p in result] == ["ok"]
+        assert any(
+            r == "Summarization failed (no model response)."
+            for _p, r in s.filtered_out_posts
+        )

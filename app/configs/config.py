@@ -105,8 +105,18 @@ class Summarization(BaseModelWithDefaults):
     # when *_enable_thinking is on. The model factory's hardcoded 2048 default
     # is too small to meaningfully reason over a full article; expose it so it
     # can be tuned per stage. Must be < the model's max output tokens.
+    #
+    # NOTE: adaptive-thinking models (Sonnet 5+) IGNORE the token budget and are
+    # steered by `thinking_effort` below instead. The budget applies only to the
+    # legacy budget-thinking models (Sonnet 4.x / older).
     filtering_thinking_budget_tokens: int = Field(default=4096, ge=1024)
     summarization_thinking_budget_tokens: int = Field(default=8192, ge=1024)
+    # Adaptive-thinking depth for newer models (Sonnet 5+), passed as
+    # output_config.effort. None uses the model default. Ignored by legacy
+    # budget-thinking models (which use *_thinking_budget_tokens instead).
+    thinking_effort: Literal["low", "medium", "high", "max"] | None = Field(
+        default=None
+    )
     # Optional cap on summary output tokens (None = use the model's maximum).
     summarization_max_tokens: int | None = Field(default=None, ge=256)
 

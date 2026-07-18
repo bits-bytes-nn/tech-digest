@@ -20,6 +20,7 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 from .constants import Language, LocalPaths
+from .feed_parser import is_safe_url
 from .logger import logger
 
 
@@ -63,6 +64,17 @@ class Article(BaseModel):
     urls: list[str] = Field(default_factory=list)
     score: float = Field(default=1.0, ge=0.0, le=1.0)
     _validate_date = field_validator("published_date", mode="before")(validate_date)
+
+    @field_validator("link", mode="before")
+    @classmethod
+    def _validate_link_scheme(cls, v: Any) -> str:
+        # article.link is rendered into an href in the outbound email. It
+        # originates from scraped/feed content, so a javascript:/data: scheme
+        # would be a phishing/injection vector in clients that don't strip it.
+        # Blank an unsafe scheme rather than raise, so one bad link doesn't drop
+        # the whole article (the template guards against an empty href).
+        link = str(v) if v is not None else ""
+        return link if is_safe_url(link) else ""
 
     @computed_field  # type: ignore[prop-decorator]
     @property

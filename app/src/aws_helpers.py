@@ -171,7 +171,11 @@ def wait_for_batch_job_completion(
     while time.time() - start_time < timeout_seconds:
         try:
             response = batch_client.describe_jobs(jobs=[job_id])
-            job = response.get("jobs", [{}])[0]
+            # describe_jobs can return {"jobs": []} (eventual consistency right
+            # after submit); `.get("jobs", [{}])[0]` would raise IndexError on a
+            # present-but-empty list, so guard the empty case explicitly.
+            jobs = response.get("jobs") or []
+            job = jobs[0] if jobs else {}
             status = job.get("status")
             if not status:
                 logger.error(

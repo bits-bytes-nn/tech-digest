@@ -205,48 +205,68 @@ class BaseBedrockModelFactory(Generic[ModelIdT, ModelInfoT, WrapperT], ABC):
 
 
 class BedrockCrossRegionModelHelper:
-    @staticmethod
+    # The system-defined inference-profile catalog is static for a run, and a
+    # single newsletter run resolves several models (filter, summarizer, fixing,
+    # greeter). Cache the available-profile set per region so we issue ONE
+    # list_inference_profiles call instead of ~2 per model — cutting redundant
+    # large API round-trips and throttling exposure on the critical path. Only
+    # SUCCESSFUL listings are cached (a transient failure must not be pinned).
+    _profile_set_cache: ClassVar[dict[str, frozenset[str]]] = {}
+
+    @classmethod
     def get_cross_region_model_id(
+        cls,
         boto_session: boto3.Session,
         model_id: LanguageModelId,
         region_name: str,
     ) -> str:
         try:
-            bedrock_client = boto_session.client("bedrock", region_name=region_name)
-            global_model_id = (
-                BedrockCrossRegionModelHelper._build_cross_region_model_id(
-                    model_id, region_name, is_global=True
-                )
-            )
-            if BedrockCrossRegionModelHelper._is_cross_region_model_available(
-                bedrock_client, global_model_id
-            ):
-                logger.debug("Using global cross-region model: '%s'", global_model_id)
-                return global_model_id
-            regional_model_id = (
-                BedrockCrossRegionModelHelper._build_cross_region_model_id(
-                    model_id, region_name, is_global=False
-                )
-            )
-            if BedrockCrossRegionModelHelper._is_cross_region_model_available(
-                bedrock_client, regional_model_id
-            ):
-                logger.debug(
-                    "Using regional cross-region model: '%s'", regional_model_id
-                )
-                return regional_model_id
-            logger.debug(
-                "Cross-region models not available, using standard model: '%s'",
-                model_id.value,
-            )
-            return model_id.value
+            profiles = cls._get_available_profiles(boto_session, region_name)
         except Exception as e:
+            # Listing failed (throttle, missing bedrock:ListInferenceProfiles).
+            # Fall back to the bare id so on-demand-capable models still work;
+            # profile-only models will surface a clear error at invoke time.
             logger.warning(
-                "Failed to resolve cross-region model for '%s': %s. Falling back to standard model.",
+                "Could not list inference profiles for '%s' in %s (%s); "
+                "falling back to the bare model id. If this is a profile-only "
+                "model (e.g. Sonnet 5), the invoke will fail — check "
+                "bedrock:ListInferenceProfiles permission / throttling.",
                 model_id.value,
+                region_name,
                 e,
             )
             return model_id.value
+
+        for is_global in (True, False):
+            candidate = cls._build_cross_region_model_id(
+                model_id, region_name, is_global=is_global
+            )
+            if candidate in profiles:
+                logger.debug("Using cross-region model: '%s'", candidate)
+                return candidate
+        logger.debug(
+            "Cross-region profiles not available, using standard model: '%s'",
+            model_id.value,
+        )
+        return model_id.value
+
+    @classmethod
+    def _get_available_profiles(
+        cls, boto_session: boto3.Session, region_name: str
+    ) -> frozenset[str]:
+        cached = cls._profile_set_cache.get(region_name)
+        if cached is not None:
+            return cached
+        bedrock_client = boto_session.client("bedrock", region_name=region_name)
+        response = bedrock_client.list_inference_profiles(
+            maxResults=1000, typeEquals="SYSTEM_DEFINED"
+        )
+        profiles = frozenset(
+            profile["inferenceProfileId"]
+            for profile in response.get("inferenceProfileSummaries", [])
+        )
+        cls._profile_set_cache[region_name] = profiles
+        return profiles
 
     @staticmethod
     def _build_cross_region_model_id(
@@ -256,24 +276,6 @@ class BedrockCrossRegionModelHelper:
             return f"global.{model_id.value}"
         prefix = "apac" if region_name.startswith("ap-") else region_name[:2]
         return f"{prefix}.{model_id.value}"
-
-    @staticmethod
-    def _is_cross_region_model_available(
-        bedrock_client: Any, cross_region_id: str
-    ) -> bool:
-        try:
-            response = bedrock_client.list_inference_profiles(
-                maxResults=1000, typeEquals="SYSTEM_DEFINED"
-            )
-            available_profiles = {
-                profile["inferenceProfileId"]
-                for profile in response.get("inferenceProfileSummaries", [])
-            }
-            return cross_region_id in available_profiles
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to check cross-region model availability: {e}"
-            ) from e
 
 
 class BedrockLanguageModelFactory(
@@ -434,6 +436,17 @@ class BedrockLanguageModelFactory(
         effort = kwargs.get("effort")
         if effort:
             think_config["output_config"] = {"effort": effort}
+        # Surface a dead knob: adaptive-thinking models ignore thinking_budget_tokens
+        # (they use effort instead). Warn only when a NON-default budget was set,
+        # so the operator knows their tuning is a no-op — but stay quiet on the
+        # default the summarizer always passes.
+        budget = kwargs.get("thinking_budget_tokens")
+        if budget is not None and budget != self.DEFAULT_THINKING_BUDGET_TOKENS:
+            logger.warning(
+                "thinking_budget_tokens=%s is ignored for adaptive-thinking "
+                "models; use 'effort' (low/medium/high/max) to steer depth.",
+                budget,
+            )
         if is_cross_region:
             config.setdefault("additional_model_request_fields", {}).update(
                 think_config
