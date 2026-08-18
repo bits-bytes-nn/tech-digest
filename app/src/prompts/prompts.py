@@ -331,6 +331,10 @@ chose and why. (3) Any one-step adjustment and its reason.]</reason>
 class GreetingPrompt(BasePrompt):
     input_variables: list[str] = ["context"]
     output_variables: list[str] = ["greeting"]
+    # Visible-length window enforced by Greeter after generation. Kept here so
+    # the number the prompt states and the number the code checks cannot drift.
+    KO_LENGTH_RANGE: ClassVar[tuple[int, int]] = (100, 150)
+    EN_WORD_RANGE: ClassVar[tuple[int, int]] = (50, 75)
     system_prompt_template: str = """You are Peccy, a seasoned tech expert with deep knowledge of systems architecture,
 technology history, and software craftsmanship. You communicate with a direct, confident style while sharing valuable
 technical insights and connecting historical context to modern developments. Your expertise makes you a trusted voice
@@ -343,16 +347,20 @@ in the tech community."""
 **CONTEXT:**
 <context>{context}</context>
 
+**LENGTH — HARDEST CONSTRAINT (check before answering):**
+50-75 words TOTAL, including the opener. Count them. This block sits above the articles in an
+email; going long pushes the first article below the fold. If your draft is longer, cut it — do
+not submit it.
+
 **REQUIREMENTS:**
 1. Start with "Hey friends! I'm Peccy 😎"
-2. Include one interesting tech fact, historical insight, or industry observation that connects
-   DIRECTLY to a theme actually covered in this week's articles (see the context). Avoid a generic
-   "back then X, now Y" nostalgia template and avoid facts unrelated to this week's topics
-3. Preview this week's content with enthusiasm, hinting at what the articles share in common
-4. Create smooth transition to main articles
-5. Keep total length 50-70 words
-6. Use casual, confident tone with technical expertise
-7. Output plain text only - no markdown formatting
+2. Include ONE specific observation that connects DIRECTLY to a theme actually covered in this
+   week's articles (see the context). BANNED, because it is what a model reaches for by default:
+   the "back then X, now Y" / "we used to X, now we Y" contrast template in any wording. Also
+   banned: facts unrelated to this week's topics, and vague claims ("AI is moving fast")
+3. Name or clearly allude to the concrete thread the articles share — not "exciting topics"
+4. Close with one short line that hands off to the articles
+5. Casual, confident, technically fluent. No markdown, plain text only
 
 **OUTPUT:** Newsletter introduction only.""",
         Language.KO: """Write a weekly newsletter introduction in Korean using the context below.
@@ -360,18 +368,22 @@ in the tech community."""
 **CONTEXT:**
 <context>{context}</context>
 
+**분량 — 가장 지키기 어려운 제약이니 답하기 전에 직접 세어 보세요:**
+공백 포함 **100~150자**, 3~4문장. 여는 인사("안녕 친구들! 난 Peccy야 😎")도 이 안에 포함됩니다.
+이 블록은 이메일에서 첫 아티클 위에 놓이므로, 길어지면 첫 카드가 화면 아래로 밀려납니다.
+초안이 150자를 넘으면 **제출하지 말고 줄이세요**.
+
 **REQUIREMENTS:**
-1. Start with "안녕 친구들! 난 Peccy야 😎"
-2. Include one interesting tech fact, historical insight, or industry observation that connects
-   DIRECTLY to a theme actually covered in this week's articles (see the context). Avoid the
-   generic "예전엔 X였는데 이제 Y야" nostalgia template and avoid facts unrelated to this week's topics
-3. Preview this week's content with enthusiasm, hinting at what the articles share in common
-4. Create smooth transition to main articles
-5. Keep total length 100-140 Korean characters (한글 기준 100~140자), roughly 3-4 sentences
-6. Use casual speech (반말) with confident tone
-7. Keep technical terms in English when appropriate
-8. Use consistent spacing for common phrases (e.g. always "이번 주", never "이번주")
-9. Output plain text only - no markdown formatting
+1. "안녕 친구들! 난 Peccy야 😎"로 시작
+2. 이번 주 아티클이 **실제로 다루는** 주제와 직접 연결되는 구체적인 관찰 하나를 넣으세요.
+   **금지** — 모델이 기본값으로 집어드는 패턴이라서입니다: "예전엔 X였는데 이제 Y야",
+   "과거엔 X했지만 이제는 Y해" 같은 **과거-현재 대조 템플릿을 어떤 표현으로든** 쓰지 마세요.
+   이번 주 주제와 무관한 잡지식, "AI가 빠르게 발전하고 있어" 같은 뻔한 서술도 금지
+3. 아티클들을 잇는 **구체적인 실마리**를 짚어 주세요 — "흥미로운 주제들"처럼 뭉개지 말고
+4. 마지막은 아티클로 넘겨주는 짧은 한 문장으로 닫으세요
+5. 반말, 자신감 있는 어조. 기술 용어는 필요하면 영어 그대로
+6. 흔한 표현의 띄어쓰기를 일관되게 (항상 "이번 주", "이번주"는 쓰지 않음)
+7. 평문만 출력 — 마크다운 금지
 
 **OUTPUT:** Newsletter introduction in Korean only.""",
     }
@@ -389,9 +401,65 @@ in the tech community."""
         return prompt_class
 
 
+class GreetingRevisionPrompt(BasePrompt):
+    """Ask the model to bring an over/under-length greeting into the window.
+
+    The length rule is the one instruction the greeting model most reliably
+    misses (a real run produced 230 Korean characters against a 100-150 target),
+    and length is something code can measure exactly. So rather than adding more
+    emphasis to the original prompt and hoping, the measured count is fed back
+    once — a generate-then-verify loop, with the verification done arithmetically
+    instead of by another judgement call.
+    """
+
+    input_variables: list[str] = ["draft", "measured", "target_min", "target_max"]
+    output_variables: list[str] = ["greeting"]
+    system_prompt_template: str = GreetingPrompt.system_prompt_template
+    human_prompt_template: str = ""
+
+    _human_prompt_template: ClassVar[dict[Language, str]] = {
+        Language.EN: """Your draft newsletter introduction is {measured} words, but it must be
+{target_min}-{target_max} words.
+
+**DRAFT:**
+<draft>{draft}</draft>
+
+Rewrite it to land inside the window. Keep the opener "Hey friends! I'm Peccy 😎", keep the
+specific observation and the hand-off to the articles, and keep the casual confident tone. Cut
+qualifiers, repeated ideas and scene-setting first. Do NOT introduce a "back then X, now Y"
+contrast. Plain text only.
+
+**OUTPUT:** The revised introduction only.""",
+        Language.KO: """작성한 뉴스레터 인트로가 {measured}자인데, {target_min}~{target_max}자여야 합니다.
+
+**DRAFT:**
+<draft>{draft}</draft>
+
+이 범위 안으로 다시 쓰세요. 여는 인사 "안녕 친구들! 난 Peccy야 😎"와 구체적인 관찰,
+아티클로 넘기는 마지막 문장은 유지하고, 반말·자신감 있는 어조도 그대로 두세요. 줄일 때는
+수식어·중복된 이야기·배경 설명을 먼저 버리세요. "예전엔 X였는데 이제 Y야" 같은 과거-현재
+대조는 넣지 마세요. 평문만 출력하세요.
+
+**OUTPUT:** 수정된 인트로만 출력.""",
+    }
+
+    @classmethod
+    def for_language(
+        cls, language: Language = Language.KO
+    ) -> type["GreetingRevisionPrompt"]:
+        return type(
+            f"{language.name.capitalize()}GreetingRevisionPrompt",
+            (cls,),
+            {
+                "system_prompt_template": cls.system_prompt_template,
+                "human_prompt_template": cls._human_prompt_template[language],
+            },
+        )
+
+
 class SummarizationPrompt(BasePrompt):
     input_variables: list[str] = ["post"]
-    output_variables: list[str] = ["summary", "tags", "urls"]
+    output_variables: list[str] = ["summary", "one_liner", "tags", "urls"]
     human_prompt_template: str = ""
     system_prompt_template: str = """You are an expert technical writer and content analyst specializing in software
 engineering, machine learning, and system architecture. Your goal is to create clear, engaging, and accurate
@@ -416,17 +484,28 @@ explanations that make complex technical concepts accessible without sacrificing
 
 2. **Conversational Yet Precise**
    - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
-   - Be thorough and explanatory, not brief or superficial
    - Help readers understand the "why" behind technical decisions, not just the "what"
-   - Target length: Maximum 20% of the original post length
 
-3. **Educational Focus**
-   - Prioritize clarity and understanding over brevity
+3. **Length Budget (HARD CONSTRAINT)**
+   - Total <summary> body: **900-1,600 words of visible text**, excluding HTML tags
+   - Per-section budget: 📌 3-4 sentences / 🔄 1-2 paragraphs / 🛠️ 2-3 paragraphs /
+     📊 1 paragraph (a table may replace the metric list) / 🔮 2-3 sentences
+   - This is an EMAIL newsletter card, not a blog post. Several of these are
+     delivered in one message, and a message over ~100 KB is TRUNCATED by mail
+     clients — an over-long summary literally loses its ending for the reader
+   - Do not scale length to the source article. A 20,000-word paper and a
+     2,000-word post get the SAME budget; a longer source means being more
+     selective, not writing more
+   - Prefer cutting restatement over cutting substance: drop anything already
+     said in another section before dropping a technical detail
+
+4. **Educational Focus**
+   - Prioritize clarity and understanding over exhaustiveness
    - Explain concepts with appropriate context and background
    - Connect technical details to practical implications
    - Make complex ideas accessible without oversimplifying
 
-4. **Section Distinctiveness**
+5. **Section Distinctiveness**
    - Each section must carry NEW information. Never restate figures, sentences, or conclusions
      already given in an earlier section
    - The 📊 Results section is NOT a place to re-list metrics already stated in 📌/🛠️
@@ -500,6 +579,11 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
+<one_liner>[ONE plain-text sentence, 15-30 words, that a reader scanning the digest can use to decide whether to read
+this card. State the most concrete, specific thing the article establishes — the mechanism plus its measured effect
+where available (e.g. "Splitting prefill and decode onto separate GPU pools over RDMA cuts per-token latency 22-66%
+at high concurrency"). NO adjectives of praise, NO "this article explains/explores/discusses", NO restating the
+title, NO trailing period-free fragments. Plain text only, no HTML, no markdown]</one_liner>
 <tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies,
 or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI"
 unless they represent novel approaches discussed]</tags>
@@ -521,24 +605,33 @@ Korean:
 
 2. **Conversational Yet Precise**
    - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
-   - Be thorough and explanatory, not brief or superficial
    - Help readers understand the "why" behind technical decisions, not just the "what"
-   - Target length: Maximum 20% of the original post length
 
-3. **Educational Focus**
-   - Prioritize clarity and understanding over brevity
+3. **분량 예산 (Length Budget — 반드시 지킬 제약)**
+   - <summary> 본문 전체: **한글 1,400~2,300자** (HTML 태그 제외, 가시 텍스트 기준)
+   - 섹션별 배분: 📌 3~4문장 / 🔄 1~2단락 / 🛠️ 2~3단락 / 📊 1단락(수치는 표로 대체 가능) /
+     🔮 2~3문장
+   - 이것은 블로그 글이 아니라 **이메일 뉴스레터 카드**입니다. 한 통에 여러 편이 함께
+     실리고, 메일이 약 100KB를 넘으면 클라이언트가 뒷부분을 **잘라냅니다** — 분량이
+     넘치면 독자는 결말을 아예 못 읽습니다
+   - 원문 길이에 비례해 늘리지 마세요. 2만 단어 논문과 2천 단어 포스트의 예산은
+     **같습니다**. 원문이 길다는 건 더 많이 쓰라는 뜻이 아니라 더 골라내라는 뜻입니다
+   - 줄여야 할 때는 기술적 사실보다 **중복 서술**을 먼저 버리세요
+
+4. **Educational Focus**
+   - Prioritize clarity and understanding over exhaustiveness
    - Explain concepts with appropriate context and background
    - Connect technical details to practical implications
    - Make complex ideas accessible without oversimplifying
 
-4. **일관된 문체 (Consistent Register)**
+5. **일관된 문체 (Consistent Register)**
    - 모든 섹션의 모든 문장을 **정중한 합니다체**로 통일하세요 (예: "제안합니다", "달성했습니다",
      "확인되지 않았습니다"). 절대 문어체 평서형(한다체: "제안한다", "달성했다")과 섞지 마세요
    - 원문 블로그의 어조를 따라가지 말고, 위 합니다체를 처음부터 끝까지 유지하세요
    - 이 뉴스레터는 여러 아티클을 하나로 묶어 발송하므로, 아티클마다 문체가 다르면 독자가 이질감을
      느낍니다. 문체 통일은 필수입니다
 
-5. **섹션 간 정보 차별화 (Section Distinctiveness)**
+6. **섹션 간 정보 차별화 (Section Distinctiveness)**
    - 각 섹션은 **새로운 정보**를 담아야 합니다. 앞 섹션에서 이미 말한 수치·문장·결론을 뒤 섹션에서
      그대로 반복하지 마세요
    - 특히 📊 성과 섹션은 📌·🛠️에서 이미 제시한 수치(예: "5배 향상", "30% 절감")를 재나열하는 곳이
@@ -616,6 +709,10 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
+<one_liner>[한국어 **한 문장**, 50~90자. 다이제스트를 훑는 독자가 이 카드를 읽을지 판단할 근거가 되도록, 이 아티클이
+확립한 가장 구체적인 사실 — 메커니즘 + 측정된 효과 — 을 쓰세요. 예: "prefill과 decode를 별도 GPU 풀로 분리해
+동시성이 높을 때 토큰당 지연을 22~66% 줄였습니다". 합니다체를 유지하되, 칭찬 형용사·"이 글은 ~를 다룹니다" 같은
+메타 서술·제목 반복은 금지. 평문만(HTML·마크다운 금지)]</one_liner>
 <tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies,
 or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI"
 unless they represent novel approaches discussed - write all titles in English]</tags>

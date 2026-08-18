@@ -60,13 +60,40 @@ def failing_report() -> CrawlReport:
 class TestCrawlHealthAlert:
     def test_alert_published_with_failures(self, failing_report):
         session = _FakeSession()
-        main._send_crawl_health_alert(session, "arn:topic", failing_report)
+        main._send_crawl_health_alert(session, "arn:topic", failing_report, [])
         assert len(session.sns.published) == 1
         msg = session.sns.published[0]
         assert "Crawl Health" in msg["Subject"]
         assert "ALERT" in msg["Subject"]
         assert "ai.meta.com/blog" in msg["Message"]
         assert "anti-bot block" in msg["Message"]
+
+    def test_expected_flaky_source_does_not_alert(self, failing_report):
+        """A source that is known to reject AWS egress IPs every week must not
+        page, or the alarm becomes noise that hides a genuinely new breakage."""
+        session = _FakeSession()
+        main._send_crawl_health_alert(
+            session, "arn:topic", failing_report, ["ai.meta.com"]
+        )
+        assert session.sns.published == []
+
+    def test_unexpected_failure_still_alerts_when_others_are_allowed(
+        self, failing_report
+    ):
+        failing_report.sources.append(
+            SourceHealth(
+                url="https://research.google/blog",
+                fetcher="GoogleBlogScraper",
+                status=SourceStatus.FAILED,
+                error="selector changed",
+            )
+        )
+        session = _FakeSession()
+        main._send_crawl_health_alert(
+            session, "arn:topic", failing_report, ["ai.meta.com"]
+        )
+        assert len(session.sns.published) == 1
+        assert "research.google/blog" in session.sns.published[0]["Message"]
 
     def test_report_failed_partition(self, failing_report):
         assert len(failing_report.failed) == 1

@@ -86,6 +86,13 @@ class Scraping(BaseModelWithDefaults):
     # gated more aggressively than English sources at the same threshold. If you
     # crawl primarily CJK sources, lower this (e.g. 300-400) per stage.
     min_content_length: int = Field(default=600, ge=0)
+    # Substrings of source URLs whose fetch failure is KNOWN and expected, so it
+    # should not raise a crawl-health alert. x.ai (and sometimes ai.meta.com)
+    # reject AWS datacenter egress IPs on essentially every run; alerting on them
+    # weekly trains the operator to ignore the alarm, which then hides a source
+    # that breaks for real. Listed sources still appear in the health report — they
+    # just don't page. Matched as a plain substring against the configured URL.
+    expected_flaky_urls: list[str] = Field(default_factory=list)
 
 
 class Summarization(BaseModelWithDefaults):
@@ -101,6 +108,14 @@ class Summarization(BaseModelWithDefaults):
     max_concurrency: int = Field(default=10, ge=1)
     min_score: float = Field(default=0.7, ge=0.0, le=1.0)
     max_posts: int | None = Field(default=None, ge=1)
+    # Optional cap on how many articles one source may contribute to an issue.
+    # Applied AFTER score ranking, and any slots the cap leaves empty are
+    # backfilled in rank order — so the cap changes *which* posts fill the issue,
+    # never *how many*. Leave unset (the default) for a single-vendor digest
+    # (`filtering_criteria: amazon`), where source concentration is the point;
+    # set it to 2 for a broad digest, where three cards from the same blog in one
+    # issue reads like that vendor's release notes rather than a curated digest.
+    max_per_source: int | None = Field(default=None, ge=1)
     # Extended-thinking budget (tokens) for the filtering/summarization models
     # when *_enable_thinking is on. The model factory's hardcoded 2048 default
     # is too small to meaningfully reason over a full article; expose it so it
@@ -114,7 +129,10 @@ class Summarization(BaseModelWithDefaults):
     # Adaptive-thinking depth for newer models (Sonnet 5+), passed as
     # output_config.effort. None uses the model default. Ignored by legacy
     # budget-thinking models (which use *_thinking_budget_tokens instead).
-    thinking_effort: Literal["low", "medium", "high", "max"] | None = Field(
+    # "xhigh" and "max" are Opus-tier only (e.g. Opus 4.7+/Opus 5); a Sonnet or
+    # Haiku model will reject them, so they are validated as accepted values here
+    # but only usable with an Opus model id.
+    thinking_effort: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
         default=None
     )
     # Optional cap on summary output tokens (None = use the model's maximum).

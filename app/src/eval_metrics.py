@@ -27,16 +27,49 @@ def is_on_grid(score: float, tol: float = 0.001) -> bool:
     return abs(score - nearest) <= tol
 
 
+# Band label for each anchor the filtering rubric can emit, taken from the
+# rubric's OWN wording (see app/src/prompts/prompts.py):
+#
+#   0.85 Groundbreaking / 0.80 Excellent / 0.75 Adequate-included -> high
+#   0.70 Strong                                                   -> strong
+#   0.60 Good / 0.50 Moderate                                     -> moderate
+#   0.35 Weak                                                     -> weak
+#   0.15 Poor / 0.05 Not ML                                       -> reject
+#
+# This mapping is the single source of truth, and the cutoffs below are derived
+# from it rather than invented separately. They previously were separate: the
+# cutoffs put 0.60 in "strong" even though the rubric calls 0.60 "Good" and
+# reserves "Strong" for 0.70 — so an article the model scored exactly per the
+# rubric was reported as a band mismatch. Two independent numeric scales for the
+# same concept will always drift; ``test_eval_metrics`` now pins every anchor to
+# the band its rubric label names.
+ANCHOR_BANDS: dict[float, str] = {
+    0.85: "high",
+    0.80: "high",
+    0.75: "high",
+    0.70: "strong",
+    0.60: "moderate",
+    0.50: "moderate",
+    0.35: "weak",
+    0.15: "reject",
+    0.05: "reject",
+}
+
+# Lower bound of each band, placed midway between the adjacent anchors so a
+# one-step +-0.05 adjustment stays inside its anchor's band.
+_BAND_CUTOFFS: tuple[tuple[float, str], ...] = (
+    (0.75, "high"),
+    (0.65, "strong"),
+    (0.45, "moderate"),
+    (0.25, "weak"),
+)
+
+
 def band_of_score(score: float) -> str:
     """Coarse quality band label for a score (for alignment reporting)."""
-    if score >= 0.75:
-        return "high"  # included-topic / exceptional
-    if score >= 0.60:
-        return "strong"
-    if score >= 0.45:
-        return "moderate"
-    if score >= 0.30:
-        return "weak"
+    for cutoff, band in _BAND_CUTOFFS:
+        if score >= cutoff:
+            return band
     return "reject"
 
 
@@ -96,6 +129,31 @@ class EvalReport:
     def mean_stdev(self) -> float:
         return mean(s.stdev for s in self.stats) if self.stats else 0.0
 
+    @property
+    def max_spread(self) -> float:
+        """Largest min-to-max score range any single article showed.
+
+        This, not ``determinism_rate``, is the meaningful reproducibility metric
+        on models that expose no sampling controls (Sonnet 5 and later removed
+        ``temperature``, so greedy decoding cannot be requested and repeated
+        scorings of identical input genuinely differ). What still matters is that
+        the variation stays inside one anchor step, so an article cannot cross an
+        inclusion threshold depending on which run it landed in.
+        """
+        return max((s.spread for s in self.stats), default=0.0)
+
+    @property
+    def band_stability_rate(self) -> float:
+        """Fraction of articles whose EVERY repeat fell in the expected band."""
+        if not self.stats:
+            return 0.0
+        return sum(
+            1
+            for s in self.stats
+            if s.scores
+            and all(band_of_score(score) == s.expected_band for score in s.scores)
+        ) / len(self.stats)
+
     def _rate(self, predicate) -> float:
         if not self.stats:
             return 0.0
@@ -119,6 +177,8 @@ class EvalReport:
             f"determinism={self.determinism_rate:.0%}  "
             f"on-grid={self.grid_rate:.0%}  "
             f"band-match={self.band_match_rate:.0%}  "
+            f"band-stable={self.band_stability_rate:.0%}  "
+            f"max spread={self.max_spread:.2f}  "
             f"mean σ={self.mean_stdev:.3f}"
         )
         return "\n".join(lines)

@@ -14,10 +14,10 @@ from .constants import FilteringCriteria, Language, LanguageModelId
 from .eval_metrics import is_on_grid
 from .feed_parser import Post, is_safe_url
 from .logger import logger
+from .model_factory import BedrockLanguageModelFactory
 from .prompts.prompts import FilteringPrompt, SummarizationPrompt
 from .utils import (
     BatchProcessor,
-    BedrockLanguageModelFactory,
     HTMLTagOutputParser,
     measure_execution_time,
 )
@@ -228,10 +228,74 @@ def _sanitize_html(html: str) -> str:
     return str(soup)
 
 
+def _strip_unsourced_images(
+    summary_html: str, source_html: str, known_images: list[str]
+) -> tuple[str, list[str]]:
+    """Remove ``<img>`` tags the source post does not actually contain.
+
+    The model is told to embed only images from the article, but an LLM can
+    invent a plausible CDN path — which renders as a broken image (or a stray
+    alt string) in the delivered email. Provenance is checked by EXACT evidence,
+    never by pattern-guessing the URL: the src must either be one of the images
+    our own parser extracted from the post (``Post.images``, already resolved to
+    absolute URLs) or appear verbatim in the post HTML the model was given.
+
+    Returns ``(cleaned_html, dropped_srcs)``.
+    """
+    if "<img" not in summary_html.lower():
+        return summary_html, []
+    allowed = set(known_images)
+    soup = BeautifulSoup(summary_html, "html.parser")
+    dropped: list[str] = []
+    for img in list(soup.find_all("img")):
+        src = str(img.get("src") or "").strip()
+        if src and (src in allowed or src in source_html):
+            continue
+        dropped.append(src or "(no src)")
+        img.decompose()
+    if not dropped:
+        return summary_html, []
+    return str(soup), dropped
+
+
+def _unsourced_urls(urls: list[str], source_html: str) -> list[str]:
+    """Reference links whose href does not appear verbatim in the source post.
+
+    Reported (not removed): unlike an image, a slightly-rewritten but real link
+    is still useful to the reader, so dropping it would cost more than it saves.
+    Surfacing the count makes prompt drift visible in the run log instead of
+    silently shipping links the article never contained.
+    """
+    unsourced = []
+    for anchor in urls:
+        href = BeautifulSoup(anchor, "html.parser").find("a")
+        url = str(href.get("href", "")) if href else ""
+        if url and url not in source_html:
+            unsourced.append(url)
+    return unsourced
+
+
 class SummaryOutput(BaseModel):
     summary: str = Field(min_length=1)
+    # A single-sentence lede rendered above the sections so the reader can
+    # triage a multi-article digest without reading every card.
+    one_liner: str = ""
     tags: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
+
+    @field_validator("one_liner", mode="before")
+    @classmethod
+    def _clean_one_liner(cls, v: Any) -> str:
+        """Reduce the lede to a single line of plain text.
+
+        It is rendered through Jinja's autoescape (NOT ``| safe``), so markup
+        here would show up as literal text — strip any the model emitted, and
+        collapse newlines so it cannot break the single-line layout.
+        """
+        if not isinstance(v, str):
+            return ""
+        text = BeautifulSoup(v, "html.parser").get_text(separator=" ", strip=True)
+        return " ".join(text.split())
 
     @field_validator("summary", mode="before")
     def _convert_markdown_to_html(cls, v: str) -> str:
@@ -270,48 +334,64 @@ class SummaryOutput(BaseModel):
         return _normalize_urls(v)
 
 
+class SummarizerSettings(BaseModel):
+    """Everything the Summarizer needs to run, as one validated object.
+
+    Replaces a 14-positional-parameter constructor plus four more arguments on
+    ``process_posts``. Field names deliberately mirror the ``summarization``
+    config section so the composition root can build this straight from config
+    (``SummarizerSettings.model_validate(cfg.summarization.model_dump() | ...)``)
+    without restating every key — and without ``src`` importing ``configs``,
+    which would invert the dependency direction.
+    """
+
+    filtering_model_id: LanguageModelId
+    summarization_model_id: LanguageModelId
+    fixing_model_id: LanguageModelId | None = None
+    filtering_criteria: FilteringCriteria = FilteringCriteria.ALL
+    filtering_enable_thinking: bool = False
+    summarization_enable_thinking: bool = False
+    language: Language = Language.KO
+    use_filtering: bool = True
+    included_topics: list[str] = Field(default_factory=list)
+    excluded_topics: list[str] = Field(default_factory=list)
+    max_concurrency: int = Field(default=10, ge=1)
+    min_score: float = Field(default=0.7, ge=0.0, le=1.0)
+    min_content_length: int = Field(default=600, ge=0)
+    max_posts: int | None = Field(default=None, ge=1)
+    max_per_source: int | None = Field(default=None, ge=1)
+    filtering_thinking_budget_tokens: int = Field(default=4096, ge=1024)
+    summarization_thinking_budget_tokens: int = Field(default=8192, ge=1024)
+    summarization_max_tokens: int | None = Field(default=None, ge=256)
+    thinking_effort: str | None = None
+
+
 class Summarizer:
     def __init__(
         self,
         boto_session: boto3.Session,
-        filtering_model_id: LanguageModelId,
-        summarization_model_id: LanguageModelId,
-        fixing_model_id: LanguageModelId | None = None,
-        filtering_criteria: FilteringCriteria = FilteringCriteria.ALL,
-        filtering_enable_thinking: bool = False,
-        summarization_enable_thinking: bool = False,
-        language: Language = Language.KO,
-        max_concurrency: int = 10,
-        min_score: float = 0.7,
-        min_content_length: int = 600,
-        filtering_thinking_budget_tokens: int = 4096,
-        summarization_thinking_budget_tokens: int = 8192,
-        summarization_max_tokens: int | None = None,
-        thinking_effort: str | None = None,
+        settings: SummarizerSettings,
     ) -> None:
         self.boto_session = boto_session
-        self.filtering_criteria = filtering_criteria
-        self.language = language
-        self.min_score = min_score
-        self.min_content_length = min_content_length
-        # Adaptive-thinking depth (Sonnet 5+); ignored by legacy budget models.
-        self.thinking_effort = thinking_effort
+        self.settings = settings
+        self.language = settings.language
         self.filtered_out_posts: list[tuple[Post, str]] = []
         self.batch_processor = BatchProcessor(
-            max_concurrency=max_concurrency, batch_size=max_concurrency
+            max_concurrency=settings.max_concurrency,
+            batch_size=settings.max_concurrency,
         )
         self.llm_factory = BedrockLanguageModelFactory(boto_session=self.boto_session)
         self.filter = self._create_filter(
-            filtering_model_id,
-            filtering_enable_thinking,
-            thinking_budget_tokens=filtering_thinking_budget_tokens,
+            settings.filtering_model_id,
+            settings.filtering_enable_thinking,
+            thinking_budget_tokens=settings.filtering_thinking_budget_tokens,
         )
         self.summarizer = self._create_summarizer(
-            summarization_model_id,
-            fixing_model_id,
-            summarization_enable_thinking,
-            thinking_budget_tokens=summarization_thinking_budget_tokens,
-            max_tokens=summarization_max_tokens,
+            settings.summarization_model_id,
+            settings.fixing_model_id,
+            settings.summarization_enable_thinking,
+            thinking_budget_tokens=settings.summarization_thinking_budget_tokens,
+            max_tokens=settings.summarization_max_tokens,
         )
 
     def _create_filter(
@@ -339,12 +419,14 @@ class Summarizer:
             enable_thinking=use_thinking,
             thinking_budget_tokens=thinking_budget_tokens
             or self.llm_factory.DEFAULT_THINKING_BUDGET_TOKENS,
-            effort=self.thinking_effort,
+            effort=self.settings.thinking_effort,
         )
         # The large, static filtering rubric is sent on every post — cache it as
         # a system prefix so only the per-post content is billed at full rate.
         # The cache marker differs by backend, so tell the prompt which one runs.
-        prompt = FilteringPrompt.for_criteria(self.filtering_criteria).get_prompt(
+        prompt = FilteringPrompt.for_criteria(
+            self.settings.filtering_criteria
+        ).get_prompt(
             enable_prompt_cache=model_info.supports_prompt_caching,
             use_converse=isinstance(filtering_llm, ChatBedrockConverse),
         )
@@ -386,7 +468,7 @@ class Summarizer:
             thinking_budget_tokens=thinking_budget_tokens
             or self.llm_factory.DEFAULT_THINKING_BUDGET_TOKENS,
             max_tokens=max_tokens,
-            effort=self.thinking_effort,
+            effort=self.settings.thinking_effort,
         )
         # Cache the static analysis instructions as a system prefix; only the
         # per-post body varies and is billed at the full input rate.
@@ -397,51 +479,23 @@ class Summarizer:
         return prompt | summarization_llm | output_parser
 
     @measure_execution_time
-    def process_posts(
-        self,
-        posts: list[Post],
-        use_filtering: bool,
-        included_topics: list[str],
-        excluded_topics: list[str],
-        max_posts: int | None = None,
-    ) -> list[Post]:
+    def process_posts(self, posts: list[Post]) -> list[Post]:
         substantive_posts = self._gate_by_content_length(posts)
         if not substantive_posts:
             logger.warning("No posts had sufficient content to summarize.")
             return []
-        if use_filtering:
-            posts_to_process = self._filter_posts(
-                substantive_posts, included_topics, excluded_topics
-            )
+        if self.settings.use_filtering:
+            posts_to_process = self._filter_posts(substantive_posts)
             if not posts_to_process:
                 logger.warning("No posts remained after filtering.")
                 return []
         else:
             posts_to_process = substantive_posts
-        # Rank by score and apply max_posts BEFORE summarizing, so we only pay
-        # to summarize the posts that will actually ship (summarization is the
-        # expensive LLM step). Secondary sort by recency breaks the frequent
-        # ties among the coarse anchor scores deterministically.
-        posts_to_process.sort(
-            key=lambda p: (getattr(p, "score", 0.0), p.published_date),
-            reverse=True,
-        )
-        if max_posts and max_posts > 0 and len(posts_to_process) > max_posts:
-            logger.info(
-                "Limiting to top %d of %d posts before summarization.",
-                max_posts,
-                len(posts_to_process),
-            )
-            posts_to_process = posts_to_process[:max_posts]
-        self._summarize_posts(posts_to_process)
-        # Return ONLY posts that were actually summarized. A post whose summary
-        # call failed (or whose output failed validation) is recorded in
-        # filtered_out_posts by _summarize_posts and dropped here — otherwise it
-        # would be counted as a surviving post, the newsletter renderer would
-        # silently drop it (Article.summary has min_length=1), and if EVERY
-        # summary failed the run would email an empty digest with no alert (the
-        # empty-digest guard in main.py only fires when `posts` is empty).
-        summarized_posts = [p for p in posts_to_process if p.summary]
+        # Rank and apply max_posts BEFORE summarizing, so we only pay to
+        # summarize the posts that will actually ship (summarization is the
+        # expensive LLM step).
+        posts_to_process = self._select_for_digest(posts_to_process)
+        summarized_posts = self._summarize_posts(posts_to_process)
         dropped = len(posts_to_process) - len(summarized_posts)
         if dropped:
             logger.warning(
@@ -451,6 +505,68 @@ class Summarizer:
             )
         return summarized_posts
 
+    def _select_for_digest(self, posts: list[Post]) -> list[Post]:
+        """Rank by relevance and pick the issue's line-up.
+
+        Ordering is ``(score desc, published_date desc)``: the coarse 0.05 anchor
+        grid produces frequent ties, and recency breaks them deterministically so
+        the same inputs always yield the same issue.
+
+        When ``max_per_source`` is set, the cap is applied in a first pass and any
+        remaining slots are then BACKFILLED from the leftovers in rank order. A
+        cap that shrank the digest would trade a real loss (fewer articles) for a
+        cosmetic gain, so the cap only ever changes *which* posts fill the slots,
+        never *how many*. Leaving it unset keeps pure score ranking — the right
+        default for a single-vendor digest (``filtering_criteria: amazon``), where
+        source concentration is the point rather than a defect.
+        """
+        ranked = sorted(posts, key=lambda p: (p.score, p.published_date), reverse=True)
+        max_posts = self.settings.max_posts
+        limit = max_posts if max_posts and max_posts > 0 else len(ranked)
+        cap = self.settings.max_per_source
+
+        if cap:
+            per_source: dict[str, int] = {}
+            selected: list[Post] = []
+            overflow: list[Post] = []
+            for post in ranked:
+                if len(selected) >= limit:
+                    break
+                if per_source.get(post.source, 0) < cap:
+                    per_source[post.source] = per_source.get(post.source, 0) + 1
+                    selected.append(post)
+                else:
+                    overflow.append(post)
+            if len(selected) < limit and overflow:
+                backfilled = overflow[: limit - len(selected)]
+                logger.info(
+                    "Source cap (%d/source) left %d slot(s) unfilled; "
+                    "backfilling in rank order: %s",
+                    cap,
+                    len(backfilled),
+                    [p.title for p in backfilled],
+                )
+                selected.extend(backfilled)
+                # Re-rank so the backfilled posts sit in relevance order rather
+                # than being appended after lower-scoring capped picks.
+                selected.sort(key=lambda p: (p.score, p.published_date), reverse=True)
+            ranked = selected
+        elif len(ranked) > limit:
+            ranked = ranked[:limit]
+
+        if len(posts) > len(ranked):
+            logger.info(
+                "Selected top %d of %d posts for the digest%s.",
+                len(ranked),
+                len(posts),
+                f" (max {cap} per source)" if cap else "",
+            )
+        logger.info(
+            "Digest line-up (relevance order): %s",
+            [f"{p.source}:{p.title} ({p.score:.2f})" for p in ranked],
+        )
+        return ranked
+
     def _gate_by_content_length(self, posts: list[Post]) -> list[Post]:
         """Drop posts whose visible text is too thin to summarize well.
 
@@ -459,23 +575,23 @@ class Summarizer:
         empty/garbage summary. Dropped posts are recorded in
         ``filtered_out_posts`` so they appear in the run notification.
         """
+        minimum = self.settings.min_content_length
         substantive: list[Post] = []
         for post in posts:
             length = post.text_length()
-            if length >= self.min_content_length:
+            if length >= minimum:
                 substantive.append(post)
             else:
                 reason = (
                     f"Insufficient content: {length} visible chars "
-                    f"(minimum {self.min_content_length}). Skipped before "
-                    f"summarization."
+                    f"(minimum {minimum}). Skipped before summarization."
                 )
                 self.filtered_out_posts.append((post, reason))
                 logger.info(
                     "Post '%s' dropped: %d visible chars < %d minimum.",
                     post.title,
                     length,
-                    self.min_content_length,
+                    minimum,
                 )
         logger.info(
             "Content-length gate: %d/%d posts have sufficient content.",
@@ -484,20 +600,30 @@ class Summarizer:
         )
         return substantive
 
-    def _filter_posts(
-        self, posts: list[Post], included_topics: list[str], excluded_topics: list[str]
-    ) -> list[Post]:
+    def _filter_posts(self, posts: list[Post]) -> list[Post]:
         valid_posts = [p for p in posts if p.content]
+        # Reachable only with min_content_length=0 (the gate above otherwise
+        # requires real text). Record rather than drop, so a post can never
+        # vanish from BOTH the surviving list and the filtered-out report.
+        for post in posts:
+            if not post.content:
+                self.filtered_out_posts.append(
+                    (post, "No content available to evaluate.")
+                )
+                logger.warning("Post '%s' has no content; skipping.", post.title)
         if not valid_posts:
             return []
+
+        included = ", ".join(self.settings.included_topics)
+        excluded = ", ".join(self.settings.excluded_topics)
 
         def prepare_inputs(items: list[Post]) -> list[dict[str, Any]]:
             return [
                 {
                     "post": post.content,
                     "original_title": post.title,
-                    "included_topics": ", ".join(included_topics),
-                    "excluded_topics": ", ".join(excluded_topics),
+                    "included_topics": included,
+                    "excluded_topics": excluded,
                 }
                 for post in items
             ]
@@ -545,7 +671,7 @@ class Summarizer:
                 post.score = score
                 if title := response.get("title"):
                     post.title = title
-                if score >= self.min_score:
+                if score >= self.settings.min_score:
                     filtered_posts.append(post)
                     logger.info(
                         "Post '%s' passed filter with score %.2f.", post.title, score
@@ -572,9 +698,18 @@ class Summarizer:
                 )
         return filtered_posts
 
-    def _summarize_posts(self, posts: list[Post]):
+    def _summarize_posts(self, posts: list[Post]) -> list[Post]:
+        """Summarize ``posts`` in place and return ONLY the ones that succeeded.
+
+        The success set is returned explicitly rather than inferred afterwards
+        from ``post.summary`` being non-empty. That inference was subtly wrong:
+        any pre-existing text in the field (the RSS teaser, before it stopped
+        being seeded — see ``Post.from_entry``) made a FAILED summarization look
+        successful, so the post shipped its teaser as the article body while also
+        appearing in the filtered-out report.
+        """
         if not posts:
-            return
+            return []
 
         def prepare_inputs(items: list[Post]) -> list[dict[str, Any]]:
             return [{"post": post.content} for post in items]
@@ -586,6 +721,7 @@ class Summarizer:
             sequential_func=self.summarizer.invoke,
             task_name="summarization",
         )
+        succeeded: list[Post] = []
         for post, summary_data in zip(posts, summaries, strict=True):
             if summary_data is None:
                 logger.warning(
@@ -600,9 +736,19 @@ class Summarizer:
                 continue
             try:
                 summary_output = SummaryOutput.model_validate(summary_data)
-                post.summary = _postprocess_summary(summary_output.summary)
+                post.summary = self._finalize_summary(post, summary_output.summary)
+                post.one_liner = summary_output.one_liner
                 post.tags = summary_output.tags
                 post.urls = summary_output.urls
+                if unsourced := _unsourced_urls(post.urls, post.content):
+                    logger.warning(
+                        "%d reference link(s) for '%s' are not present in the "
+                        "source article (kept, but verify): %s",
+                        len(unsourced),
+                        post.title,
+                        unsourced,
+                    )
+                succeeded.append(post)
             except Exception as e:
                 logger.error(
                     "Failed to parse summary for post '%s': %s. Data: %s",
@@ -613,3 +759,19 @@ class Summarizer:
                 self.filtered_out_posts.append(
                     (post, f"Summary validation failed: {e}")
                 )
+        return succeeded
+
+    @staticmethod
+    def _finalize_summary(post: Post, summary_html: str) -> str:
+        cleaned, dropped = _strip_unsourced_images(
+            summary_html, post.content, post.images
+        )
+        if dropped:
+            logger.warning(
+                "Dropped %d image(s) from the summary of '%s' — not found in the "
+                "source article (would have rendered broken): %s",
+                len(dropped),
+                post.title,
+                dropped,
+            )
+        return _postprocess_summary(cleaned)

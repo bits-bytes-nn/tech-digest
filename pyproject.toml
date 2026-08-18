@@ -142,10 +142,10 @@ ignore_missing_imports = true
 module = ["src.feed_parser"]
 disable_error_code = ["union-attr", "assignment", "type-var", "misc"]
 
-# utils builds boto3 clients dynamically; boto3-stubs' Literal service-name
-# overloads reject the runtime-computed service string.
+# model_factory builds boto3 clients dynamically; boto3-stubs' Literal
+# service-name overloads reject the runtime-computed service string.
 [[tool.mypy.overrides]]
-module = ["src.utils"]
+module = ["src.model_factory"]
 disable_error_code = ["call-overload"]
 
 # Prompt subclasses declare the dataclass fields (input/output_variables,

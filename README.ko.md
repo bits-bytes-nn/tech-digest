@@ -28,12 +28,18 @@ Amazon Bedrock (Claude) 기반 · AWS 위에서 CDK로 정의·오케스트레�
   SSRF 가드와 소스별 헬스 추적이 따라붙습니다.
 - **콘텐츠 품질 게이트** — 본문이 너무 빈약한 글은 LLM에 닿기 *전에* 걸러내, 빈
   껍데기 글이 다이제스트에 실리지 않게 합니다.
+- **훑어볼 수 있는 카드** — 카드마다 핵심을 한 문장으로 먼저 제시하고 읽는 시간을
+  표시하며, 관련도가 가장 높은 글이 맨 앞에 옵니다.
+- **클립 예산 인식** — 메일 클라이언트는 약 100KB를 넘는 본문을 잘라냅니다. 요약
+  분량 예산과 템플릿 마크업 무게를 함께 조율해 그 아래로 유지하고, 잘릴 크기라면
+  빌드가 경고합니다.
 - **크롤 헬스 모니터링** — 모든 소스의 페치 상태를 추적하다가 소스가 실패하면 SNS
-  알림을 띄워, 조용히 지나칠 뻔한 고장을 곧바로 드러냅니다.
+  알림을 띄워, 조용히 지나칠 뻔한 고장을 곧바로 드러냅니다. AWS 송신 IP에서 상시
+  실패하는 소스는 허용 목록으로 빼서, 알람이 계속 조치 가능한 상태로 남습니다.
 - **서버리스 인프라** — 설정으로 고르는 AWS Lambda *또는* Batch 위에서 돌아가며,
   EventBridge로 스케줄링하고 AWS CDK로 코드화합니다.
-- **완성도 높은 이메일** — 다크모드, 소스별 로고, 점수 배지를 갖춘 반응형 HTML
-  템플릿을 Amazon SES로 전달합니다.
+- **완성도 높은 이메일** — 다크모드, 소스별 로고, 점수 배지, 그리고 완전히
+  현지화된 UI 문구(KO/EN)를 갖춘 반응형 HTML 템플릿을 Amazon SES로 전달합니다.
 
 ---
 
@@ -57,7 +63,8 @@ Amazon Bedrock (Claude) 기반 · AWS 위에서 CDK로 정의·오케스트레�
 | --- | --- |
 | `feed_parser.py` | RSS 파싱 + 견고한 HTML 스크레이핑(BeautifulSoup4 / Selenium), 소스별 헬스 추적 |
 | `summarizer.py` | 콘텐츠 게이트 → 관련성 필터 → 랭킹/캡 → 요약까지, 모두 Bedrock으로 |
-| `newsletter_renderer.py` | Jinja2 기반 HTML 생성(반응형, 다크모드, 점수 배지) |
+| `model_factory.py` | Bedrock 모델 능력 레지스트리 + LangChain 채팅 모델 생성 |
+| `newsletter_renderer.py` | Jinja2 기반 HTML 생성(반응형, 다크모드, 현지화, 크기 검사) |
 | `aws_helpers.py` | S3, SES, SNS, SSM, Batch 연동 |
 
 ### 파이프라인
@@ -74,6 +81,9 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **SSM Parameter Store** — LangChain API 키와 Batch 큐/정의 이름을 저장합니다.
 - **SES** — 뉴스레터를 전달합니다. **SNS** — 실행/헬스 알림을 보냅니다.
 - **Bedrock(us-west-2)** — Claude Sonnet 5(필터 + 요약), Claude Haiku 4.5(인사말).
+  `LanguageModelId` 카탈로그의 모델은 스테이지별로 골라 쓸 수 있고 **Claude
+  Opus 5**(`anthropic.claude-opus-5`)도 포함됩니다. `thinking_effort`는 Opus
+  티어에서 `xhigh`/`max`까지 받습니다.
 
 ---
 
@@ -101,6 +111,8 @@ resources:
 
 scraping:
   min_content_length: 600                # 이보다 빈약한 글은 제외(가시 텍스트 문자 수)
+  expected_flaky_urls:                   # 여기 실패는 리포트만, 알림은 띄우지 않음
+    - "x.ai/news"
   rss_urls:
     - "https://aws.amazon.com/blogs/amazon-ai/feed/"
     - "https://www.amazon.science/index.rss"
@@ -111,6 +123,8 @@ summarization:
   greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
   min_score: 0.7                         # 이 점수 이상인 글만 유지
   max_posts: 5                           # 남길 글 수 상한(요약 전에 적용)
+  max_per_source: 2                      # 소스 다양성 캡(선택). 빈 자리는 랭크 순으로
+                                         # 다시 채우므로 발행 편수는 줄지 않음
 
 newsletter:
   sender: "your-verified-sender@example.com"
@@ -157,7 +171,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(324개 테스트)
+pytest                       # 빠른 오프라인 단위/통합 스위트(381개 테스트, 커버리지 81%)
 ```
 
 이 검사들은 모든 푸시와 풀 리퀘스트에서 CI로도 똑같이 실행됩니다

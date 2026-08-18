@@ -49,7 +49,12 @@ jobs:
         run: mypy .
 
       - name: Run tests
-        run: pytest --cov=app --cov-report=term-missing --cov-report=xml -m "not live"
+        # --cov-fail-under is a ratchet, not a target: coverage is at 81%, so a
+        # change that removes test coverage from a covered path fails here rather
+        # than being noticed months later. Raise the floor when it rises.
+        run: >-
+          pytest --cov=app --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=78 -m "not live"
 
       - name: Filtering eval harness (dry run — no AWS, no cost)
         # Validates the eval set + analysis wiring stay healthy. The live
@@ -93,6 +98,7 @@ jobs:
           CDK_DEFAULT_ACCOUNT: "111111111111"
           CDK_DEFAULT_REGION: "ap-northeast-2"
           CDK_SYNTH_DUMMY_AZS: "1"
+          CDK_SYNTH_ONLY: "1"
           JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION: "1"
           CONFIG_FILE_SUFFIX: ci
 
@@ -105,5 +111,6 @@ jobs:
           CDK_DEFAULT_ACCOUNT: "111111111111"
           CDK_DEFAULT_REGION: "ap-northeast-2"
           CDK_SYNTH_DUMMY_AZS: "1"
+          CDK_SYNTH_ONLY: "1"
           JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION: "1"
           CONFIG_FILE_SUFFIX: ci-batch

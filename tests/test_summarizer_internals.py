@@ -6,16 +6,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from app.src.constants import LanguageModelId
 from app.src.feed_parser import Post
-from app.src.summarizer import Summarizer
+from app.src.summarizer import Summarizer, SummarizerSettings
 
 
-def _post(title: str, content: str = "body") -> Post:
+def _post(title: str, content: str = "body", source: str = "unknown") -> Post:
     return Post(
         title=title,
         link=f"https://example.com/{title}",
         published_date=datetime.now(UTC),
         content=content,
+        source=source,  # type: ignore[arg-type]
     )
 
 
@@ -33,10 +35,20 @@ class _FakeChain:
         raise AssertionError("invoke should not be called in these tests")
 
 
-def _summarizer(min_score=0.7):
+def _settings(**overrides) -> SummarizerSettings:
+    base = {
+        "filtering_model_id": LanguageModelId.CLAUDE_V5_SONNET,
+        "summarization_model_id": LanguageModelId.CLAUDE_V5_SONNET,
+        "min_score": 0.7,
+        "min_content_length": 0,
+    }
+    return SummarizerSettings.model_validate(base | overrides)
+
+
+def _summarizer(min_score=0.7, **overrides):
     s = Summarizer.__new__(Summarizer)
-    s.min_score = min_score
-    s.min_content_length = 0
+    s.settings = _settings(min_score=min_score, **overrides)
+    s.language = s.settings.language
     s.filtered_out_posts = []
     from app.src.utils import BatchProcessor
 
@@ -54,7 +66,7 @@ class TestFilterPosts:
                 {"score": "0.69", "reason": "low", "title": ""},  # < min: dropped
             ]
         )
-        kept = s._filter_posts(posts, [], [])
+        kept = s._filter_posts(posts)
         assert [p.title for p in kept] == ["a"]
         assert len(s.filtered_out_posts) == 1
 
@@ -64,14 +76,14 @@ class TestFilterPosts:
         s = _summarizer(min_score=0.7)
         posts = [_post("a")]
         s.filter = _FakeChain([{"score": "8.5", "reason": "x", "title": ""}])
-        kept = s._filter_posts(posts, [], [])
+        kept = s._filter_posts(posts)
         assert kept[0].score == 1.0
 
     def test_negative_score_clamped_to_zero(self):
         s = _summarizer(min_score=0.7)
         posts = [_post("a")]
         s.filter = _FakeChain([{"score": "-0.3", "reason": "x", "title": ""}])
-        kept = s._filter_posts(posts, [], [])
+        kept = s._filter_posts(posts)
         # Clamped to 0.0, below min_score -> filtered out, not kept.
         assert kept == []
         assert posts[0].score == 0.0
@@ -82,14 +94,14 @@ class TestFilterPosts:
         s.filter = _FakeChain(
             [{"score": "0.9", "reason": "x", "title": "Better Title"}]
         )
-        kept = s._filter_posts(posts, [], [])
+        kept = s._filter_posts(posts)
         assert kept[0].title == "Better Title"
 
     def test_non_numeric_score_does_not_crash_and_is_recorded(self):
         s = _summarizer(min_score=0.5)
         posts = [_post("a")]
         s.filter = _FakeChain([{"score": "not-a-number", "reason": "x"}])
-        kept = s._filter_posts(posts, [], [])
+        kept = s._filter_posts(posts)
         # Parse error is logged; the post is not included BUT is accounted for
         # in filtered_out_posts (not silently lost from the run report).
         assert kept == []
@@ -102,7 +114,7 @@ class TestFilterPosts:
         s = _summarizer(min_score=0.5)
         posts = [_post("a"), _post("b")]
         s.filter = _FakeChain([None, {"score": "0.9", "reason": "ok", "title": ""}])
-        kept = s._filter_posts(posts, [], [])
+        kept = s._filter_posts(posts)
         assert [p.title for p in kept] == ["b"]
         assert any("failed" in r.lower() for _, r in s.filtered_out_posts)
 
@@ -110,7 +122,7 @@ class TestFilterPosts:
         s = _summarizer(min_score=0.5)
         posts = [_post("a", content=""), _post("b", content="real")]
         s.filter = _FakeChain([{"score": "0.9", "reason": "ok", "title": ""}])
-        kept = s._filter_posts(posts, [], [])
+        kept = s._filter_posts(posts)
         assert [p.title for p in kept] == ["b"]
 
 
@@ -121,7 +133,7 @@ class TestSummarizePosts:
         s.summarizer = _FakeChain(
             [{"summary": "Real summary content.", "tags": "RAG, LLM", "urls": []}]
         )
-        s._summarize_posts([post])
+        assert s._summarize_posts([post]) == [post]
         assert "Real summary content." in post.summary
         # Tags preserve first-seen (relevance) order, not alphabetical.
         assert post.tags == ["RAG", "LLM"]
@@ -132,7 +144,7 @@ class TestSummarizePosts:
         s.summarizer = _FakeChain(
             [None, {"summary": "Second.", "tags": [], "urls": []}]
         )
-        s._summarize_posts(posts)
+        assert s._summarize_posts(posts) == [posts[1]]
         assert posts[0].summary == ""  # failed item untouched
         assert "Second." in posts[1].summary
 
@@ -141,8 +153,67 @@ class TestSummarizePosts:
         post = _post("a")
         # Missing 'summary' key -> SummaryOutput validation fails -> logged.
         s.summarizer = _FakeChain([{"tags": "X", "urls": []}])
-        s._summarize_posts([post])
+        assert s._summarize_posts([post]) == []
         assert post.summary == ""
+
+    def test_one_liner_captured_and_flattened(self):
+        s = _summarizer()
+        post = _post("a")
+        s.summarizer = _FakeChain(
+            [
+                {
+                    "summary": "Body.",
+                    "one_liner": "<b>Cuts latency</b>\n  by 40%.",
+                    "tags": [],
+                    "urls": [],
+                }
+            ]
+        )
+        s._summarize_posts([post])
+        # Markup stripped (it is autoescaped at render time) and collapsed to one
+        # line so it cannot break the single-line lede layout.
+        assert post.one_liner == "Cuts latency by 40%."
+
+    def test_hallucinated_image_dropped_real_one_kept(self):
+        """An <img> the source article never contained renders as a broken image
+        in the delivered mail, so it must not survive."""
+        real = "https://cdn.example.com/real.png"
+        s = _summarizer()
+        post = _post("a", content=f'<p>text</p><img src="{real}">')
+        post.images = [real]
+        s.summarizer = _FakeChain(
+            [
+                {
+                    "summary": (
+                        f'<p>x</p><img src="{real}">'
+                        '<img src="https://cdn.example.com/invented.png">'
+                    ),
+                    "tags": [],
+                    "urls": [],
+                }
+            ]
+        )
+        s._summarize_posts([post])
+        assert real in post.summary
+        assert "invented.png" not in post.summary
+
+    def test_image_present_only_in_raw_content_is_kept(self):
+        """Provenance accepts a src that appears verbatim in the post HTML even
+        if our own extractor missed it (lazy-loading, srcset, etc.)."""
+        s = _summarizer()
+        post = _post("a", content='<img data-src="https://cdn.example.com/lazy.png">')
+        post.images = []
+        s.summarizer = _FakeChain(
+            [
+                {
+                    "summary": '<img src="https://cdn.example.com/lazy.png">body',
+                    "tags": [],
+                    "urls": [],
+                }
+            ]
+        )
+        s._summarize_posts([post])
+        assert "lazy.png" in post.summary
 
 
 class TestProcessPostsCapBeforeSummarize:
@@ -150,16 +221,15 @@ class TestProcessPostsCapBeforeSummarize:
     summarize posts that get discarded, and only the top-N are summarized."""
 
     def test_only_top_n_summarized(self):
-        s = _summarizer(min_score=0.0)
+        s = _summarizer(min_score=0.0, max_posts=2)
         summarized: list[str] = []
 
-        # Spy: record which posts reach summarization. Set a non-empty summary
-        # to mimic a successful summarize (process_posts now returns only posts
-        # that were actually summarized).
+        # Spy: record which posts reach summarization.
         def fake_summarize(posts):
             for p in posts:
                 p.summary = f"summary of {p.title}"
             summarized.extend(p.title for p in posts)
+            return list(posts)
 
         s._summarize_posts = fake_summarize  # type: ignore[method-assign]
 
@@ -172,13 +242,7 @@ class TestProcessPostsCapBeforeSummarize:
                 {"score": "0.70", "reason": "", "title": ""},
             ]
         )
-        result = s.process_posts(
-            posts,
-            use_filtering=True,
-            included_topics=[],
-            excluded_topics=[],
-            max_posts=2,
-        )
+        result = s.process_posts(posts)
         # Only the top 2 by score are summarized and returned, in rank order.
         assert [p.title for p in result] == ["high", "mid"]
         assert summarized == ["high", "mid"]
@@ -198,13 +262,7 @@ class TestProcessPostsCapBeforeSummarize:
         )
         # Model returns None for every post (call failed even after fallback).
         s.summarizer = _FakeChain([None, None])
-        result = s.process_posts(
-            posts,
-            use_filtering=True,
-            included_topics=[],
-            excluded_topics=[],
-        )
-        assert result == []
+        assert s.process_posts(posts) == []
         reasons = [r for _p, r in s.filtered_out_posts]
         assert reasons.count("Summarization failed (no model response).") == 2
 
@@ -220,14 +278,70 @@ class TestProcessPostsCapBeforeSummarize:
             ]
         )
         s.summarizer = _FakeChain([{"summary": "good", "tags": [], "urls": []}, None])
-        result = s.process_posts(
-            posts,
-            use_filtering=True,
-            included_topics=[],
-            excluded_topics=[],
-        )
+        result = s.process_posts(posts)
         assert [p.title for p in result] == ["ok"]
         assert any(
             r == "Summarization failed (no model response)."
             for _p, r in s.filtered_out_posts
         )
+
+    def test_preexisting_summary_text_cannot_fake_success(self):
+        """Regression: a post that already has text in ``summary`` (as every RSS
+        post did, seeded from the feed teaser) must NOT be treated as
+        successfully summarized when the model call fails — otherwise it ships
+        the teaser as the article body while also being reported as dropped."""
+        s = _summarizer(min_score=0.0)
+        post = _post("a")
+        post.summary = "Feed teaser text that is not a real summary."
+        s.filter = _FakeChain([{"score": "0.90", "reason": "", "title": ""}])
+        s.summarizer = _FakeChain([None])
+        assert s.process_posts([post]) == []
+
+
+class TestSelectForDigest:
+    """Line-up selection: relevance order, and the optional per-source cap."""
+
+    def _scored(self, spec: list[tuple[str, str, float]]) -> list[Post]:
+        posts = []
+        for title, source, score in spec:
+            p = _post(title, source=source)
+            p.score = score
+            posts.append(p)
+        return posts
+
+    def test_ranked_by_score_descending(self):
+        s = _summarizer()
+        posts = self._scored(
+            [("low", "aws", 0.5), ("top", "meta", 0.9), ("mid", "google", 0.7)]
+        )
+        assert [p.title for p in s._select_for_digest(posts)] == ["top", "mid", "low"]
+
+    def test_cap_prefers_diverse_sources(self):
+        s = _summarizer(max_posts=3, max_per_source=2)
+        posts = self._scored(
+            [
+                ("aws1", "aws", 0.90),
+                ("aws2", "aws", 0.88),
+                ("aws3", "aws", 0.86),
+                ("meta1", "meta", 0.80),
+            ]
+        )
+        chosen = [p.title for p in s._select_for_digest(posts)]
+        # The third AWS post is displaced by the best post from another source.
+        assert chosen == ["aws1", "aws2", "meta1"]
+
+    def test_cap_backfills_rather_than_shrinking_the_issue(self):
+        """A cap must never reduce how many articles ship — only which ones."""
+        s = _summarizer(max_posts=3, max_per_source=1)
+        posts = self._scored(
+            [("aws1", "aws", 0.90), ("aws2", "aws", 0.88), ("aws3", "aws", 0.86)]
+        )
+        chosen = [p.title for p in s._select_for_digest(posts)]
+        assert chosen == ["aws1", "aws2", "aws3"]
+
+    def test_no_cap_keeps_pure_score_order(self):
+        s = _summarizer(max_posts=2)
+        posts = self._scored(
+            [("aws1", "aws", 0.90), ("aws2", "aws", 0.88), ("meta1", "meta", 0.80)]
+        )
+        assert [p.title for p in s._select_for_digest(posts)] == ["aws1", "aws2"]

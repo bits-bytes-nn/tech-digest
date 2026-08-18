@@ -1,8 +1,13 @@
 """Evaluate filtering-score behavior against a labeled eval set.
 
-Measures, per article (scored ``--repeats`` times): determinism (identical score
-across repeats — expected at temperature=0 with thinking OFF), adherence to the
-0.05 anchor grid, and alignment of the mean score with the expected quality band.
+Measures, per article (scored ``--repeats`` times): adherence to the 0.05 anchor
+grid, alignment with the expected quality band, and reproducibility (determinism,
+band stability, spread).
+
+Only the grid and band-alignment checks are GATED. Exact determinism is reported
+but not gated: models from Sonnet 5 on expose no sampling controls, so greedy
+decoding cannot be requested and repeated scorings of identical input differ.
+See the comment on the gate in ``main()`` for the measured numbers.
 
 COST NOTE: ``--live`` makes real Amazon Bedrock InvokeModel calls
 (articles x repeats) and therefore incurs cost. Without ``--live`` it does a
@@ -26,7 +31,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from app.src import logger
-from app.src.eval_metrics import band_of_score, build_report, is_on_grid
+from app.src.eval_metrics import GRID_STEP, band_of_score, build_report, is_on_grid
 
 EVAL_SET = (
     Path(__file__).resolve().parent.parent
@@ -65,7 +70,7 @@ def _score_live(
 
     os.environ.setdefault("CONFIG_FILE_SUFFIX", stage)
     from app.configs import Config
-    from app.src import FilteringCriteria, Summarizer
+    from app.src import FilteringCriteria, Summarizer, SummarizerSettings
 
     config = Config.load()
     # --profile overrides the config's profile_name; an empty/None profile means
@@ -76,15 +81,13 @@ def _score_live(
         profile_name=profile_name or None,
     )
     # Reuse the production Summarizer wiring so we evaluate the REAL chain
-    # (same prompt, model, temperature, thinking settings) — not a re-impl.
+    # (same prompt, model, temperature, thinking settings) — not a re-impl. The
+    # eval set picks the criteria; everything else comes from the stage config.
     summarizer = Summarizer(
         session,
-        filtering_model_id=config.summarization.filtering_model_id,
-        summarization_model_id=config.summarization.summarization_model_id,
-        filtering_criteria=FilteringCriteria(data.get("criteria", "all")),
-        filtering_enable_thinking=config.summarization.filtering_enable_thinking,
-        filtering_thinking_budget_tokens=(
-            config.summarization.filtering_thinking_budget_tokens
+        SummarizerSettings.model_validate(
+            config.summarization.model_dump()
+            | {"filtering_criteria": FilteringCriteria(data.get("criteria", "all"))}
         ),
     )
     included = ", ".join(data.get("included_topics", []))
@@ -175,17 +178,44 @@ def main() -> int:
     print(report.format_table())
 
     # Non-zero exit if behavior regresses, so this is usable as a gate.
-    ok = (
-        report.determinism_rate >= 0.99
-        and report.grid_rate >= 0.99
-        and report.band_match_rate >= 0.80
-    )
+    #
+    # The gate asserts only the two properties the configured model can actually
+    # guarantee, and REPORTS the rest as diagnostics.
+    #
+    # Exact determinism used to be gated, and was achievable on Sonnet 4.6
+    # because the factory sent temperature=0. Sonnet 5 removed the sampling
+    # parameters entirely (the API rejects `temperature`), so greedy decoding
+    # cannot be requested and repeated scorings of byte-identical input genuinely
+    # differ. Measured across three consecutive runs of this harness on the
+    # default config: on-grid 100%/100%/100% and band-match 100%/100%/100%, but
+    # determinism 100%/67%/83% with a per-article spread up to 0.25. The same
+    # eval on a temperature-capable model is 100% deterministic with spread 0.00,
+    # which isolates the cause to the model's sampling, not the rubric.
+    #
+    # Gating on a property the default model cannot meet would produce a check
+    # that always fails, which is a check people stop running. So determinism,
+    # band stability and spread are surfaced as warnings instead — they are the
+    # numbers to watch, not a pass/fail contract.
+    ok = report.grid_rate >= 0.99 and report.band_match_rate >= 0.80
     if not ok:
         logger.error(
-            "Filtering behavior below thresholds "
-            "(determinism>=99%%, on-grid>=99%%, band-match>=80%%)."
+            "Filtering behavior below thresholds (on-grid>=99%%, band-match>=80%%)."
         )
         return 1
+    if report.determinism_rate < 1.0:
+        logger.warning(
+            "Scores are NOT reproducible: determinism=%.0f%%, band-stable=%.0f%%, "
+            "max spread=%.2f (%.0f anchor steps). Expected on models without "
+            "sampling controls. Practical consequence: a post scoring within "
+            "~%.2f of min_score may be included in one run and excluded in the "
+            "next. Pin a temperature-capable filtering model if reproducible "
+            "scoring matters more than filtering capability.",
+            report.determinism_rate * 100,
+            report.band_stability_rate * 100,
+            report.max_spread,
+            report.max_spread / GRID_STEP,
+            report.max_spread,
+        )
     logger.info("Filtering behavior within thresholds.")
     return 0
 

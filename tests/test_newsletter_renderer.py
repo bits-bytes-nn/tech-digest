@@ -7,6 +7,7 @@ import pytest
 
 from app.src.constants import Language
 from app.src.newsletter_renderer import (
+    GMAIL_CLIP_BYTES,
     Article,
     BuildConfiguration,
     Footer,
@@ -14,6 +15,8 @@ from app.src.newsletter_renderer import (
     NewsletterData,
     NewsletterRenderer,
     Section,
+    collapse_html_whitespace,
+    estimate_reading_minutes,
     validate_date,
 )
 
@@ -80,8 +83,59 @@ class TestSectionGreetingEscaping:
         assert Section(introduction=text).introduction == text
 
 
+class TestCollapseHtmlWhitespace:
+    """Template indentation is ~10% of the message size, which counts against
+    the mail-client clip budget — but collapsing it must never eat a meaningful
+    inter-word space or touch preformatted code."""
+
+    def test_indentation_collapsed_to_single_space(self):
+        html = "<td>\n      <table>\n        <tr>\n"
+        assert collapse_html_whitespace(html) == "<td> <table> <tr> "
+
+    def test_inline_word_spacing_preserved(self):
+        # A newline between two inline tags IS a word space in the rendered
+        # prose; removing it would silently join two Korean words.
+        html = "<p><em>분리</em>\n<em>구조</em></p>"
+        assert collapse_html_whitespace(html) == "<p><em>분리</em> <em>구조</em></p>"
+
+    def test_pre_block_left_byte_identical(self):
+        html = '<div>\n  <pre class="x">def f():\n    return 1\n</pre>\n</div>'
+        out = collapse_html_whitespace(html)
+        assert "def f():\n    return 1\n" in out
+        assert out.startswith("<div> <pre")
+
+    def test_shrinks_real_template_output(self, templates_dir, sample_article_data):
+        renderer = NewsletterRenderer(templates_dir)
+        data = NewsletterData(
+            header=Header(
+                title="T", description="d", thumbnail="p.png", publish_date="2026-06-01"
+            ),
+            section=Section(introduction="hi"),
+            articles=[Article.model_validate(sample_article_data)],
+            footer=Footer(title="f"),
+        )
+        raw = renderer.newsletter_template.render(data=data.model_dump(mode="json"))
+        assert len(collapse_html_whitespace(raw)) < len(raw)
+
+
+class TestReadingTime:
+    def test_korean_counted_in_characters(self):
+        assert estimate_reading_minutes("<p>" + "가" * 900 + "</p>", Language.KO) == 2
+
+    def test_english_counted_in_words(self):
+        assert (
+            estimate_reading_minutes("<p>" + "word " * 400 + "</p>", Language.EN) == 2
+        )
+
+    def test_never_zero(self):
+        assert estimate_reading_minutes("", Language.KO) == 1
+        assert estimate_reading_minutes("<p>짧다</p>", Language.KO) == 1
+
+
 class TestNewsletterRendering:
-    def _build_data(self, article_data) -> NewsletterData:
+    def _build_data(
+        self, article_data, language: Language = Language.KO
+    ) -> NewsletterData:
         return NewsletterData(
             header=Header(
                 title="Weekly AI Tech Blog Digest",
@@ -92,7 +146,56 @@ class TestNewsletterRendering:
             section=Section(introduction="Hello friends!"),
             articles=[Article.model_validate(article_data)],
             footer=Footer(title="Thanks for reading."),
+            language=language,
         )
+
+    def test_language_attribute_follows_the_issue_language(
+        self, templates_dir, sample_article_data
+    ):
+        """Regression: the template read ``data.language``, which NewsletterData
+        never had, so an English issue still declared lang="ko"."""
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(
+            self._build_data(sample_article_data, Language.EN)
+        )
+        assert 'lang="en"' in html
+        assert "Language.EN" not in html  # the enum must serialize to its value
+
+    def test_chrome_localized_for_korean(self, templates_dir, sample_article_data):
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(
+            self._build_data(sample_article_data, Language.KO)
+        )
+        assert "원문 보기" in html
+        assert "읽는 시간" in html
+        assert "Published on" not in html
+        assert "Additional resources for reference" not in html
+
+    def test_chrome_localized_for_english(self, templates_dir, sample_article_data):
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(
+            self._build_data(sample_article_data, Language.EN)
+        )
+        assert "Read the original" in html
+        assert "min read" in html
+        assert "원문 보기" not in html
+
+    def test_one_liner_rendered_and_escaped(self, templates_dir, sample_article_data):
+        sample_article_data["one_liner"] = "Cuts latency 40% <not-a-tag>"
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._build_data(sample_article_data))
+        assert "Cuts latency 40%" in html
+        # Rendered without |safe, so any stray markup stays inert text.
+        assert "<not-a-tag>" not in html
+        assert "&lt;not-a-tag&gt;" in html
+
+    def test_absent_one_liner_renders_no_empty_lede(
+        self, templates_dir, sample_article_data
+    ):
+        sample_article_data.pop("one_liner", None)
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._build_data(sample_article_data))
+        assert 'class="lede"' not in html
 
     def test_renders_full_newsletter(self, templates_dir, sample_article_data):
         renderer = NewsletterRenderer(templates_dir)
@@ -163,6 +266,102 @@ class TestNewsletterRendering:
         renderer = NewsletterRenderer(templates_dir)
         html = renderer.render_newsletter(self._build_data(sample_article_data))
         assert "Openai logo" in html
+
+
+class TestClipBudget:
+    """Eight of the eighteen previously published issues exceeded Gmail's clip
+    threshold, which silently hid the trailing cards and the footer from readers.
+    This ties the prompt's per-summary length budget to the template's markup
+    weight, so a regression in either surfaces here instead of in an inbox."""
+
+    # Upper bound of the Korean summary budget stated in SummarizationPrompt.
+    KO_SUMMARY_CHARS = 2300
+
+    def _issue(self, article_count: int) -> NewsletterData:
+        body = (
+            "<h3>📌 왜 이 아티클에 주목해야 하나요?</h3><p>"
+            + "가" * self.KO_SUMMARY_CHARS
+            + "</p>"
+        )
+        articles = [
+            Article.model_validate(
+                {
+                    "title": f"기술 아티클 제목 {i}",
+                    "link": f"https://example.com/{i}",
+                    "published_date": "2026-06-01",
+                    "thumbnail": "https://cdn.example.com/logo.png",
+                    "summary": body,
+                    "one_liner": "핵심을 한 문장으로 요약한 리드 문장입니다.",
+                    "reading_minutes": 5,
+                    "source": "aws",
+                    "tags": ["Tag A", "Tag B", "Tag C", "Tag D", "Tag E"],
+                    "urls": [f'<a href="https://example.com/ref{i}">Reference {i}</a>'],
+                    "score": 0.85,
+                }
+            )
+            for i in range(article_count)
+        ]
+        return NewsletterData(
+            header=Header(
+                title="Weekly AI Tech Blog Digest",
+                description="d" * 200,
+                thumbnail="https://cdn.example.com/peccy.png",
+                publish_date="2026-06-01",
+            ),
+            section=Section(introduction="안녕 친구들! 난 Peccy야 😎 " + "글" * 120),
+            articles=articles,
+            footer=Footer(title="구독해 주셔서 감사합니다."),
+            language=Language.KO,
+        )
+
+    @pytest.mark.parametrize("article_count", [3, 5])
+    def test_issue_fits_within_clip_budget(self, templates_dir, article_count):
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._issue(article_count))
+        size = len(html.encode("utf-8"))
+        assert size <= GMAIL_CLIP_BYTES, (
+            f"{article_count}-article issue is {size / 1024:.1f} KB, over the "
+            f"{GMAIL_CLIP_BYTES / 1024:.0f} KB clip budget — Gmail will truncate it."
+        )
+
+    def test_oversized_issue_is_reported(
+        self, templates_dir, caplog, propagating_logger
+    ):
+        renderer = NewsletterRenderer(templates_dir)
+        data = self._issue(3)
+        # Ten times the budgeted length: the build must say so rather than
+        # emitting a message that will be silently cut in the reader's client.
+        for article in data.articles:
+            article.summary = "<p>" + "가" * (self.KO_SUMMARY_CHARS * 10) + "</p>"
+        with caplog.at_level("WARNING"):
+            renderer.render_newsletter(data)
+        assert any("clip budget" in r.message for r in caplog.records)
+
+
+class TestStandaloneArticlePage:
+    """The standalone page used to carry its own divergent copy of the card and
+    stylesheet, so dark mode and the accessibility work never reached it."""
+
+    def test_shares_the_newsletter_styling(self, templates_dir, sample_article_data):
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_article(
+            Article.model_validate(sample_article_data), Language.KO
+        )
+        assert "prefers-color-scheme: dark" in html
+        assert 'lang="ko"' in html
+        assert 'role="article"' in html
+        assert "table-layout: auto" in html
+
+    def test_labels_follow_the_requested_language(
+        self, templates_dir, sample_article_data
+    ):
+        renderer = NewsletterRenderer(templates_dir)
+        assert "원문 보기" in renderer.render_article(
+            Article.model_validate(sample_article_data), Language.KO
+        )
+        assert "Read the original" in renderer.render_article(
+            Article.model_validate(sample_article_data), Language.EN
+        )
 
 
 class TestArticleSourceLabel:

@@ -47,7 +47,26 @@ def sample_article_data() -> dict:
         "published_date": "2026-05-30",
         "thumbnail": "openai.png",
         "summary": "<h3>Why This Matters</h3><p>Substantial content here.</p>",
+        "one_liner": "Routing only two of eight experts per token cuts serving cost 3x.",
+        "reading_minutes": 4,
         "tags": ["Mixture Of Experts", "Inference"],
         "urls": ['<a href="https://example.com/paper">Paper</a>'],
         "score": 0.84,
     }
+
+
+@pytest.fixture
+def propagating_logger():
+    """Let ``caplog`` see the app logger.
+
+    ``src.logger`` sets ``propagate = False`` so container logs aren't emitted
+    twice, which also stops pytest's root-handler capture from seeing them.
+    """
+    from app.src.logger import logger
+
+    original = logger.propagate
+    logger.propagate = True
+    try:
+        yield logger
+    finally:
+        logger.propagate = original

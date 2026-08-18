@@ -39,6 +39,13 @@ scraping:
   # Minimum visible-text length (markup stripped) for a post to be summarized.
   # Posts below this are reported as filtered-out, not summarized.
   min_content_length: 600
+  # Sources whose fetch failure is KNOWN and expected, matched as a substring of
+  # the configured URL. They still appear in the crawl-health report but do not
+  # raise the SNS alert. x.ai (and sometimes ai.meta.com) reject AWS datacenter
+  # egress IPs on essentially every run; alerting weekly on a failure nobody can
+  # act on trains you to ignore the alarm, which then hides a real breakage.
+  expected_flaky_urls:
+    - "x.ai/news"
 
 summarization:
   use_filtering: True
@@ -52,7 +59,17 @@ summarization:
   greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
   max_concurrency: 5
   min_score: 0.8
+  # Keep max_posts modest: mail clients truncate a message over ~100 KB, and each
+  # article card costs roughly 12-16 KB. The build logs the rendered size and
+  # warns when an issue would be clipped.
   max_posts: 5
+  # Optional cap on articles from any single source, applied after score ranking;
+  # slots the cap frees are backfilled in rank order, so it changes WHICH posts
+  # ship, never how many. Leave blank for a single-vendor digest
+  # (filtering_criteria: amazon) where source concentration is the point; set 2
+  # for a broad digest, where three cards from one blog reads like that vendor's
+  # release notes rather than a curated issue.
+  max_per_source: 2
   # Extended-thinking budgets (tokens), used only when *_enable_thinking is True.
   # Must be >= 1024 and < the model's max output tokens (auto-clamped otherwise).
   # NOTE: adaptive-thinking models (Sonnet 5+) IGNORE these budgets — they are
@@ -60,8 +77,10 @@ summarization:
   # budget-thinking models (Sonnet 4.x / older).
   filtering_thinking_budget_tokens: 4096
   summarization_thinking_budget_tokens: 8192
-  # Adaptive-thinking depth for newer models (Sonnet 5+): low | medium | high |
-  # max. Blank = model default. Ignored by legacy budget-thinking models.
+  # Adaptive-thinking depth for newer models (Sonnet 5+ / Opus 5):
+  #   low | medium | high | xhigh | max
+  # Blank = model default. "xhigh" and "max" are Opus-tier only. Ignored by
+  # legacy budget-thinking models (Sonnet 4.x and older).
   thinking_effort:
   # Optional cap on summary output tokens (blank = use the model's maximum).
   summarization_max_tokens:
@@ -95,4 +114,7 @@ newsletter:
     qwen: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/qwen.png"
     xai: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/xai.png"
     unknown: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/unknown.png"
+    # A source with no entry here falls back to `unknown` automatically, so a
+    # newly mapped source (e.g. eugene_yan, phil_schmid, sebastian_raschka)
+    # renders fine without a logo asset — it just shows the placeholder.
     # NOTE: add new logos here

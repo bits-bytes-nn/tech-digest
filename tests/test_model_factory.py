@@ -6,9 +6,9 @@ table, max-token validation, and cross-region id construction.
 
 from __future__ import annotations
 
-import app.src.utils as utils_mod
+import app.src.model_factory as factory_mod
 from app.src.constants import LanguageModelId
-from app.src.utils import (
+from app.src.model_factory import (
     _LANGUAGE_MODEL_INFO,
     BedrockCrossRegionModelHelper,
     BedrockLanguageModelFactory,
@@ -29,6 +29,8 @@ class TestModelInfoRegistry:
                 LanguageModelId.CLAUDE_V4_6_SONNET,
                 LanguageModelId.CLAUDE_V4_5_HAIKU,
                 LanguageModelId.CLAUDE_V4_6_OPUS,
+                LanguageModelId.CLAUDE_V5_SONNET,
+                LanguageModelId.CLAUDE_V5_OPUS,
             }
         ]
         assert not missing, f"Default models missing info: {missing}"
@@ -37,6 +39,33 @@ class TestModelInfoRegistry:
         for model_id, info in _LANGUAGE_MODEL_INFO.items():
             assert info.context_window_size >= 100_000, model_id
             assert info.max_output_tokens > 0, model_id
+
+    def test_claude_5_generation_declares_the_new_request_contract(self):
+        """Claude 5 models removed the sampling parameters and the explicit
+        thinking budget. Getting either flag wrong is a silent, total failure —
+        every request is rejected, the run still exits 0, and no email goes out
+        (this is exactly how the Sonnet 5 adoption broke). Pin the contract so a
+        newly added Claude 5 model cannot be registered without it."""
+        generation_5 = [
+            m
+            for m in _LANGUAGE_MODEL_INFO
+            if m.value.startswith(
+                ("anthropic.claude-sonnet-5", "anthropic.claude-opus-5")
+            )
+        ]
+        assert generation_5, "no Claude 5 models registered"
+        for model_id in generation_5:
+            info = _LANGUAGE_MODEL_INFO[model_id]
+            assert info.supports_sampling_params is False, model_id
+            assert info.uses_adaptive_thinking is True, model_id
+            assert info.supports_thinking is True, model_id
+
+    def test_opus_5_is_selectable(self):
+        """Opus 5 must be usable as a filtering/summarization/greeting model."""
+        assert LanguageModelId.CLAUDE_V5_OPUS.value == "anthropic.claude-opus-5"
+        info = _LANGUAGE_MODEL_INFO[LanguageModelId.CLAUDE_V5_OPUS]
+        assert info.supports_prompt_caching is True
+        assert info.supports_1m_context_window is True
 
 
 class TestValidateMaxTokens:
@@ -68,7 +97,7 @@ class TestThinkingBudgetClamp:
         factory._apply_model_features(
             config,
             info,
-            is_cross_region=False,
+            use_converse=False,
             enable_thinking=True,
             thinking_budget_tokens=10_000,
             max_tokens=4096,
@@ -84,7 +113,7 @@ class TestThinkingBudgetClamp:
         factory._apply_model_features(
             config,
             info,
-            is_cross_region=True,
+            use_converse=True,
             enable_thinking=True,
             thinking_budget_tokens=8192,
             max_tokens=64000,
@@ -101,7 +130,7 @@ class TestThinkingBudgetClamp:
         factory._apply_model_features(
             config,
             info,
-            is_cross_region=False,
+            use_converse=False,
             enable_thinking=True,
             thinking_budget_tokens=4096,
             max_tokens=512,  # < MIN_THINKING_BUDGET
@@ -114,7 +143,7 @@ class TestThinkingBudgetClamp:
         info = _LANGUAGE_MODEL_INFO[LanguageModelId.CLAUDE_V3_5_SONNET]
         config: dict = {"model_kwargs": {}}
         factory._apply_model_features(
-            config, info, is_cross_region=False, enable_thinking=True
+            config, info, use_converse=False, enable_thinking=True
         )
         assert "thinking" not in config["model_kwargs"]
 
@@ -138,7 +167,7 @@ class TestAdaptiveThinking:
         factory._apply_model_features(
             config,
             info,
-            is_cross_region=True,
+            use_converse=True,
             enable_thinking=True,
             thinking_budget_tokens=8192,
             max_tokens=64000,
@@ -154,7 +183,7 @@ class TestAdaptiveThinking:
         factory._apply_model_features(
             config,
             info,
-            is_cross_region=True,
+            use_converse=True,
             enable_thinking=True,
             effort="high",
         )
@@ -167,7 +196,7 @@ class TestAdaptiveThinking:
         info = _LANGUAGE_MODEL_INFO[LanguageModelId.CLAUDE_V5_SONNET]
         config: dict = {"model_kwargs": {}}
         factory._apply_model_features(
-            config, info, is_cross_region=False, enable_thinking=True
+            config, info, use_converse=False, enable_thinking=True
         )
         assert config["model_kwargs"]["thinking"] == {"type": "adaptive"}
         assert "output_config" not in config["model_kwargs"]
@@ -184,7 +213,7 @@ class TestAdaptiveThinking:
         try:
             with caplog.at_level(logging.WARNING, logger="app"):
                 factory._apply_model_features(
-                    config, info, is_cross_region=True, enable_thinking=True, **kwargs
+                    config, info, use_converse=True, enable_thinking=True, **kwargs
                 )
         finally:
             app_logger.removeHandler(caplog.handler)
@@ -216,7 +245,7 @@ class TestAdaptiveThinking:
         factory._apply_model_features(
             config,
             info,
-            is_cross_region=True,
+            use_converse=True,
             enable_thinking=True,
             thinking_budget_tokens=8192,
             max_tokens=64000,
@@ -317,9 +346,9 @@ class TestGetModelRouting:
 
             return _ctor
 
-        monkeypatch.setattr(utils_mod, "ChatBedrock", make("ChatBedrock"))
+        monkeypatch.setattr(factory_mod, "ChatBedrock", make("ChatBedrock"))
         monkeypatch.setattr(
-            utils_mod, "ChatBedrockConverse", make("ChatBedrockConverse")
+            factory_mod, "ChatBedrockConverse", make("ChatBedrockConverse")
         )
         return captured
 
@@ -327,7 +356,7 @@ class TestGetModelRouting:
         self, monkeypatch
     ):
         factory = self._factory()
-        # Resolve to the bare (non-cross-region) id so is_cross_region=False but
+        # Resolve to the bare (non-cross-region) id so use_converse=False but
         # use_converse=True (Sonnet 5 supports thinking).
         monkeypatch.setattr(
             BedrockCrossRegionModelHelper,

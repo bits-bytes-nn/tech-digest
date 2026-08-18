@@ -37,8 +37,13 @@ from .feed_parser import (
 )
 from .greeter import Greeter
 from .logger import is_running_in_aws, logger
+from .model_factory import (
+    BedrockCrossRegionModelHelper,
+    BedrockLanguageModelFactory,
+    LanguageModelInfo,
+)
 from .newsletter_renderer import BuildConfiguration, NewsletterBuilder
-from .summarizer import Summarizer
+from .summarizer import Summarizer, SummarizerSettings
 from .utils import (
     HTMLTagOutputParser,
     format_alarm,
@@ -51,6 +56,8 @@ from .utils import (
 __all__ = [
     "AnthropicBlogScraper",
     "AppConstants",
+    "BedrockCrossRegionModelHelper",
+    "BedrockLanguageModelFactory",
     "BuildConfiguration",
     "CrawlReport",
     "EnvVars",
@@ -60,6 +67,7 @@ __all__ = [
     "HTMLTagOutputParser",
     "Language",
     "LanguageModelId",
+    "LanguageModelInfo",
     "LinkedInBlogScraper",
     "LocalPaths",
     "MetaAIBlogScraper",
@@ -77,6 +85,7 @@ __all__ = [
     "SourceStatus",
     "SourceType",
     "Summarizer",
+    "SummarizerSettings",
     "XAIBlogScraper",
     "check_and_download_from_s3",
     "format_alarm",

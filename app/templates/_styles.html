@@ -1,0 +1,276 @@
+{# Single stylesheet shared by the newsletter (template.html) and the
+   standalone-article page (article.html). The two previously carried separate,
+   drifting copies: dark mode, the content-table styling and the accessibility
+   work all landed in the newsletter one only, so a saved article rendered
+   unreadably in dark mode with unstyled tables. #}
+<style type="text/css">
+  :root {
+    color-scheme: light dark;
+    supported-color-schemes: light dark;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    background-color: #34495e;
+  }
+  img {
+    border: 0;
+    line-height: 100%;
+    outline: none;
+    text-decoration: none;
+    -ms-interpolation-mode: bicubic;
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  a {
+    color: #ff9900;
+  }
+  table {
+    border-collapse: collapse !important;
+    table-layout: fixed;
+    margin: 0 auto;
+  }
+  /* Typography lives here rather than in a style="" on every cell. The card
+     markup repeated the same font/colour/size declarations dozens of times per
+     issue, which cost tens of KB against the mail-client clip budget. If a
+     client ignores <style>, text falls back to the client default — still
+     perfectly legible, so the degradation is graceful. */
+  .sans,
+  .card-title,
+  .muted,
+  .lede,
+  .card-body,
+  .tags-cell,
+  .resources {
+    font-family: "Pretendard", "Inter", system-ui, sans-serif;
+  }
+  .card-title {
+    font-weight: 700;
+    color: #212121;
+    font-size: 2rem;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+  }
+  .muted {
+    color: #6c757d;
+    font-size: 1rem;
+    line-height: 1.7;
+  }
+  /* The one-sentence lede: the reader's triage line for a multi-article issue. */
+  .lede {
+    color: #343a40;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    border-left: 3px solid #ff9900;
+    padding-left: 12px;
+  }
+  .card-body,
+  .resources {
+    color: #212121;
+    font-size: 1rem;
+    line-height: 1.7;
+    letter-spacing: -0.009em;
+  }
+  .tags-cell {
+    color: #212121;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .score-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #ffffff;
+    background: #b35900;
+  }
+  .tag-chip {
+    background-color: #e9ecef;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin: 0 4px 4px 0;
+    display: inline-block;
+  }
+  .tag-chip span {
+    color: #495057;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .card {
+    margin-bottom: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  .card-1 {
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  .thumb {
+    width: 80px;
+    height: 80px;
+    border-radius: 4px;
+    max-width: 100%;
+  }
+  .divider {
+    border: 0;
+    border-top: 1px solid #dee2e6;
+    margin: 0;
+  }
+  .resources-title {
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  table.table-bordered {
+    width: 100%;
+    margin: 16px 0;
+    border: 1px solid #dee2e6;
+    /* Content tables (from markdown) must size columns to content, not
+       split width equally as the global `table-layout: fixed` would —
+       otherwise a narrow-label/wide-value table renders 50/50 and cramped. */
+    table-layout: auto;
+  }
+  table.table-bordered th,
+  table.table-bordered td {
+    border: 1px solid #dee2e6;
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+    /* Break long unbreakable tokens (URLs, code) so a cell can't overflow
+       the 800px card under auto layout. */
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  table.table-bordered th {
+    background-color: #f1f3f5;
+    font-weight: 600;
+  }
+  .wrapper {
+    max-width: 800px !important;
+    width: 800px;
+    margin: 0 auto;
+  }
+  .padding-container {
+    padding: 0 15px;
+    text-align: center;
+  }
+  .content-section {
+    margin: 0 auto;
+    text-align: center;
+  }
+  /* Code-block styling. Kept in <head> (not in a <td> style block, which
+     Gmail strips) so it survives in the most clients. Long lines wrap
+     rather than overflow the card on mobile. */
+  pre,
+  code {
+    font-family: "Roboto Mono", monospace !important;
+    font-size: 0.8125rem !important;
+    line-height: 1.5 !important;
+    background-color: #f8f9fa !important;
+    border-radius: 4px !important;
+  }
+  pre {
+    padding: 1rem !important;
+    overflow-x: auto !important;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  code {
+    padding: 0.2em 0.4em !important;
+  }
+  pre code {
+    padding: 0 !important;
+    background-color: transparent !important;
+  }
+  blockquote {
+    border-left: 4px solid #ced4da;
+    padding-left: 16px;
+    margin-left: 0;
+    color: #495057;
+    font-style: italic;
+  }
+  @media only screen and (max-width: 800px) {
+    .wrapper {
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+    .card-title {
+      font-size: 1.5rem !important;
+    }
+    .td-padding {
+      padding: 14px !important;
+    }
+  }
+  /* Dark-mode: lift the cards and text for readability where supported. */
+  @media (prefers-color-scheme: dark) {
+    body,
+    .email-bg {
+      background-color: #1b2733 !important;
+    }
+    .card,
+    .card-1 {
+      background-color: #283543 !important;
+    }
+    /* The summary/resources content cells carry a presentational
+       bgcolor="#FFFFFF"; darken their background too, else the light text
+       below renders on a white cell and the whole article body is
+       unreadable in dark mode. */
+    .card-body,
+    .td-padding,
+    .resources,
+    .lede-cell,
+    .cta-cell {
+      background-color: #283543 !important;
+    }
+    .card-body,
+    .card-body *,
+    .resources,
+    .resources * {
+      color: #e6edf3 !important;
+    }
+    /* The article title and date carry an inline color:...!important, which
+       outranks a stylesheet !important rule — so lighten them explicitly at
+       higher specificity, or they render dark-on-dark. */
+    .card-title,
+    .card-title * {
+      color: #f0f4f8 !important;
+    }
+    .lede,
+    .lede * {
+      color: #dbe4ee !important;
+    }
+    .muted {
+      color: #9fb0c0 !important;
+    }
+    .tag-chip {
+      background-color: #3a4a5c !important;
+    }
+    .tag-chip span {
+      color: #cdd9e5 !important;
+    }
+    /* Markdown table header: light-gray bg with no dark override rendered
+       light-on-light (invisible headers). Darken bg + lighten text. */
+    table.table-bordered th {
+      background-color: #3a4a5c !important;
+      color: #e6edf3 !important;
+    }
+    table.table-bordered,
+    table.table-bordered th,
+    table.table-bordered td {
+      border-color: #3a4a5c !important;
+    }
+    pre,
+    code {
+      background-color: #11181f !important;
+      color: #e6edf3 !important;
+    }
+    .divider {
+      border-top-color: #3a4a5c !important;
+    }
+  }
+</style>

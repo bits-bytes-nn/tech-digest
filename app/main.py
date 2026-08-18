@@ -28,6 +28,7 @@ from src import (
     S3Paths,
     SSMParams,
     Summarizer,
+    SummarizerSettings,
     check_and_download_from_s3,
     format_alarm,
     get_date_range,
@@ -88,9 +89,15 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
             end_date_str=end_date_str,
             language=language,
         )
+        _log_run_summary(crawl_report, posts, filtered_out_posts, language)
         topic_arn = os.environ.get(EnvVars.TOPIC_ARN.value)
         if is_running_in_aws() and topic_arn and crawl_report.failed:
-            _send_crawl_health_alert(default_boto_session, topic_arn, crawl_report)
+            _send_crawl_health_alert(
+                default_boto_session,
+                topic_arn,
+                crawl_report,
+                config.scraping.expected_flaky_urls,
+            )
         if not posts:
             # Distinguish "nothing survived filtering" from "nothing was
             # collected". The former — especially when every post was dropped by
@@ -178,36 +185,24 @@ def _fetch_and_filter_posts(
     logger.info("Posts: %s", [post.title for post in posts])
     logger.debug(pformat(posts))
 
+    # main is the composition root, so config -> settings translation lives here
+    # rather than src importing configs (which would invert the dependency).
+    # Field names match the `summarization` config section, so the whole section
+    # maps across without restating every key; extras are ignored by pydantic.
     summarizer = Summarizer(
         boto_session,
-        config.summarization.filtering_model_id,
-        config.summarization.summarization_model_id,
-        filtering_criteria=config.summarization.filtering_criteria,
-        filtering_enable_thinking=config.summarization.filtering_enable_thinking,
-        summarization_enable_thinking=config.summarization.summarization_enable_thinking,
-        language=language,
-        max_concurrency=config.summarization.max_concurrency,
-        min_score=config.summarization.min_score,
-        min_content_length=config.scraping.min_content_length,
-        filtering_thinking_budget_tokens=(
-            config.summarization.filtering_thinking_budget_tokens
+        SummarizerSettings.model_validate(
+            config.summarization.model_dump()
+            | {
+                "min_content_length": config.scraping.min_content_length,
+                "language": language,
+            }
         ),
-        summarization_thinking_budget_tokens=(
-            config.summarization.summarization_thinking_budget_tokens
-        ),
-        summarization_max_tokens=config.summarization.summarization_max_tokens,
-        thinking_effort=config.summarization.thinking_effort,
     )
 
     # The score-rank and max_posts cap are applied inside process_posts BEFORE
     # summarization, so we never pay to summarize posts that get discarded.
-    filtered_posts = summarizer.process_posts(
-        posts,
-        config.summarization.use_filtering,
-        config.summarization.included_topics,
-        config.summarization.excluded_topics,
-        max_posts=config.summarization.max_posts,
-    )
+    filtered_posts = summarizer.process_posts(posts)
 
     logger.info("Successfully summarized %d posts", len(filtered_posts))
     logger.info("Filtered posts: %s", [post.title for post in filtered_posts])
@@ -245,6 +240,35 @@ def _process_posts_and_create_newsletter(
             article_paths, S3Paths.ARTICLES.value, config, default_boto_session
         )
     return newsletter_path
+
+
+def _log_run_summary(
+    crawl_report: CrawlReport,
+    posts: list[Post],
+    filtered_out_posts: list[tuple[Post, str]],
+    language: Language,
+) -> None:
+    """Emit the run's funnel as one JSON line.
+
+    CloudWatch Logs Insights can then chart collection/pass rates over time from
+    a single queryable record, instead of requiring someone to reconstruct the
+    funnel by reading a few hundred prose log lines per run.
+    """
+    summary = {
+        "event": "run_summary",
+        "language": language.value,
+        "sources_ok": len(crawl_report.ok),
+        "sources_empty": len(crawl_report.empty),
+        "sources_failed": len(crawl_report.failed),
+        "posts_collected": crawl_report.total_posts,
+        "posts_filtered_out": len(filtered_out_posts),
+        "posts_in_digest": len(posts),
+        "digest": [
+            {"source": p.source, "score": round(p.score, 2), "title": p.title}
+            for p in posts
+        ],
+    }
+    logger.info("RUN_SUMMARY %s", json.dumps(summary, ensure_ascii=False))
 
 
 def _prepare_and_save_posts(posts: list[Post], date_suffix: str) -> Path:
@@ -441,6 +465,25 @@ def _send_emails_to_recipients(
     return success_count, failed_recipients
 
 
+def _publish_alarm(
+    boto_session: boto3.Session,
+    topic_arn: str,
+    *,
+    event: str,
+    status: str,
+    fields: dict[str, str],
+) -> None:
+    """Format and publish one alarm to SNS.
+
+    Single place where the project's alarm format meets the SNS client; the four
+    alert paths below differ only in their event name and fields.
+    """
+    subject, message = format_alarm(event=event, status=status, fields=fields)
+    boto_session.client("sns").publish(
+        TopicArn=topic_arn, Subject=subject, Message=message
+    )
+
+
 def _maybe_send_partial_delivery_alert(
     boto_session: boto3.Session,
     topic_arn: str,
@@ -453,17 +496,19 @@ def _maybe_send_partial_delivery_alert(
     successful run is not alarm-worthy, so nothing is sent in that case."""
     if not failed_recipients:
         return
-    sns_client = boto_session.client("sns")
     fields = {
         "Delivered": f"{success_count}/{total_recipients}",
         "Failed recipients": ", ".join(failed_recipients),
     }
     if crawl_report is not None:
         fields["Crawl health"] = crawl_report.summary_line()
-    subject, message = format_alarm(
-        event="Newsletter Delivery", status="ALERT", fields=fields
+    _publish_alarm(
+        boto_session,
+        topic_arn,
+        event="Newsletter Delivery",
+        status="ALERT",
+        fields=fields,
     )
-    sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
 
 
 def _maybe_send_empty_digest_alert(
@@ -488,8 +533,9 @@ def _maybe_send_empty_digest_alert(
             reason_counts.items(), key=lambda kv: kv[1], reverse=True
         )
     )
-    sns_client = boto_session.client("sns")
-    subject, message = format_alarm(
+    _publish_alarm(
+        boto_session,
+        topic_arn,
         event="Empty Digest",
         status="ALERT",
         fields={
@@ -499,37 +545,61 @@ def _maybe_send_empty_digest_alert(
             "Reasons": breakdown,
         },
     )
-    sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
 
 
 def _send_crawl_health_alert(
-    boto_session: boto3.Session, topic_arn: str, crawl_report: CrawlReport
+    boto_session: boto3.Session,
+    topic_arn: str,
+    crawl_report: CrawlReport,
+    expected_flaky: list[str],
 ) -> None:
-    """Notify when one or more crawl sources failed, so a broken source is
-    noticed promptly instead of silently dropping out of the digest."""
-    sns_client = boto_session.client("sns")
-    subject, message = format_alarm(
+    """Notify when a crawl source failed, so a broken source is noticed promptly
+    instead of silently dropping out of the digest.
+
+    Sources listed in ``scraping.expected_flaky_urls`` are excluded from the
+    trigger (they still appear in the report body). Some sources — notably x.ai
+    and occasionally ai.meta.com — reject AWS datacenter IPs every single week,
+    which fired this alert on every run. An alarm that always fires is an alarm
+    nobody reads, so a *newly* broken source has to be distinguishable from a
+    known-broken one.
+    """
+    unexpected = [
+        s
+        for s in crawl_report.failed
+        if not any(pattern and pattern in s.url for pattern in expected_flaky)
+    ]
+    if not unexpected:
+        if crawl_report.failed:
+            logger.info(
+                "All %d failing source(s) are configured as expected-flaky; "
+                "no crawl-health alert sent. Failing: %s",
+                len(crawl_report.failed),
+                [s.url for s in crawl_report.failed],
+            )
+        return
+    _publish_alarm(
+        boto_session,
+        topic_arn,
         event="Crawl Health",
         status="ALERT",
         fields={
-            "Failing sources": str(len(crawl_report.failed)),
+            "Unexpected failures": str(len(unexpected)),
             "Summary": crawl_report.summary_line(),
             "Detail": crawl_report.format_alert(),
         },
     )
-    sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
 
 
 def _send_failure_notification(
     boto_session: boto3.Session, topic_arn: str, error_message: str
 ) -> None:
-    sns_client = boto_session.client("sns")
-    subject, message = format_alarm(
+    _publish_alarm(
+        boto_session,
+        topic_arn,
         event="Newsletter Delivery",
         status="FAILED",
         fields={"Error": error_message},
     )
-    sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
 
 
 if __name__ == "__main__":

@@ -1,27 +1,97 @@
+from __future__ import annotations
+
 import io
 import json
 import os
+import re
 import shutil
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
+from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader, Template
 from markupsafe import escape
-from PIL import Image
 from pydantic import BaseModel, Field, computed_field, field_validator
-from selenium import webdriver
-from selenium.common.exceptions import WebDriverException
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
 from .constants import Language, LocalPaths
 from .feed_parser import is_safe_url
 from .logger import logger
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from selenium import webdriver
+
+# Gmail (and several other clients) truncate a message body larger than this,
+# showing a "view entire message" link and hiding everything past the cut —
+# including the trailing article cards and the footer. Measured against real
+# published issues, every 5-article digest exceeded it, so the build warns
+# loudly rather than letting the tail silently disappear from readers' inboxes.
+GMAIL_CLIP_BYTES: int = 102_400
+
+# Reading speed used for the per-card "N min read" estimate, per language.
+# Korean is counted in characters and English in words; both are deliberately
+# conservative for dense technical prose.
+READING_SPEED: dict[Language, tuple[str, int]] = {
+    Language.KO: ("chars", 450),
+    Language.EN: ("words", 200),
+}
+
+# Reader-facing chrome, per language. Previously hardcoded English in the
+# templates, which left a Korean digest with "Published on" / "View More" /
+# "Additional resources for reference" labels around Korean content.
+UI_LABELS: dict[Language, dict[str, str]] = {
+    Language.KO: {
+        "published_on": "발행",
+        "view_more": "원문 보기",
+        "resources": "함께 볼 자료",
+        "reading_time": "읽는 시간 {minutes}분",
+        "relevance": "관련도 점수",
+    },
+    Language.EN: {
+        "published_on": "Published on",
+        "view_more": "Read the original",
+        "resources": "Further reading",
+        "reading_time": "{minutes} min read",
+        "relevance": "Relevance score",
+    },
+}
+
+_WHITESPACE_RUN_WITH_NEWLINE = re.compile(r"[ \t]*\r?\n[ \t\r\n]*")
+_HORIZONTAL_WHITESPACE_RUN = re.compile(r"[ \t]{2,}")
+_PRE_BLOCK = re.compile(r"(<pre\b[^>]*>.*?</pre>)", re.DOTALL | re.IGNORECASE)
+
+
+def collapse_html_whitespace(html: str) -> str:
+    """Shrink the template's pretty-printing whitespace without changing layout.
+
+    Table-based email markup is deeply indented, which costs ~10% of the message
+    size in pure indentation — bytes that count against the clip threshold above.
+
+    Every whitespace run is collapsed to a SINGLE space rather than removed.
+    Removing it would be a few percent smaller but could delete a meaningful
+    inter-word space between two inline tags in the model-generated prose
+    (``<em>A</em>\\n<em>B</em>``), so the safe collapse is used instead.
+    ``<pre>`` blocks are left byte-for-byte intact, since whitespace there IS
+    the content.
+    """
+    parts = _PRE_BLOCK.split(html)
+    for i, part in enumerate(parts):
+        if i % 2:  # odd indices are the captured <pre>...</pre> blocks
+            continue
+        part = _WHITESPACE_RUN_WITH_NEWLINE.sub(" ", part)
+        parts[i] = _HORIZONTAL_WHITESPACE_RUN.sub(" ", part)
+    return "".join(parts)
+
+
+def estimate_reading_minutes(html: str, language: Language) -> int:
+    """Minutes to read an article card's rendered summary (minimum 1)."""
+    text = BeautifulSoup(html or "", "html.parser").get_text(separator=" ", strip=True)
+    unit, per_minute = READING_SPEED.get(language, READING_SPEED[Language.EN])
+    amount = len(text) if unit == "chars" else len(text.split())
+    return max(1, round(amount / per_minute)) if amount else 1
 
 
 class NewsletterConfig:
@@ -59,6 +129,11 @@ class Article(BaseModel):
     published_date: str
     thumbnail: str
     summary: str = Field(min_length=1)
+    # Single-sentence lede shown above the body so the digest can be skimmed.
+    # Rendered through Jinja autoescape (not ``| safe``), so it needs no
+    # sanitization here.
+    one_liner: str = ""
+    reading_minutes: int = Field(default=0, ge=0)
     source: str = "unknown"
     tags: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
@@ -119,6 +194,18 @@ class NewsletterData(BaseModel):
     section: Section
     articles: list[Article]
     footer: Footer
+    # The template read ``data.language`` to set <html lang="...">, but the field
+    # never existed, so every issue — including English ones — silently fell back
+    # to the ``| default('ko')`` filter. Screen readers and client-side
+    # translation both key off that attribute.
+    language: Language = Language.KO
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def labels(self) -> dict[str, str]:
+        """Reader-facing chrome in the issue's language (single source of truth
+        for both the newsletter and the standalone-article templates)."""
+        return UI_LABELS.get(self.language, UI_LABELS[Language.EN])
 
 
 class NewsletterRenderer:
@@ -136,11 +223,46 @@ class NewsletterRenderer:
             LocalPaths.ARTICLE_FILE.value
         )
 
-    def render_article(self, article: Article) -> str:
-        return self.article_template.render(article=article.model_dump())
+    def render_article(self, article: Article, language: Language = Language.KO) -> str:
+        return collapse_html_whitespace(
+            self.article_template.render(
+                article=article.model_dump(),
+                language=language.value,
+                labels=UI_LABELS.get(language, UI_LABELS[Language.EN]),
+            )
+        )
 
     def render_newsletter(self, data: NewsletterData) -> str:
-        return self.newsletter_template.render(data=data.model_dump())
+        # mode="json" so the Language enum serializes to its value ("ko"/"en").
+        # A plain model_dump() hands the template the enum member, which renders
+        # as "Language.KO" into the <html lang> attribute.
+        html = collapse_html_whitespace(
+            self.newsletter_template.render(data=data.model_dump(mode="json"))
+        )
+        self._warn_if_clipped(html, len(data.articles))
+        return html
+
+    @staticmethod
+    def _warn_if_clipped(html: str, article_count: int) -> None:
+        size = len(html.encode("utf-8"))
+        if size <= GMAIL_CLIP_BYTES:
+            logger.info(
+                "Rendered newsletter is %.1f KB (%d articles), within the "
+                "%.0f KB mail-client clip budget.",
+                size / 1024,
+                article_count,
+                GMAIL_CLIP_BYTES / 1024,
+            )
+            return
+        logger.warning(
+            "Rendered newsletter is %.1f KB (%d articles), OVER the %.0f KB "
+            "clip budget — Gmail will truncate the message and readers will "
+            "lose the trailing cards and footer. Reduce summarization.max_posts "
+            "or tighten the summary length budget in the prompt.",
+            size / 1024,
+            article_count,
+            GMAIL_CLIP_BYTES / 1024,
+        )
 
 
 class HtmlToImageConverter:
@@ -163,7 +285,6 @@ class HtmlToImageConverter:
         self.output_dir = output_dir
         self.max_height = kwargs.get("max_height", self.DEFAULT_MAX_HEIGHT)
         self.overlap = kwargs.get("overlap", self.DEFAULT_OVERLAP)
-        self.chrome_options = self._configure_chrome_options()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
@@ -178,7 +299,13 @@ class HtmlToImageConverter:
         return any(shutil.which(name) for name in cls.CHROME_BINARIES)
 
     @staticmethod
-    def _configure_chrome_options() -> Options:
+    def _configure_chrome_options() -> Any:
+        # Imported lazily: selenium + webdriver-manager + PIL are only needed for
+        # the optional ``convert_to_images`` path, which is off by default. A
+        # module-level import paid their cost (and their import-time side effects)
+        # on every single run, including in the browserless Lambda image.
+        from selenium.webdriver.chrome.options import Options
+
         options = Options()
         options.add_argument("--headless=new")
         options.add_argument("--disable-gpu")
@@ -218,6 +345,11 @@ class HtmlToImageConverter:
 
     @contextmanager
     def driver_session(self) -> Generator[webdriver.Chrome, None, None]:
+        from selenium import webdriver as _webdriver
+        from selenium.common.exceptions import WebDriverException
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
+
         driver = None
         try:
             # Prefer a chromedriver already on PATH or pinned via env (present
@@ -227,7 +359,9 @@ class HtmlToImageConverter:
                 "chromedriver"
             )
             service = Service(driver_path or ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=self.chrome_options)
+            driver = _webdriver.Chrome(
+                service=service, options=self._configure_chrome_options()
+            )
             yield driver
         except WebDriverException as e:
             logger.error("WebDriver initialization failed: %s", e)
@@ -249,6 +383,8 @@ class HtmlToImageConverter:
     def _capture_split_pages(
         self, driver: webdriver.Chrome, html_path: Path, total_height: int
     ) -> list[Path]:
+        from PIL import Image
+
         paths = []
         y_offset = 0
         page_num = 1
@@ -297,14 +433,22 @@ class NewsletterBuilder:
         self.outputs_dir = outputs_dir
         self.renderer = NewsletterRenderer(templates_dir)
         self.articles_dir = self.outputs_dir / LocalPaths.ARTICLES_DIR.value
-        self.image_converter = HtmlToImageConverter(self.articles_dir)
         self.logos = logos
         self.newsletter_filename: str | None = None
         self.article_filenames: list[str] = []
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
         self.articles_dir.mkdir(parents=True, exist_ok=True)
+        # Built on demand: constructing it eagerly configured Chrome options for
+        # a feature that is off by default on every run.
+        self._image_converter: HtmlToImageConverter | None = None
 
-    def build(self, config: "BuildConfiguration"):
+    @property
+    def image_converter(self) -> HtmlToImageConverter:
+        if self._image_converter is None:
+            self._image_converter = HtmlToImageConverter(self.articles_dir)
+        return self._image_converter
+
+    def build(self, config: BuildConfiguration):
         try:
             newsletter_data = self._prepare_data(config)
             html_content = self.renderer.render_newsletter(newsletter_data)
@@ -318,7 +462,7 @@ class NewsletterBuilder:
             logger.error("Failed to build newsletter: %s", e, exc_info=True)
             raise
 
-    def _prepare_data(self, config: "BuildConfiguration") -> NewsletterData:
+    def _prepare_data(self, config: BuildConfiguration) -> NewsletterData:
         header = Header(
             title=config.header_title,
             description=config.header_description,
@@ -327,12 +471,18 @@ class NewsletterBuilder:
         )
         section = Section(introduction=config.first_section_intro)
         footer = Footer(title=config.footer_title)
-        articles = self._load_articles(config.date_suffix)
+        articles = self._load_articles(config.date_suffix, config.language)
         return NewsletterData(
-            header=header, section=section, articles=articles, footer=footer
+            header=header,
+            section=section,
+            articles=articles,
+            footer=footer,
+            language=config.language,
         )
 
-    def _load_articles(self, date_suffix: str) -> list[Article]:
+    def _load_articles(
+        self, date_suffix: str, language: Language = Language.KO
+    ) -> list[Article]:
         target_dir = self.inputs_dir / date_suffix
         if not target_dir.is_dir():
             logger.warning("Input directory not found: '%s'", target_dir)
@@ -343,16 +493,25 @@ class NewsletterBuilder:
                 data = json.loads(file_path.read_text("utf-8"))
                 source = data.get("source", "unknown")
                 data["thumbnail"] = self.logos.get(source, self.logos["unknown"])
+                data["reading_minutes"] = estimate_reading_minutes(
+                    data.get("summary", ""), language
+                )
                 articles.append(Article.model_validate(data))
             except Exception as e:
                 logger.error("Failed to process article file '%s': %s", file_path, e)
-        return sorted(articles, key=lambda a: a.published_date, reverse=True)
+        # Lead with the most relevant article. Sorting by publication date threw
+        # away the ranking the filtering stage paid for: a weekly window puts
+        # nearly every post on the same day or two, so ties fell back to glob
+        # order (i.e. filename), which routinely buried the top-scored piece
+        # below weaker ones. Score first, recency as the tie-break — the same key
+        # the summarizer selects with, so selection and presentation agree.
+        return sorted(articles, key=lambda a: (a.score, a.published_date), reverse=True)
 
     def _save_individual_articles(
-        self, articles: list[Article], config: "BuildConfiguration"
+        self, articles: list[Article], config: BuildConfiguration
     ):
         for i, article in enumerate(articles):
-            article_html = self.renderer.render_article(article)
+            article_html = self.renderer.render_article(article, config.language)
             article_path = self._save_html(article_html, "article", config, index=i + 1)
             self.article_filenames.append(article_path.name)
             logger.info("Saved individual article: '%s'", article_path)
@@ -368,7 +527,7 @@ class NewsletterBuilder:
         self,
         content: str,
         basename: str,
-        config: "BuildConfiguration",
+        config: BuildConfiguration,
         index: int | None = None,
     ) -> Path:
         filename = self._generate_filename(basename, config, index)
@@ -379,7 +538,7 @@ class NewsletterBuilder:
 
     @staticmethod
     def _generate_filename(
-        basename: str, config: "BuildConfiguration", index: int | None = None
+        basename: str, config: BuildConfiguration, index: int | None = None
     ) -> str:
         parts = [basename, config.stage, config.date_suffix, config.language.value]
         if index is not None:

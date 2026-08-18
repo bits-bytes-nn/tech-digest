@@ -28,12 +28,20 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
   SSRF-guarded requests and per-source health tracking.
 - **Content quality gate** — drops posts whose visible text is too thin to
   summarize *before* they reach the LLM, so the digest never ships empty write-ups.
+- **Skimmable cards** — every article leads with a one-sentence takeaway and a
+  reading-time estimate, and the highest-scoring piece leads the issue.
+- **Clip-budget aware** — mail clients truncate a message over ~100 KB. The
+  summary length budget and the template's markup weight are both tuned to stay
+  under it, and the build warns if an issue would be cut.
 - **Crawl-health monitoring** — tracks every source's fetch status and raises an
-  SNS alert when a source fails, so silent breakage surfaces fast.
+  SNS alert when a source fails, so silent breakage surfaces fast — with an
+  allow-list for sources that are known to fail from AWS egress IPs, so the alarm
+  stays actionable.
 - **Serverless infrastructure** — AWS Lambda *or* Batch (config-selectable),
   scheduled by EventBridge, defined as code with the AWS CDK.
 - **Professional email** — responsive HTML templates with dark-mode support,
-  per-source logos, and score badges, delivered through Amazon SES.
+  per-source logos, score badges and fully localized chrome (KO/EN), delivered
+  through Amazon SES.
 
 ---
 
@@ -57,7 +65,8 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
 | --- | --- |
 | `feed_parser.py` | RSS parsing + resilient HTML scraping (BeautifulSoup4 / Selenium), per-source health tracking |
 | `summarizer.py` | Content gate → relevance filter → rank/cap → summarize, all via Bedrock |
-| `newsletter_renderer.py` | HTML generation with Jinja2 (responsive, dark-mode, score badges) |
+| `model_factory.py` | Bedrock model capability registry + LangChain chat-model construction |
+| `newsletter_renderer.py` | HTML generation with Jinja2 (responsive, dark-mode, localized, size-checked) |
 | `aws_helpers.py` | S3, SES, SNS, SSM, and Batch operations |
 
 ### Pipeline
@@ -74,7 +83,9 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **SSM Parameter Store** — LangChain API key and Batch queue/definition names.
 - **SES** — newsletter delivery. **SNS** — run/health notifications.
 - **Bedrock (us-west-2)** — Claude Sonnet 5 (filter + summarize), Claude
-  Haiku 4.5 (greeting).
+  Haiku 4.5 (greeting). Any model in the `LanguageModelId` catalog is
+  selectable per stage, including **Claude Opus 5** (`anthropic.claude-opus-5`);
+  `thinking_effort` accepts `xhigh`/`max` on the Opus tier.
 
 ---
 
@@ -102,6 +113,8 @@ resources:
 
 scraping:
   min_content_length: 600                # drop posts thinner than this (visible chars)
+  expected_flaky_urls:                   # fetch failures here are reported, not alerted
+    - "x.ai/news"
   rss_urls:
     - "https://aws.amazon.com/blogs/amazon-ai/feed/"
     - "https://www.amazon.science/index.rss"
@@ -112,6 +125,8 @@ summarization:
   greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
   min_score: 0.7                         # keep posts scoring >= this
   max_posts: 5                           # cap kept posts (applied before summarizing)
+  max_per_source: 2                      # optional diversity cap; unfilled slots are
+                                         # backfilled, so it never shrinks the issue
 
 newsletter:
   sender: "your-verified-sender@example.com"
@@ -158,7 +173,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (324 tests)
+pytest                       # fast, offline unit/integration suite (381 tests, 81% cov)
 ```
 
 These same checks run in CI on every push and pull request

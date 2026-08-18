@@ -5,7 +5,11 @@
     "Foundation Model Releases (e.g., GPT, Claude, Gemini, Grok)",
     "Major Product/Service/Feature Launches Using Foundation Models"
   ],
-  "excluded_topics": ["Biology", "Healthcare", "Robotics"],
+  "excluded_topics": [
+    "Biology",
+    "Healthcare",
+    "Robotics"
+  ],
   "articles": [
     {
       "id": "included-foundation-model-release",
@@ -21,9 +25,10 @@
     },
     {
       "id": "moderate-educational",
-      "expected_band": "weak",
+      "expected_band": "moderate",
       "title": "Understanding Attention: An Educational Walkthrough",
-      "content": "This educational post explains the attention mechanism for readers new to transformers. It walks through query-key-value projections, scaled dot-product attention, and multi-head attention with worked numeric examples and diagrams. The content is clear and pedagogically useful with some fresh framing, but it covers well-established material and offers limited novelty. It is implementation-and-explanation focused with modest research context, suitable as a learning resource rather than a research contribution."
+      "content": "This educational post explains the attention mechanism for readers new to transformers. It walks through query-key-value projections, scaled dot-product attention, and multi-head attention with worked numeric examples and diagrams. The content is clear and pedagogically useful with some fresh framing, but it covers well-established material and offers limited novelty. It is implementation-and-explanation focused with modest research context, suitable as a learning resource rather than a research contribution.",
+      "note": "Content is explicitly 'clear and pedagogically useful with some fresh framing' but 'limited novelty' — that is the rubric's 0.50 'Moderate' / 0.60 'Good' wording, i.e. the moderate band. The previous 'weak' label described the 0.35 anchor ('minimal ML insight'), which contradicts this article's own description."
     },
     {
       "id": "weak-vendor-tutorial",

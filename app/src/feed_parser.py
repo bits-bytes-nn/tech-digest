@@ -127,10 +127,12 @@ SourceType: TypeAlias = Literal[
     "anthropic",
     "aws",
     "deepmind",
+    "eugene_yan",
     "google",
     "huggingface",
     "kakao",
     "linkedin",
+    "phil_schmid",
     "meta",
     "microsoft",
     "ncsoft",
@@ -140,6 +142,7 @@ SourceType: TypeAlias = Literal[
     "palantir",
     "pinterest",
     "qwen",
+    "sebastian_raschka",
     "xai",
     "unknown",
     # NOTE: add new sources here
@@ -184,7 +187,12 @@ class ScraperConfig:
         "%d.%m.%Y",
     )
     DEFAULT_TAGS: ClassVar[list[str]] = ["uncategorized"]
-    MIN_CONTENT_LENGTH: ClassVar[int] = 3000
+    # Visible-text length below which a feed entry is considered a teaser and we
+    # go scrape the full article page. Distinct from ``scraping.min_content_length``
+    # (the configurable ~600-char gate that decides whether a post is substantive
+    # enough to summarize at all) — the two were previously both called
+    # "min content length", which invited confusing one for the other.
+    FULL_SCRAPE_TEXT_THRESHOLD: ClassVar[int] = 3000
     MARKDOWN_IMAGE_PATTERN: ClassVar[re.Pattern] = re.compile(r"!\[.*?]\((.*?)\)")
     MAX_TAGS: ClassVar[int] = 5
     # Full, realistic browser header sets. The Sec-Fetch-* / Sec-Ch-Ua and
@@ -245,6 +253,16 @@ class ScraperConfig:
         "pinterest_engineering": "pinterest",  # Medium @-handle
         "qwenlm.github.io": "qwen",
         "x.ai": "xai",
+        # Independent authors. These three are configured feeds, but were absent
+        # from this map, so all of them resolved to "unknown". That cost more than
+        # a generic logo: `max_per_source` counts by source, so three different
+        # authors were capped as if they were one publication, and any newly added
+        # unmapped feed would join the same bucket. Underscores become spaces in
+        # ``Article.source_label``, so these render as proper names.
+        "eugeneyan.com": "eugene_yan",
+        "sebastianraschka.com": "sebastian_raschka",
+        "magazine.sebastianraschka.com": "sebastian_raschka",
+        "philschmid.de": "phil_schmid",
         # NOTE: add new sources here
     }
 
@@ -395,6 +413,9 @@ class Post(BaseModel):
     images: list[str] = Field(default_factory=list)
     source: SourceType = "unknown"
     summary: str = ""
+    # Single-sentence lede produced alongside the summary; rendered above the
+    # article body so a multi-article digest can be skimmed.
+    one_liner: str = ""
     tags: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
     score: float = 0.0
@@ -420,7 +441,13 @@ class Post(BaseModel):
             published_date=parse_published_date(getattr(entry, "published", "")),
             source=cls._determine_source(link_str),
             content=content_html,
-            summary=getattr(entry, "summary", ""),
+            # ``summary`` is deliberately NOT seeded from the feed's teaser.
+            # It is the slot the LLM summary lands in, and downstream code uses
+            # "summary is non-empty" as the signal that summarization SUCCEEDED
+            # (Summarizer.process_posts, Article.summary min_length=1). Seeding
+            # it with the RSS teaser made that signal always true, so a post
+            # whose summarization failed shipped its raw feed teaser as the
+            # article body while ALSO being reported as filtered-out.
             images=cls._extract_images(content_html, link_str),
             tags=[
                 tag.term for tag in getattr(entry, "tags", []) if hasattr(tag, "term")
@@ -448,7 +475,7 @@ class Post(BaseModel):
         # that, if it blindly replaced a decent feed teaser, would push the post
         # below the downstream content gate and silently drop a healthy post.
         if (
-            feed_text_len < ScraperConfig.MIN_CONTENT_LENGTH
+            feed_text_len < ScraperConfig.FULL_SCRAPE_TEXT_THRESHOLD
             and (scraped_content := cls._scrape_full_content(link))
             and _visible_text_length(scraped_content) > feed_text_len
         ):
@@ -1254,6 +1281,22 @@ class CrawlReport:
         return "\n".join(lines)
 
 
+def normalize_title_key(title: str) -> str:
+    """Canonical key for exact-duplicate detection across sources.
+
+    Several configured feeds carry the SAME announcement under different URLs
+    (deepmind.google and research.google both map to source ``google``; an AWS
+    post is also syndicated to Medium). Link-only dedup let those through as two
+    identical cards in one digest.
+
+    This is deliberately an EXACT match after normalization — case, whitespace
+    and punctuation are folded, nothing else. No fuzzy/similarity scoring, so it
+    can never merge two genuinely different articles.
+    """
+    folded = re.sub(r"[^\w\s]", " ", title.casefold())
+    return " ".join(folded.split())
+
+
 class PostCollector:
     def __init__(self, fetchers: list[PostFetcher]):
         self.fetchers = fetchers
@@ -1270,15 +1313,31 @@ class PostCollector:
         self.report = CrawlReport()
         all_posts: list[Post] = []
         seen_links: set[str] = set()
+        seen_titles: set[str] = set()
         for fetcher in self.fetchers:
             url = getattr(fetcher, "source_url", type(fetcher).__name__)
             fetcher_name = type(fetcher).__name__
             try:
                 fetched = fetcher.fetch(start_date, end_date)
-                new_posts = [p for p in fetched if p.link not in seen_links]
-                for post in new_posts:
+                for post in fetched:
+                    if post.link in seen_links:
+                        continue
+                    title_key = normalize_title_key(post.title)
+                    # Skip a syndicated duplicate of a post we already collected
+                    # from an earlier source. Keeping the first occurrence makes
+                    # the winner deterministic (feeds are iterated in config
+                    # order), so the same week always resolves the same way.
+                    if title_key and title_key in seen_titles:
+                        logger.info(
+                            "Skipping cross-source duplicate '%s' from '%s'.",
+                            post.title,
+                            url,
+                        )
+                        continue
                     all_posts.append(post)
                     seen_links.add(post.link)
+                    if title_key:
+                        seen_titles.add(title_key)
                 status = SourceStatus.OK if fetched else SourceStatus.EMPTY
                 self.report.sources.append(
                     SourceHealth(

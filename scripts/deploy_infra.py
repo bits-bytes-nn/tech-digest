@@ -47,6 +47,7 @@ from aws_cdk import (
 )
 from aws_cdk.aws_ecr_assets import DockerImageAsset, Platform
 from aws_cdk.aws_events_targets import BatchJob, LambdaFunction, SnsTopic
+from botocore.exceptions import ClientError
 from constructs import Construct
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -645,8 +646,24 @@ def _put_secure_ssm_parameter(
     """Write a secret to SSM as a SecureString (encrypted with the account's
     default SSM KMS key). Done via the API rather than CDK because
     CloudFormation cannot create a SecureString — a CDK StringParameter would
-    leak the value in plaintext into the synthesized template."""
+    leak the value in plaintext into the synthesized template.
+
+    Skipped when the parameter already holds this value. The CDK CLI runs this
+    app for `cdk synth` exactly as it does for `cdk deploy` and does not tell the
+    app which one it is, so without the read-before-write a plain validation
+    synth (the CI-equivalent command, run locally where the key IS in the
+    environment) silently rewrote a production secret. A synth must not mutate
+    AWS; comparing first makes the common path a no-op.
+    """
     ssm_client = boto_session.client("ssm")
+    try:
+        current = ssm_client.get_parameter(Name=name, WithDecryption=True)
+        if current["Parameter"]["Value"] == value:
+            logger.info("SSM parameter '%s' already up to date; not writing.", name)
+            return
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "ParameterNotFound":
+            raise
     ssm_client.put_parameter(
         Name=name,
         Value=value,

@@ -3,6 +3,8 @@ adherence, band alignment). These validate the analysis the live eval relies on.
 
 from __future__ import annotations
 
+import pytest
+
 from app.src.eval_metrics import (
     ArticleScoreStats,
     band_of_score,
@@ -33,11 +35,75 @@ class TestBandOfScore:
         assert band_of_score(0.35) == "weak"
         assert band_of_score(0.10) == "reject"
 
+    def test_every_rubric_anchor_lands_in_its_named_band(self):
+        """The band cutoffs and the rubric's anchor labels are two views of one
+        scale; when they were maintained separately they drifted (0.60 is "Good"
+        in the rubric but the cutoffs called it "strong"), which reported a
+        correctly-scored article as a band mismatch."""
+        from app.src.eval_metrics import ANCHOR_BANDS
+
+        mismatched = {
+            anchor: (band_of_score(anchor), expected)
+            for anchor, expected in ANCHOR_BANDS.items()
+            if band_of_score(anchor) != expected
+        }
+        assert not mismatched, f"anchor -> band drift: {mismatched}"
+
+    def test_one_step_adjustment_never_skips_a_band(self):
+        """The rubric permits a single +-0.05 step off an anchor.
+
+        Such a step can land exactly midway between two anchors (0.65 is both
+        0.60+0.05 and 0.70-0.05), and a cutoff has to fall somewhere, so the
+        adjusted score may legitimately read as either neighbour's band. What
+        must NOT happen is landing two bands away — that would mean the cutoffs
+        are placed on the anchors themselves rather than between them.
+        """
+        from app.src.eval_metrics import ANCHOR_BANDS
+
+        anchors = sorted(ANCHOR_BANDS)
+        for i, anchor in enumerate(anchors):
+            neighbours = {ANCHOR_BANDS[anchor]}
+            if i > 0:
+                neighbours.add(ANCHOR_BANDS[anchors[i - 1]])
+            if i < len(anchors) - 1:
+                neighbours.add(ANCHOR_BANDS[anchors[i + 1]])
+            for adjusted in (round(anchor - 0.05, 2), round(anchor + 0.05, 2)):
+                if not 0.0 <= adjusted <= 1.0:
+                    continue
+                assert band_of_score(adjusted) in neighbours, (
+                    f"{anchor} adjusted to {adjusted} -> "
+                    f"{band_of_score(adjusted)}, not in {neighbours}"
+                )
+
+    def test_spread_and_band_stability_reported(self):
+        """Reproducibility is measured as band stability plus bounded spread,
+        because models from Sonnet 5 on expose no sampling controls and so cannot
+        be asked for byte-identical repeats."""
+        from app.src.eval_metrics import build_report
+
+        report = build_report(
+            # a: varies but never leaves its band. b: varies across bands.
+            {"a": [0.50, 0.60], "b": [0.60, 0.80]},
+            {"a": "moderate", "b": "moderate"},
+        )
+        assert report.max_spread == pytest.approx(0.20)
+        assert report.band_stability_rate == pytest.approx(0.5)
+        assert report.determinism_rate == 0.0
+
+    def test_band_stability_is_all_repeats_not_just_the_mean(self):
+        from app.src.eval_metrics import build_report
+
+        # Mean 0.70 lands in "strong", but one repeat did not — band_match would
+        # call this a pass while band_stability correctly does not.
+        report = build_report({"a": [0.60, 0.80]}, {"a": "strong"})
+        assert report.band_match_rate == 1.0
+        assert report.band_stability_rate == 0.0
+
     def test_band_boundaries_inclusive(self):
         assert band_of_score(0.75) == "high"
-        assert band_of_score(0.60) == "strong"
+        assert band_of_score(0.65) == "strong"
         assert band_of_score(0.45) == "moderate"
-        assert band_of_score(0.30) == "weak"
+        assert band_of_score(0.25) == "weak"
 
 
 class TestArticleScoreStats:

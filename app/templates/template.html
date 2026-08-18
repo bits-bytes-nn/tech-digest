@@ -1,9 +1,10 @@
-{% import "header_section.html" as header_partial %} {% import
-"first_section.html" as title_partial %} {% import "footer_section.html" as
-footer_partial %} {% import "main_contents.html" as main_partial %}
+{% import "header_section.html" as header_partial %}
+{% import "first_section.html" as title_partial %}
+{% import "footer_section.html" as footer_partial %}
+{% import "main_contents.html" as main_partial %}
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html
-  lang="{{ data.language | default('ko') }}"
+  lang="{{ data.language }}"
   xmlns="http://www.w3.org/1999/xhtml"
   xmlns:v="urn:schemas-microsoft-com:vml"
   xmlns:o="urn:schemas-microsoft-com:office:office"
@@ -15,169 +16,13 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <meta name="color-scheme" content="light dark" />
     <meta name="supported-color-schemes" content="light dark" />
+    <meta name="x-apple-disable-message-reformatting" />
     <title>{{ data.header.title }}</title>
     <link
       href="https://fonts.googleapis.com/css?family=Roboto+Mono&display=swap"
       rel="stylesheet"
     />
-    <style type="text/css">
-      :root {
-        color-scheme: light dark;
-        supported-color-schemes: light dark;
-      }
-      body {
-        margin: 0;
-        padding: 0;
-        -webkit-text-size-adjust: 100%;
-        -ms-text-size-adjust: 100%;
-        background-color: #34495e;
-      }
-      img {
-        border: 0;
-        line-height: 100%;
-        outline: none;
-        text-decoration: none;
-        -ms-interpolation-mode: bicubic;
-        max-width: 100% !important;
-        height: auto !important;
-      }
-      a {
-        color: #ff9900;
-      }
-      table {
-        border-collapse: collapse !important;
-        table-layout: fixed;
-        margin: 0 auto;
-      }
-      table.table-bordered {
-        width: 100%;
-        margin: 16px 0;
-        border: 1px solid #dee2e6;
-        /* Content tables (from markdown) must size columns to content, not
-           split width equally as the global `table-layout: fixed` would —
-           otherwise a narrow-label/wide-value table renders 50/50 and cramped. */
-        table-layout: auto;
-      }
-      table.table-bordered th,
-      table.table-bordered td {
-        border: 1px solid #dee2e6;
-        padding: 8px 12px;
-        text-align: left;
-        vertical-align: top;
-        /* Break long unbreakable tokens (URLs, code) so a cell can't overflow
-           the 800px card under auto layout. */
-        word-break: break-word;
-        overflow-wrap: anywhere;
-      }
-      table.table-bordered th {
-        background-color: #f1f3f5;
-        font-weight: 600;
-      }
-      .wrapper {
-        max-width: 800px !important;
-        width: 800px;
-        margin: 0 auto;
-      }
-      .padding-container {
-        padding: 0 15px;
-        text-align: center;
-      }
-      .content-section {
-        margin: 0 auto;
-        text-align: center;
-      }
-      /* Code-block styling. Kept in <head> (not in a <td> style block, which
-         Gmail strips) so it survives in the most clients. Long lines wrap
-         rather than overflow the card on mobile. */
-      pre,
-      code {
-        font-family: "Roboto Mono", monospace !important;
-        font-size: 0.8125rem !important;
-        line-height: 1.5 !important;
-        background-color: #f8f9fa !important;
-        border-radius: 4px !important;
-      }
-      pre {
-        padding: 1rem !important;
-        overflow-x: auto !important;
-        white-space: pre-wrap;
-        word-wrap: break-word;
-      }
-      code {
-        padding: 0.2em 0.4em !important;
-      }
-      pre code {
-        padding: 0 !important;
-        background-color: transparent !important;
-      }
-      @media only screen and (max-width: 800px) {
-        .wrapper {
-          width: 100% !important;
-          max-width: 100% !important;
-        }
-        .card-title {
-          font-size: 1.5rem !important;
-        }
-        .td-padding {
-          padding: 14px !important;
-        }
-      }
-      /* Dark-mode: lift the cards and text for readability where supported. */
-      @media (prefers-color-scheme: dark) {
-        body,
-        .email-bg {
-          background-color: #1b2733 !important;
-        }
-        .card,
-        .card-1 {
-          background-color: #283543 !important;
-        }
-        /* The summary/resources content cells carry a presentational
-           bgcolor="#FFFFFF"; darken their background too, else the light text
-           below renders on a white cell and the whole article body is
-           unreadable in dark mode. */
-        .card-body,
-        .td-padding {
-          background-color: #283543 !important;
-        }
-        .card-body,
-        .card-body * {
-          color: #e6edf3 !important;
-        }
-        /* The article title and date carry an inline color:...!important, which
-           outranks a stylesheet !important rule — so lighten them explicitly at
-           higher specificity, or they render dark-on-dark. */
-        .card-title,
-        .card-title * {
-          color: #f0f4f8 !important;
-        }
-        .muted {
-          color: #9fb0c0 !important;
-        }
-        .tag-chip {
-          background-color: #3a4a5c !important;
-        }
-        .tag-chip span {
-          color: #cdd9e5 !important;
-        }
-        /* Markdown table header: light-gray bg with no dark override rendered
-           light-on-light (invisible headers). Darken bg + lighten text. */
-        table.table-bordered th {
-          background-color: #3a4a5c !important;
-          color: #e6edf3 !important;
-        }
-        table.table-bordered,
-        table.table-bordered th,
-        table.table-bordered td {
-          border-color: #3a4a5c !important;
-        }
-        pre,
-        code {
-          background-color: #11181f !important;
-          color: #e6edf3 !important;
-        }
-      }
-    </style>
+    {% include "_styles.html" %}
   </head>
   <body style="margin: 0; padding: 0; background-color: #34495e">
     <table
@@ -238,7 +83,7 @@ footer_partial %} {% import "main_contents.html" as main_partial %}
                   {% for article in data.articles %}
                   <tr>
                     <td align="center">
-                      {{ main_partial.main_content(article) }}
+                      {{ main_partial.main_content(article, data.labels) }}
                     </td>
                   </tr>
                   {% endfor %}

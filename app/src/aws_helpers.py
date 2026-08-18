@@ -10,7 +10,11 @@ from botocore.exceptions import ClientError
 from .logger import logger
 
 DEFAULT_BATCH_POLL_INTERVAL: int = 30
-DEFAULT_BATCH_TIMEOUT: int = 3600
+# Must not be shorter than the Batch job definition's own timeout (3 hours, see
+# deploy_infra._create_job_definition). At the previous 1 hour, a long-but-healthy
+# run made run_batch.py give up and report "failed or timed out" while the job was
+# still going — and then exit non-zero on a run that went on to succeed.
+DEFAULT_BATCH_TIMEOUT: int = 3 * 3600 + 300
 
 
 def check_and_download_from_s3(
@@ -82,6 +86,13 @@ def send_email(
     msg["To"] = ", ".join(recipients)
     if "@" in sender:
         msg["Message-ID"] = make_msgid(domain=sender.split("@")[1])
+        # A working opt-out path (RFC 2369). Bulk-sender reputation systems at
+        # the major providers expect it on newsletter mail, and without one the
+        # only way to stop delivery is to mark the message as spam — which is
+        # the outcome that actually damages the sending identity. mailto is the
+        # honest mechanism here: the sender mailbox is monitored by the operator,
+        # so no fictitious one-click endpoint is advertised.
+        msg["List-Unsubscribe"] = f"<mailto:{sender}?subject=unsubscribe>"
     else:
         msg["Message-ID"] = make_msgid()
     for header in ["In-Reply-To", "References"]:

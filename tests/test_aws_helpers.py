@@ -82,6 +82,28 @@ class TestSendEmail:
         ok = send_email(_FakeSession(_Boom()), "s", "a@b.com", ["c@d.com"], "<p>x</p>")
         assert ok is False
 
+    def test_list_unsubscribe_header_present(self):
+        """Bulk-sender reputation systems expect an opt-out header on newsletter
+        mail; without one the reader's only lever is the spam button, which is
+        what actually damages the sending identity."""
+        ses = _FakeSES()
+        send_email(
+            _FakeSession(ses),
+            "subj",
+            "digest@example.com",
+            ["to@example.com"],
+            "<p>hi</p>",
+        )
+        raw = ses.sent[0]["RawMessage"]["Data"]
+        assert (
+            "List-Unsubscribe: <mailto:digest@example.com?subject=unsubscribe>" in raw
+        )
+
+    def test_no_unsubscribe_header_without_a_usable_address(self):
+        ses = _FakeSES()
+        send_email(_FakeSession(ses), "s", "no-at-sign", ["to@example.com"], "<p>x</p>")
+        assert "List-Unsubscribe" not in ses.sent[0]["RawMessage"]["Data"]
+
 
 # --------------------------------------------------------------------------- #
 # upload_to_s3
@@ -225,3 +247,13 @@ class TestWaitForBatchJob:
                 raise _client_error("ServerException")
 
         assert wait_for_batch_job_completion(_FakeSession(_Batch()), "job-1") is False
+
+    def test_waiter_outlasts_the_job_definition_timeout(self):
+        """The waiter must not give up before the job it waits on can. At the
+        previous 1 hour against the job definition's 3-hour timeout, a long but
+        healthy run was reported as "failed or timed out" and exited non-zero
+        while the job went on to succeed."""
+        from app.src.aws_helpers import DEFAULT_BATCH_TIMEOUT
+
+        job_definition_timeout_seconds = 3 * 3600  # deploy_infra job definition
+        assert DEFAULT_BATCH_TIMEOUT > job_definition_timeout_seconds
