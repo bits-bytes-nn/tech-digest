@@ -669,10 +669,78 @@ class RssFetcher:
 
 
 class BasePageScraper:
+    # Regex matching the hrefs of THIS site's post links. Index-page scrapers set
+    # it so date attribution can tell "my post's date" from "a neighbour's date".
+    LINK_PATTERN: ClassVar[re.Pattern | None] = None
+    # Date formats to look for near a post link, most specific first.
+    DATE_PATTERNS: ClassVar[tuple[re.Pattern, ...]] = ()
+    # How far up the tree to look before giving up.
+    DATE_SEARCH_DEPTH: ClassVar[int] = 5
+
     def __init__(self, page_url: str, source: SourceType):
         self.page_url = page_url
         self.source = source
         self.source_url = page_url
+
+    @property
+    def link_pattern(self) -> re.Pattern:
+        """``LINK_PATTERN``, asserted present.
+
+        The base class leaves it optional because feed-based fetchers have no
+        index page to scan; every index-page scraper must set it.
+        """
+        if self.LINK_PATTERN is None:
+            raise NotImplementedError(
+                f"{type(self).__name__} must set LINK_PATTERN to find its posts"
+            )
+        return self.LINK_PATTERN
+
+    def _find_date_near_element(self, element: Tag) -> str | None:
+        """The publication date belonging to ``element``, or None.
+
+        Walks from the link outward. The subtle part is what to do once the walk
+        reaches an ancestor holding SEVERAL posts: a plain regex over that
+        ancestor returns the first date in document order, which belongs to
+        whichever post happens to come first. An undated post therefore inherited
+        its neighbour's date and slipped into the weekly window with a date the
+        site never gave it — defeating the fail-closed date gate that
+        ``try_parse_published_date`` exists to provide.
+
+        So at every level the OTHER post links are removed before searching. A
+        date that survives is either inside our own link or in shared chrome (a
+        "Published May 30, 2026" section heading legitimately covers every post
+        under it), and both of those are correctly ours. A date that only existed
+        inside a sibling post is not ours, and we keep looking or give up.
+        """
+        current: Tag | None = element
+        for _ in range(self.DATE_SEARCH_DEPTH):
+            if current is None:
+                break
+            if found := self._search_dates(self._without_other_posts(current, element)):
+                return found
+            current = current.parent
+        return None
+
+    def _without_other_posts(self, scope: Tag, keep: Tag) -> str:
+        """``scope``'s HTML with every post link other than ``keep`` removed."""
+        if self.LINK_PATTERN is None or scope is keep:
+            return str(scope)
+        # Work on a copy: the live tree is reused for the remaining posts.
+        clone = BeautifulSoup(str(scope), "html.parser")
+        keep_html = str(keep)
+        removed_self = False
+        for link in clone.find_all("a", href=self.LINK_PATTERN):
+            if not removed_self and str(link) == keep_html:
+                removed_self = True  # this is us; leave our own date in place
+                continue
+            link.decompose()
+        return str(clone)
+
+    def _search_dates(self, html: str) -> str | None:
+        for pattern in self.DATE_PATTERNS:
+            if match := pattern.search(html):
+                return match.group(1)
+        return None
 
     def _fetch_page(self) -> BeautifulSoup:
         if response := _make_robust_request(self.page_url):
@@ -714,8 +782,9 @@ class GenericPageScraper(BasePageScraper):
 
 
 class AnthropicBlogScraper(BasePageScraper):
-    DATE_PATTERN: ClassVar[re.Pattern] = re.compile(
-        r"\b([A-Z][a-z]{2,8} \d{1,2}, \d{4})\b"
+    LINK_PATTERN: ClassVar[re.Pattern | None] = re.compile(r"/engineering/")
+    DATE_PATTERNS: ClassVar[tuple[re.Pattern, ...]] = (
+        re.compile(r"\b([A-Z][a-z]{2,8} \d{1,2}, \d{4})\b"),
     )
 
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
@@ -728,7 +797,7 @@ class AnthropicBlogScraper(BasePageScraper):
         posts = []
         seen_urls = set()
 
-        for link in soup.find_all("a", href=re.compile(r"/engineering/")):
+        for link in soup.find_all("a", href=self.link_pattern):
             post = self._extract_post_from_link(link, start_date, end_date)
             if post and post.link not in seen_urls:
                 posts.append(post)
@@ -818,16 +887,6 @@ class AnthropicBlogScraper(BasePageScraper):
             "..." if len(full_text) > 120 else ""
         )
 
-    def _find_date_near_element(self, element: Tag) -> str | None:
-        current = element
-        for _ in range(5):
-            if not current:
-                break
-            if match := self.DATE_PATTERN.search(str(current)):
-                return match.group(1)
-            current = current.parent
-        return None
-
 
 class GoogleBlogScraper(GenericPageScraper):
     ITEM_SELECTOR: ClassVar[str] = "a.glue-card"
@@ -881,12 +940,13 @@ class LinkedInBlogScraper(GenericPageScraper):
 
 
 class MetaAIBlogScraper(BasePageScraper):
-    DATE_PATTERNS: ClassVar[list[re.Pattern]] = [
+    LINK_PATTERN: ClassVar[re.Pattern | None] = re.compile(r"/blog/[^/]+/?$")
+    DATE_PATTERNS: ClassVar[tuple[re.Pattern, ...]] = (
         re.compile(r"\b([A-Z][a-z]{2,8} \d{1,2}, \d{4})\b"),
         re.compile(r"\b([A-Z][a-z]{2} \d{1,2}, \d{4})\b"),
         re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b"),
         re.compile(r"\b(\d{4}-\d{2}-\d{2})\b"),
-    ]
+    )
     FILTER_TITLES: ClassVar[set[str]] = {
         "...",
         "back",
@@ -915,7 +975,7 @@ class MetaAIBlogScraper(BasePageScraper):
 
         posts = []
         seen_urls = set()
-        blog_links = soup.find_all("a", href=re.compile(r"/blog/[^/]+/?$"))
+        blog_links = soup.find_all("a", href=self.link_pattern)
         logger.info(f"Meta AI: Found {len(blog_links)} potential blog links")
 
         for i, link in enumerate(blog_links):
@@ -1012,29 +1072,6 @@ class MetaAIBlogScraper(BasePageScraper):
 
         return title_lower.replace(".", "").replace(" ", "") == ""
 
-    def _find_date_near_element(self, element: Tag) -> str:
-        current = element
-        for _ in range(5):
-            if current is None:
-                break
-
-            current_text = str(current)
-            for pattern in self.DATE_PATTERNS:
-                if match := pattern.search(current_text):
-                    return match.group(1)
-
-            if hasattr(current, "next_siblings"):
-                for sibling in current.next_siblings:
-                    if isinstance(sibling, Tag):
-                        sibling_text = str(sibling)
-                        for pattern in self.DATE_PATTERNS:
-                            if match := pattern.search(sibling_text):
-                                return match.group(1)
-
-            current = current.parent
-
-        return ""
-
 
 class QwenBlogScraper(GenericPageScraper):
     ITEM_SELECTOR: ClassVar[str] = "a[href*='/blog/']"
@@ -1096,6 +1133,14 @@ class QwenBlogScraper(GenericPageScraper):
 
 
 class XAIBlogScraper(BasePageScraper):
+    LINK_PATTERN: ClassVar[re.Pattern | None] = re.compile(r"/news/[^/]+/?$")
+    DATE_PATTERNS: ClassVar[tuple[re.Pattern, ...]] = (
+        re.compile(r"\b([A-Z][a-z]+ \d{1,2}, \d{4})\b"),
+        re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b"),
+        re.compile(r"\b(\d{4}-\d{2}-\d{2})\b"),
+    )
+    DATE_SEARCH_DEPTH: ClassVar[int] = 4
+
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
         logger.info(
             f"XAI: Fetching posts from '{start_date.date()}' to '{end_date.date()}'"
@@ -1106,7 +1151,7 @@ class XAIBlogScraper(BasePageScraper):
         posts = []
         seen_urls = set()
 
-        news_links = soup.find_all("a", href=re.compile(r"/news/[^/]+/?$"))
+        news_links = soup.find_all("a", href=self.link_pattern)
 
         for link in news_links:
             try:
@@ -1167,27 +1212,6 @@ class XAIBlogScraper(BasePageScraper):
                     break
 
         return title
-
-    @staticmethod
-    def _find_date_near_element(element: Tag) -> str:
-        date_patterns = [
-            re.compile(r"\b([A-Z][a-z]+ \d{1,2}, \d{4})\b"),
-            re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b"),
-            re.compile(r"\b(\d{4}-\d{2}-\d{2})\b"),
-        ]
-
-        current = element
-        for _ in range(4):
-            if current:
-                element_text = str(current)
-                for pattern in date_patterns:
-                    if match := pattern.search(element_text):
-                        return match.group(1)
-                current = current.parent
-            else:
-                break
-
-        return ""
 
 
 class ScraperRegistry:

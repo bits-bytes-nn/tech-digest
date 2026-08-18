@@ -262,3 +262,95 @@ class TestAnthropicScraper:
         assert all(
             p.link.startswith("https://www.anthropic.com/engineering/") for p in posts
         )
+
+
+class TestDateAttribution:
+    """Which post a date belongs to.
+
+    The walk-outward search used to regex the whole ancestor once it left the
+    link, and an ancestor holding several posts yields the FIRST date in document
+    order. An undated post therefore inherited its neighbour's date and entered
+    the weekly window carrying a date the site never gave it — which defeats the
+    fail-closed date gate ``try_parse_published_date`` exists to provide.
+
+    The fix removes the other post links before searching, so a surviving date is
+    either ours or genuinely shared chrome. Validated against live HTML from all
+    three sites (anthropic 9 posts/8 dates, meta 3/3, xai 49/41, every xai date
+    matching the one embedded in its own title).
+    """
+
+    def _links(self, scraper, html):
+        soup = BeautifulSoup(html, "html.parser")
+        return {
+            a.get("href"): scraper._find_date_near_element(a)
+            for a in soup.find_all("a", href=scraper.LINK_PATTERN)
+        }
+
+    @pytest.fixture
+    def scraper(self):
+        return AnthropicBlogScraper(
+            page_url="https://www.anthropic.com/engineering", source="anthropic"
+        )
+
+    def test_undated_post_does_not_inherit_a_neighbours_date(self, scraper):
+        found = self._links(
+            scraper,
+            """<div class="list">
+              <a href="/engineering/dated"><h3>Dated</h3><span>May 30, 2026</span></a>
+              <a href="/engineering/undated"><h3>Undated</h3></a>
+            </div>""",
+        )
+        assert found["/engineering/dated"] == "May 30, 2026"
+        assert found["/engineering/undated"] is None
+
+    def test_genuinely_shared_section_date_still_applies_to_each_post(self, scraper):
+        """A "Published <date>" heading above a group legitimately covers every
+        post under it — the fix must not mistake that for a neighbour's date."""
+        found = self._links(
+            scraper,
+            """<section><h2>Published May 30, 2026</h2>
+              <a href="/engineering/alpha"><h3>Alpha</h3></a>
+              <a href="/engineering/beta"><h3>Beta</h3></a>
+            </section>""",
+        )
+        assert found == {
+            "/engineering/alpha": "May 30, 2026",
+            "/engineering/beta": "May 30, 2026",
+        }
+
+    def test_per_card_sibling_date_is_attributed_to_its_own_card(self, scraper):
+        found = self._links(
+            scraper,
+            """<div class="list">
+              <article><a href="/engineering/one"><h3>One</h3></a><time>May 30, 2026</time></article>
+              <article><a href="/engineering/two"><h3>Two</h3></a><time>May 27, 2026</time></article>
+            </div>""",
+        )
+        assert found == {
+            "/engineering/one": "May 30, 2026",
+            "/engineering/two": "May 27, 2026",
+        }
+
+    def test_date_inside_the_link_is_used(self, scraper):
+        found = self._links(
+            scraper,
+            '<div><a href="/engineering/x"><h3>X</h3><span>May 27, 2026</span></a></div>',
+        )
+        assert found["/engineering/x"] == "May 27, 2026"
+
+    def test_no_date_anywhere_returns_none_not_a_guess(self, scraper):
+        found = self._links(
+            scraper, '<div><a href="/engineering/x"><h3>X</h3></a></div>'
+        )
+        assert found["/engineering/x"] is None
+
+    def test_all_index_scrapers_share_one_implementation(self):
+        """The walker was copy-pasted into three scrapers, so a fix to one left
+        the others wrong. They now inherit a single implementation."""
+        from app.src.feed_parser import BasePageScraper
+
+        for cls in (AnthropicBlogScraper, MetaAIBlogScraper, XAIBlogScraper):
+            assert "_find_date_near_element" not in vars(cls), cls.__name__
+            assert cls.LINK_PATTERN is not None, cls.__name__
+            assert cls.DATE_PATTERNS, cls.__name__
+        assert "_find_date_near_element" in vars(BasePageScraper)
