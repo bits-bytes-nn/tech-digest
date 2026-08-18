@@ -534,9 +534,11 @@ same way, it reads as boilerplate.
 
 <h3>🔄 Core Architecture and Workflow</h3>
 Describe the system design and workflow clearly. Cover main components, their interactions, and key design choices.
-Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs only: 
-https://example.com/image.jpg). Write as a cohesive narrative without subsection headers. Avoid redundancy with the 
-technical deep dive section.
+Include relevant images, each WRAPPED IN A FIGURE WITH A CAPTION so it is never dropped into the card without
+context: <figure><img src="full_url" alt="descriptive text"><figcaption>One short sentence saying what the reader
+should take from this image</figcaption></figure> (complete URLs only: https://example.com/image.jpg; the caption must
+add information, not repeat the alt text). Write as a cohesive narrative without subsection headers. Avoid redundancy
+with the technical deep dive section.
 
 <h3>🛠️ Technical Deep Dive</h3>
 Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 
@@ -658,9 +660,10 @@ points. 이 아티클만의 구체적인 이유(해결하는 문제, 새로운 �
 
 <h3>🔄 핵심 아키텍처와 동작 방식</h3>
 Describe the system design and workflow clearly. Cover main components, their interactions, and key design choices. 
-Include relevant images using: <img src="full_url" alt="descriptive text"> (use complete URLs only: 
-https://example.com/image.jpg). Write as a cohesive narrative without subsection headers. Avoid redundancy with the 
-technical deep dive section.
+관련 이미지는 문맥 없이 놓이지 않도록 **캡션과 함께 figure로 감싸서** 넣으세요:
+<figure><img src="full_url" alt="descriptive text"><figcaption>이 이미지에서 독자가 얻어야 할 것을 한 문장으로</figcaption></figure>
+(완전한 URL만 사용: https://example.com/image.jpg. 캡션은 alt 텍스트를 반복하지 말고 정보를 더해야 합니다.)
+Write as a cohesive narrative without subsection headers. Avoid redundancy with the technical deep dive section.
 
 <h3>🛠️ 기술적 심층 분석</h3>
 Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 

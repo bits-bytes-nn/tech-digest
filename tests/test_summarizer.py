@@ -207,3 +207,49 @@ class TestSummaryOutput:
         assert "<h3>" in out.summary
         assert "<strong>" in out.summary
         assert "<em>" in out.summary
+
+
+class TestImageCaptions:
+    """Images used to be dropped into the card with no context. The summary now
+    wraps each one in a <figure> with a <figcaption>, so the sanitizer has to let
+    those two tags through and the provenance guard has to keep working inside
+    them."""
+
+    def test_figure_and_figcaption_survive_sanitizing(self):
+        from app.src.summarizer import SummaryOutput
+
+        out = SummaryOutput.model_validate(
+            {
+                "summary": (
+                    '<figure><img src="https://cdn.example.com/a.png" alt="arch">'
+                    "<figcaption>Prefill and decode run on separate pools."
+                    "</figcaption></figure>"
+                ),
+                "tags": [],
+                "urls": [],
+            }
+        )
+        assert "<figure>" in out.summary
+        assert "Prefill and decode run on separate pools." in out.summary
+
+    def test_unsourced_image_is_dropped_but_its_caption_context_remains(self):
+        """The provenance guard removes the <img>; the surrounding figure/caption
+        must not take the rest of the summary down with it."""
+        from app.src.summarizer import _strip_unsourced_images
+
+        cleaned, dropped = _strip_unsourced_images(
+            '<p>Body</p><figure><img src="https://cdn.example.com/invented.png">'
+            "<figcaption>Caption</figcaption></figure>",
+            source_html="<p>Body</p>",
+            known_images=[],
+        )
+        assert dropped and "invented.png" not in cleaned
+        assert "<p>Body</p>" in cleaned
+
+    def test_prompts_ask_for_a_caption_in_both_languages(self):
+        from app.src.constants import Language
+        from app.src.prompts import SummarizationPrompt
+
+        for language in (Language.EN, Language.KO):
+            template = SummarizationPrompt._human_prompt_template[language]
+            assert "figcaption" in template, language

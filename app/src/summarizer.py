@@ -62,6 +62,8 @@ class SummarizerConfig:
             "del",
             "div",
             "em",
+            "figcaption",
+            "figure",
             "h1",
             "h2",
             "h3",
