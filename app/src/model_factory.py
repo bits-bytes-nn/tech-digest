@@ -10,16 +10,66 @@ Split out of ``utils`` so that module is once again a small set of unrelated
 helpers rather than the project's largest file.
 """
 
+import os
+import re
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Generic, TypeVar
 
 import boto3
 from botocore.config import Config as BotoConfig
 from langchain_aws import ChatBedrock, ChatBedrockConverse
+from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel
 
-from .constants import LanguageModelId
+from .constants import EnvVars, LanguageModelId
 from .logger import logger
+
+
+class TokenUsageLogger(BaseCallbackHandler):
+    """Log every LLM call's token usage, tagged with the pipeline stage.
+
+    Cost Explorer bills per MODEL, not per stage. Filtering, summarization and the
+    output-fixing repair all run on the same model, so a bill of "Sonnet 5: 4.7M
+    input tokens" cannot be attributed to a stage — and filtering (one call per
+    collected post, each carrying a full article) is a very different shape from
+    summarization (a handful of calls). Any optimisation without this is a guess.
+
+    Best-effort by construction: a callback must never be able to fail a
+    generation, so every read is defensive.
+    """
+
+    def __init__(self, stage: str, model_id: str) -> None:
+        self.stage = stage
+        self.model_id = model_id
+
+    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        try:
+            usage: dict[str, Any] = {}
+            for generations in getattr(response, "generations", []) or []:
+                for generation in generations or []:
+                    message = getattr(generation, "message", None)
+                    meta = getattr(message, "usage_metadata", None)
+                    if meta:
+                        usage = dict(meta)
+            if not usage:
+                usage = (getattr(response, "llm_output", None) or {}).get(
+                    "usage", {}
+                ) or {}
+            if not usage:
+                return
+            details = usage.get("input_token_details") or {}
+            logger.info(
+                "LLM usage stage=%s model=%s input=%s output=%s "
+                "cache_read=%s cache_write=%s",
+                self.stage,
+                self.model_id,
+                usage.get("input_tokens"),
+                usage.get("output_tokens"),
+                details.get("cache_read"),
+                details.get("cache_creation"),
+            )
+        except Exception:  # pragma: no cover - telemetry must never break a call
+            logger.debug("Could not read LLM usage metadata", exc_info=True)
 
 
 class LanguageModelInfo(BaseModel):
@@ -217,6 +267,10 @@ class BedrockCrossRegionModelHelper:
     # large API round-trips and throttling exposure on the critical path. Only
     # SUCCESSFUL listings are cached (a transient failure must not be pinned).
     _profile_set_cache: ClassVar[dict[str, frozenset[str]]] = {}
+    # (region, profile_name) -> ARN, or "" for "looked up, does not exist". The
+    # negative entry matters: without it every model build re-lists APPLICATION
+    # profiles just to rediscover that none are provisioned.
+    _application_profile_cache: ClassVar[dict[tuple[str, str], str]] = {}
 
     @classmethod
     def get_cross_region_model_id(
@@ -242,18 +296,88 @@ class BedrockCrossRegionModelHelper:
             )
             return model_id.value
 
+        resolved = model_id.value
         for is_global in (True, False):
             candidate = cls._build_cross_region_model_id(
                 model_id, region_name, is_global=is_global
             )
             if candidate in profiles:
                 logger.debug("Using cross-region model: '%s'", candidate)
-                return candidate
-        logger.debug(
-            "Cross-region profiles not available, using standard model: '%s'",
-            model_id.value,
+                resolved = candidate
+                break
+        else:
+            logger.debug(
+                "Cross-region profiles not available, using standard model: '%s'",
+                model_id.value,
+            )
+        # Prefer this project's APPLICATION inference profile when one exists. It
+        # is the only way on-demand Bedrock token spend carries a cost-allocation
+        # tag — InvokeModel has no taggable resource behind it otherwise — and this
+        # account bills several workloads against the same Claude models.
+        return cls._application_profile_arn(
+            boto_session, model_id, region_name, resolved
         )
-        return model_id.value
+
+    @staticmethod
+    def application_profile_name(model_id: LanguageModelId) -> str:
+        """Deterministic name for this project/stage's application inference
+        profile for a model. Shared by the resolver and
+        ``scripts/put_inference_profiles.py`` so the two cannot drift."""
+        project = os.getenv(EnvVars.PROJECT_NAME.value, "tech-digest")
+        stage = os.getenv(
+            EnvVars.STAGE.value,
+            os.getenv(EnvVars.CONFIG_FILE_SUFFIX.value, "dev"),
+        )
+        slug = re.sub(r"[^A-Za-z0-9]+", "-", model_id.value).strip("-")
+        return f"{project}-{stage}-{slug}"
+
+    @classmethod
+    def _application_profile_arn(
+        cls,
+        boto_session: boto3.Session,
+        model_id: LanguageModelId,
+        region_name: str,
+        fallback: str,
+    ) -> str:
+        """ARN of this project's application inference profile, or ``fallback``.
+
+        Best-effort by design: cost attribution must never be able to stop a
+        generation, so a missing profile, a denied ListInferenceProfiles or any
+        unexpected error keeps the id the caller would have used anyway.
+        """
+        wanted = cls.application_profile_name(model_id)
+        cached = cls._application_profile_cache.get((region_name, wanted))
+        if cached is not None:
+            return cached or fallback
+        try:
+            client = boto_session.client("bedrock", region_name=region_name)
+            paginator = client.get_paginator("list_inference_profiles")
+            for page in paginator.paginate(typeEquals="APPLICATION"):
+                for summary in page.get("inferenceProfileSummaries", []):
+                    if summary.get("inferenceProfileName") == wanted:
+                        arn = summary["inferenceProfileArn"]
+                        cls._application_profile_cache[(region_name, wanted)] = arn
+                        logger.debug(
+                            "Using application inference profile '%s' (%s)",
+                            wanted,
+                            arn,
+                        )
+                        return arn
+        except Exception as e:
+            logger.debug(
+                "Could not look up application inference profile '%s': %s", wanted, e
+            )
+            return fallback
+        # Cache the negative result too: without it every model build re-lists.
+        cls._application_profile_cache[(region_name, wanted)] = ""
+        logger.debug(
+            "No application inference profile named '%s'; using '%s'. Bedrock spend "
+            "will not be tagged — run scripts/put_inference_profiles.py to enable "
+            "cost attribution.",
+            wanted,
+            fallback,
+        )
+        return fallback
 
     @classmethod
     def _get_available_profiles(
@@ -389,11 +513,16 @@ class BedrockLanguageModelFactory(
         model_info: LanguageModelInfo,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        # A `stage` names the pipeline step making the call so its token usage is
+        # separable in the logs; Cost Explorer only sees the model.
+        callbacks = list(kwargs.get("callbacks") or [])
+        if stage := kwargs.get("stage"):
+            callbacks.append(TokenUsageLogger(str(stage), resolved_model_id))
         config = {
             "model_id": resolved_model_id,
             "region_name": self.region_name,
             "client": self._client,
-            "callbacks": kwargs.get("callbacks"),
+            "callbacks": callbacks or None,
         }
         if (
             self.boto_session.profile_name

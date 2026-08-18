@@ -6,6 +6,7 @@ import aws_cdk as core
 import boto3
 from aws_cdk import (
     Duration,
+    RemovalPolicy,
     Stack,
     Tags,
 )
@@ -34,6 +35,9 @@ from aws_cdk import (
     aws_lambda as lambda_,
 )
 from aws_cdk import (
+    aws_logs as logs,
+)
+from aws_cdk import (
     aws_sns as sns,
 )
 from aws_cdk import (
@@ -56,6 +60,11 @@ from app.src import AppConstants, EnvVars, SSMParams, get_account_id, logger
 
 
 class NewsletterStack(Stack):
+    # Runtime logs are for debugging the last few runs, not an archive. Left
+    # unset (the default) a log group never expires, so a weekly job pays storage
+    # on logs nobody will read again — and the growth is invisible.
+    LOG_RETENTION = logs.RetentionDays.THREE_MONTHS
+
     def __init__(
         self,
         scope: Construct,
@@ -134,7 +143,14 @@ class NewsletterStack(Stack):
         return f"{self.project_name}-{self.stage}-{suffix}"
 
     def _add_tags(self, scope: Construct) -> None:
+        # `Project` matches the key the sibling projects (omnisummary, paper-bridge,
+        # scholar-lens) tag with, and the key put_inference_profiles.py puts on the
+        # Bedrock application inference profiles. A cost-allocation tag is activated
+        # once per payer account BY KEY, so sharing one key means one activation
+        # covers every workload instead of one per project. `ProjectName` is kept
+        # alongside it so any existing Cost Explorer filter or report keeps working.
         for key, value in {
+            "Project": self.project_name,
             "ProjectName": self.project_name,
             "Stage": self.stage,
             "CostCenter": self.project_name,
@@ -300,6 +316,13 @@ class NewsletterStack(Stack):
                 resources=[
                     "arn:aws:bedrock:*::foundation-model/anthropic.*",
                     f"arn:aws:bedrock:*:{account}:inference-profile/*",
+                    # `application-inference-profile` is a DIFFERENT IAM resource
+                    # type from `inference-profile`. The runtime prefers this
+                    # project's application profile when one exists (that is how
+                    # Bedrock spend gets a cost-allocation tag), so omitting this
+                    # makes every Bedrock call AccessDenied the moment a profile is
+                    # provisioned — while working fine until then.
+                    f"arn:aws:bedrock:*:{account}:application-inference-profile/*",
                 ],
             ),
             iam.PolicyStatement(
@@ -381,6 +404,10 @@ class NewsletterStack(Stack):
             EnvVars.CONFIG_FILE_SUFFIX.value: self.stage,
             EnvVars.DEFAULT_REGION_NAME.value: default_region_name or "ap-northeast-2",
             EnvVars.LOG_LEVEL.value: "INFO",
+            # Name this project's Bedrock application inference profiles, which is
+            # what carries the cost-allocation tags.
+            EnvVars.PROJECT_NAME.value: self.project_name,
+            EnvVars.STAGE.value: self.stage,
             EnvVars.TOPIC_ARN.value: topic_arn,
         }
         env_vars.update(kwargs)
@@ -482,6 +509,7 @@ class NewsletterStack(Stack):
             vpc=self.vpc,
             vpc_subnets=self.vpc_subnets,
             retry_attempts=2,
+            log_retention=self.LOG_RETENTION,
         )
 
     def _create_job_queue(self) -> batch.JobQueue:
@@ -580,7 +608,17 @@ class NewsletterStack(Stack):
             ],
             environment=environment,
             logging=ecs.LogDriver.aws_logs(
-                stream_prefix=f"{self.project_name}-{self.stage}"
+                stream_prefix=f"{self.project_name}-{self.stage}",
+                # Without an explicit group Batch logs into /aws/batch/job with NO
+                # retention, so a weekly job accumulates logs forever and the
+                # project's output is mixed in with every other Batch workload's.
+                log_group=logs.LogGroup(
+                    self,
+                    "NewsletterJobLogGroup",
+                    log_group_name=f"/aws/batch/{self._get_resource_name('newsletter')}",
+                    retention=self.LOG_RETENTION,
+                    removal_policy=RemovalPolicy.DESTROY,
+                ),
             ),
         )
 

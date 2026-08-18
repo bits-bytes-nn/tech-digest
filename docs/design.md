@@ -472,6 +472,31 @@ FAILED 종료 상태를 EventBridge 규칙으로 잡아 SNS로 전달, (2) Lambd
 모델 ID로 폴백합니다. 이 덕분에 같은 설정을 여러 리전에서 그대로 돌릴 수 있습니다.
 프로파일 목록은 `list_inference_profiles`로 조회합니다.
 
+**Bedrock 비용 귀속(신규).** 마지막 단계로, 이 프로젝트의 **애플리케이션 추론
+프로파일**이 있으면 그 ARN을 우선합니다. 온디맨드 `InvokeModel`에는 태그를 붙일 수
+있는 리소스가 없어서 토큰 사용량에 비용 할당 태그를 실을 방법이 이것뿐이고, 이 계정은
+여러 워크로드가 같은 Claude 모델을 공유합니다(실측: 30일 Bedrock 청구가 프로젝트별로
+쪼개지지 않는 하나의 총액). 프로파일 이름은 `application_profile_name()`이
+`{project}-{stage}-{model-slug}`로 만들며, `scripts/put_inference_profiles.py`와 런타임이
+**같은 함수**를 쓰므로 이름이 갈라질 수 없습니다. 조회는 **best-effort**입니다 —
+프로파일이 없거나 `ListInferenceProfiles`가 거부되면 원래 쓸 ID를 그대로 씁니다.
+비용 리포팅이 생성을 멈추게 해서는 안 됩니다. 없다는 결과도 캐시합니다(안 하면 모델을
+만들 때마다 재조회).
+
+> **IAM 함정.** `application-inference-profile`은 `inference-profile`과 **다른 IAM
+> 리소스 타입**입니다. 정책에 앞의 것을 넣지 않으면, **프로파일이 생성되는 순간부터**
+> 모든 Bedrock 호출이 `AccessDenied`가 됩니다 — 프로파일이 없을 때는 완벽히
+> 동작하므로 스크립트를 돌리기 전까지 증상이 나타나지 않습니다.
+
+### `TokenUsageLogger`
+모든 LLM 호출의 토큰 사용량을 **어느 단계가 호출했는지**와 함께 로그로 남깁니다.
+Cost Explorer는 **모델 단위**로만 청구하는데, 필터링·요약·출력 교정이 같은 모델을
+공유하고 인사말과 교정이 또 같은 모델을 공유합니다. 그래서 "Sonnet 5: 입력 4.7M 토큰"
+같은 청구서로는 단계별 귀속이 불가능합니다. 특히 **필터링(수집된 글마다 1회, 각각
+전문을 실어 보냄)** 은 요약(몇 건)과 비용 형태가 완전히 다릅니다 — 이 로그 없이 하는
+최적화는 추측입니다. `get_model(stage=...)`로 붙이며, 콜백은 어떤 경우에도 생성을
+실패시킬 수 없도록 모든 읽기를 방어적으로 처리합니다.
+
 ### `BedrockLanguageModelFactory`
 `get_model`은 (가능하면 크로스 리전인) 모델 ID를 해석하고, `ChatBedrockConverse`
 (크로스 리전이거나 사고를 켤 때)와 `ChatBedrock` 중 무엇을 쓸지 정한 뒤 설정을

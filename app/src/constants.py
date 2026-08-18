@@ -19,6 +19,11 @@ class EnvVars(str, Enum):
     LANGCHAIN_ENDPOINT = "LANGCHAIN_ENDPOINT"
     LANGCHAIN_PROJECT = "LANGCHAIN_PROJECT"
     LOG_LEVEL = "LOG_LEVEL"
+    # Identify the deployment for Bedrock cost attribution: they name this
+    # project/stage's application inference profiles, which are what carry the
+    # cost-allocation tags (see model_factory.application_profile_name).
+    PROJECT_NAME = "PROJECT_NAME"
+    STAGE = "STAGE"
     TOPIC_ARN = "TOPIC_ARN"
 
 

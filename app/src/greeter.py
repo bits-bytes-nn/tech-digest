@@ -34,7 +34,7 @@ class Greeter(RetryableBase):
         if not model_info:
             raise ValueError(f"Unsupported model ID: '{greeting_model_id.value}'")
         greeting_llm = llm_factory.get_model(
-            model_id=greeting_model_id, temperature=0.4
+            model_id=greeting_model_id, temperature=0.4, stage="greeting"
         )
         self.greeter = (
             GreetingPrompt.for_language(language).get_prompt()

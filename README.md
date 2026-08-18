@@ -144,7 +144,35 @@ newsletter:
 
 ```bash
 python scripts/deploy_infra.py
+python scripts/put_inference_profiles.py --stage dev   # once per account/stage
 ```
+
+### Bedrock cost attribution
+
+On-demand Bedrock bills against no taggable resource, so `InvokeModel` token spend
+cannot carry a cost-allocation tag — in a shared account the Bedrock line is one
+unattributable total. An **application inference profile** *is* taggable, and invoking
+through its ARN attributes the usage.
+
+`scripts/put_inference_profiles.py` creates one per configured model, named
+`{project}-{stage}-{model-slug}` and tagged `Project`/`Stage`, copied from the
+system-defined cross-region profile so the same routing is inherited.
+`BedrockCrossRegionModelHelper` prefers them at resolution time — the single place every
+model build already goes through. A missing profile or a denied lookup silently keeps
+the system-defined id: cost reporting must never stop a generation.
+
+Two things to know:
+
+- `application-inference-profile` is a **different IAM resource type** from
+  `inference-profile`. The policy grants both; dropping the former makes every Bedrock
+  call `AccessDenied` the moment a profile exists.
+- Activate the `Project` cost allocation tag in **Billing → Cost allocation tags** for
+  this to reach Cost Explorer (up to 24h, and **not** retroactive).
+
+Complementing it, each stage names itself when building its model, so every call logs
+`LLM usage stage=... model=... input=... output=... cache_read=... cache_write=...` —
+the bill is per model, while filtering, summarization, output-fixing and the greeting
+share just two of them.
 
 ### Run locally
 

@@ -142,7 +142,35 @@ newsletter:
 
 ```bash
 python scripts/deploy_infra.py
+python scripts/put_inference_profiles.py --stage dev   # 계정/스테이지마다 한 번
 ```
+
+### Bedrock 비용 귀속
+
+온디맨드 Bedrock의 `InvokeModel`에는 태그를 붙일 수 있는 리소스가 없어서 토큰 사용량에
+비용 할당 태그를 실을 수 없습니다 — 여러 워크로드가 같은 계정에서 같은 Claude 모델을
+쓰면 Bedrock 청구서는 **귀속 불가능한 하나의 총액**이 됩니다. **애플리케이션 추론
+프로파일**은 태그가 붙고, 그 ARN으로 호출하면 사용량이 그 태그로 귀속됩니다.
+
+`scripts/put_inference_profiles.py`가 설정된 모델마다 하나씩,
+`{project}-{stage}-{model-slug}` 이름으로 `Project`/`Stage` 태그를 달아 만듭니다.
+시스템 정의 크로스 리전 프로파일에서 복사하므로 라우팅은 그대로 물려받습니다.
+`BedrockCrossRegionModelHelper`가 해석 시점에 이걸 우선하는데, 모든 모델 생성이 이미
+지나가는 단 한 곳입니다. 프로파일이 없거나 조회가 거부되면 조용히 기존 ID를
+씁니다 — 비용 리포팅이 생성을 멈추게 해서는 안 되기 때문입니다.
+
+알아둘 것 두 가지:
+
+- `application-inference-profile`은 `inference-profile`과 **다른 IAM 리소스 타입**입니다.
+  정책은 둘 다 허용하며, 앞의 것을 빼면 **프로파일이 존재하는 순간부터** 모든 Bedrock
+  호출이 `AccessDenied`가 됩니다(프로파일이 없을 때는 아무 문제 없이 동작합니다).
+- Cost Explorer에 나타나게 하려면 **Billing → 비용 할당 태그**에서 `Project` 태그를
+  활성화해야 합니다(최대 24시간, **소급 적용 안 됨**).
+
+보완 장치로, 각 단계가 모델을 만들 때 자기 이름을 넘기므로 모든 호출이
+`LLM usage stage=... model=... input=... output=... cache_read=... cache_write=...`를
+남깁니다 — 청구는 모델 단위인데 필터링·요약·출력 교정·인사말이 모델 두 개를 나눠 쓰기
+때문입니다.
 
 ### 로컬 실행
 

@@ -416,6 +416,7 @@ class Summarizer:
         filtering_llm = self.llm_factory.get_model(
             model_id=model_id,
             temperature=0.0,
+            stage="filtering",
             enable_thinking=use_thinking,
             thinking_budget_tokens=thinking_budget_tokens
             or self.llm_factory.DEFAULT_THINKING_BUDGET_TOKENS,
@@ -449,7 +450,9 @@ class Summarizer:
             raise ValueError(f"Invalid model ID: '{model_id}'")
         fixing_model_id = fixing_model_id or LanguageModelId.CLAUDE_V4_5_HAIKU
         fixing_llm = self.llm_factory.get_model(
-            model_id=LanguageModelId(fixing_model_id), temperature=0.0
+            model_id=LanguageModelId(fixing_model_id),
+            temperature=0.0,
+            stage="output-fixing",
         )
         # required_tags=["summary"] makes the parser raise on empty/malformed
         # output so OutputFixingParser actually invokes the fixing model to
@@ -464,6 +467,7 @@ class Summarizer:
         summarization_llm = self.llm_factory.get_model(
             model_id=model_id,
             temperature=0.0,
+            stage="summarization",
             enable_thinking=use_thinking,
             thinking_budget_tokens=thinking_budget_tokens
             or self.llm_factory.DEFAULT_THINKING_BUDGET_TOKENS,
