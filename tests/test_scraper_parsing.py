@@ -354,3 +354,41 @@ class TestDateAttribution:
             assert cls.LINK_PATTERN is not None, cls.__name__
             assert cls.DATE_PATTERNS, cls.__name__
         assert "_find_date_near_element" in vars(BasePageScraper)
+
+
+class TestXaiTitleExtraction:
+    """x.ai cards nest the whole teaser inside the anchor, so reading the card's
+    full text produced titles like
+
+        'Grok 4.6Aug 12, 2026Introducing Grok 4.6Aug 12, 2026IntroducingGrok
+         4.6Grok 4.6 builds on Grok 4.5 with a particular focus on...'
+
+    The heading inside the card is preferred instead. Verified against the live
+    page: 18 posts, none with a title over 90 characters."""
+
+    @pytest.fixture
+    def scraper(self):
+        return XAIBlogScraper(page_url="https://x.ai/news", source="xai")
+
+    def test_heading_wins_over_the_whole_card_text(self, scraper):
+        link = BeautifulSoup(
+            """<a href="/news/grok-4-6"><div><span>Grok 4.6</span>
+              <span>Aug 12, 2026</span><h3>Grok 4.6 in GitHub Copilot</h3>
+              <p>Grok 4.6 builds on Grok 4.5 with a particular focus on agents.</p>
+            </div></a>""",
+            "html.parser",
+        ).find("a")
+        assert scraper._extract_title(link) == "Grok 4.6 in GitHub Copilot"
+
+    def test_falls_back_to_card_text_without_a_heading(self, scraper):
+        link = BeautifulSoup(
+            '<a href="/news/x"><div>Introducing Grok Bot</div></a>', "html.parser"
+        ).find("a")
+        assert scraper._extract_title(link) == "Introducing Grok Bot"
+
+    def test_empty_heading_does_not_shadow_real_text(self, scraper):
+        link = BeautifulSoup(
+            '<a href="/news/x"><h3>  </h3><div>Real Title Here</div></a>',
+            "html.parser",
+        ).find("a")
+        assert scraper._extract_title(link) == "Real Title Here"

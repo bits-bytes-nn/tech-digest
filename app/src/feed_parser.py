@@ -1197,14 +1197,30 @@ class XAIBlogScraper(BasePageScraper):
 
     @staticmethod
     def _extract_title(link: Tag) -> str:
-        title = link.get_text(strip=True)
+        """The post title from an x.ai news card.
 
+        The heading INSIDE the card is preferred. Reading the card's full text
+        first — as this did, only falling back to a heading when that text was
+        under 5 characters, which never happened — concatenated everything in the
+        card into the title:
+
+            'Grok 4.6Aug 12, 2026Introducing Grok 4.6Aug 12, 2026Introducing
+             Grok 4.6Grok 4.6 builds on Grok 4.5 with a particular focus on...'
+
+        Every card on the live page carries a real heading ('Grok 4.6 in GitHub
+        Copilot'), so preferring it fixes the title outright. The full-text path
+        stays as the fallback for cards that have no heading.
+        """
+        heading = link.select_one("h1, h2, h3, h4, h5, h6")
+        if heading and (title := heading.get_text(strip=True)):
+            return title
+
+        title = link.get_text(strip=True)
         if not title or len(title) < 5:
             parent = link.parent
             for _ in range(3):
                 if parent:
-                    heading = parent.select_one("h1, h2, h3, h4, h5, h6")
-                    if heading:
+                    if heading := parent.select_one("h1, h2, h3, h4, h5, h6"):
                         title = heading.get_text(strip=True)
                         break
                     parent = parent.parent
