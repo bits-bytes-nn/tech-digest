@@ -150,13 +150,26 @@ class NewsletterStack(Stack):
         # covers every workload instead of one per project. `ProjectName` is kept
         # alongside it so any existing Cost Explorer filter or report keeps working.
         for key, value in {
-            "Project": self.project_name,
             "ProjectName": self.project_name,
             "Stage": self.stage,
             "CostCenter": self.project_name,
             "ManagedBy": "CDK",
         }.items():
             Tags.of(scope).add(key, value)
+        # `Project` is added separately, EXCLUDING Batch compute environments.
+        # `AWS::Batch::ComputeEnvironment` treats Tags as create-only, so adding a
+        # key to an existing one requires replacement — and because the compute
+        # environments are custom-named, CloudFormation cannot replace them
+        # ("cannot update a stack when a custom-named resource requires
+        # replacing"), which fails the whole deploy. Excluding them costs nothing
+        # worth having: the EC2 minutes are cents, while the spend this tag exists
+        # to attribute is Bedrock, and that is tagged on the application inference
+        # profiles by scripts/put_inference_profiles.py rather than by CDK.
+        Tags.of(scope).add(
+            "Project",
+            self.project_name,
+            exclude_resource_types=["AWS::Batch::ComputeEnvironment"],
+        )
 
     def _configure_vpc(self, vpc_id: str | None, subnet_ids: list[str] | None) -> None:
         if vpc_id and subnet_ids:
