@@ -273,21 +273,24 @@ class SourceFetchError(Exception):
     posts. The collector uses this to mark a source FAILED vs. EMPTY."""
 
 
-def _visible_text_length(html: str) -> int:
-    """Number of visible-text characters in an HTML string (markup stripped).
+def visible_text(html: str) -> str:
+    """The readable prose in an HTML string, markup stripped.
 
-    Single source of truth for "how much readable prose is here", used both by
-    the full-article scrape decision and by the content-sufficiency gate so the
-    two stay consistent.
+    Single source of truth for "what a reader actually sees", used by the
+    scrape decision, the content-sufficiency gate and the relevance filter so
+    all three agree on what counts as content.
     """
     if not html:
-        return 0
+        return ""
     try:
-        return len(
-            BeautifulSoup(html, "html.parser").get_text(separator=" ", strip=True)
-        )
+        return BeautifulSoup(html, "html.parser").get_text(separator=" ", strip=True)
     except Exception:
-        return len(html)
+        return html
+
+
+def _visible_text_length(html: str) -> int:
+    """Number of visible-text characters in an HTML string (markup stripped)."""
+    return len(visible_text(html)) if html else 0
 
 
 def _get_following_redirects(

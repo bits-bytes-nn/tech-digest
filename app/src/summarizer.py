@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from .constants import FilteringCriteria, Language, LanguageModelId
 from .eval_metrics import is_on_grid
-from .feed_parser import Post, is_safe_url
+from .feed_parser import Post, is_safe_url, visible_text
 from .logger import logger
 from .model_factory import BedrockLanguageModelFactory
 from .prompts.prompts import FilteringPrompt, SummarizationPrompt
@@ -360,6 +360,12 @@ class SummarizerSettings(BaseModel):
     min_content_length: int = Field(default=600, ge=0)
     max_posts: int | None = Field(default=None, ge=1)
     max_per_source: int | None = Field(default=None, ge=1)
+    # Send the filter the article's visible text rather than its raw HTML. The
+    # rubric scores topic and quality, which live in the prose, while markup was
+    # measured at ~87% of filtering input tokens on a real run. Filtering is ~74%
+    # of Bedrock spend, so this is the single largest cost lever. Set False to
+    # restore the previous raw-HTML behaviour.
+    filter_on_visible_text: bool = True
     filtering_thinking_budget_tokens: int = Field(default=4096, ge=1024)
     summarization_thinking_budget_tokens: int = Field(default=8192, ge=1024)
     summarization_max_tokens: int | None = Field(default=None, ge=256)
@@ -620,11 +626,23 @@ class Summarizer:
 
         included = ", ".join(self.settings.included_topics)
         excluded = ", ".join(self.settings.excluded_topics)
+        strip_markup = self.settings.filter_on_visible_text
 
         def prepare_inputs(items: list[Post]) -> list[dict[str, Any]]:
             return [
                 {
-                    "post": post.content,
+                    # The filter scores topic relevance and quality, both of which
+                    # live in the prose — markup carries none of it. Measured on a
+                    # real run, raw HTML was 8x the visible text (one page: 77,417
+                    # chars of HTML around 5,669 chars of article), so sending HTML
+                    # meant ~87% of filtering input tokens were nav bars, inline
+                    # styles and scripts. Filtering is 74% of this pipeline's
+                    # Bedrock cost, so that waste dominated the bill. Summarization
+                    # still receives the full HTML, which it needs for code blocks,
+                    # tables and image URLs.
+                    "post": visible_text(post.content)
+                    if strip_markup
+                    else post.content,
                     "original_title": post.title,
                     "included_topics": included,
                     "excluded_topics": excluded,

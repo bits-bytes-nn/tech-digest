@@ -345,3 +345,57 @@ class TestSelectForDigest:
             [("aws1", "aws", 0.90), ("aws2", "aws", 0.88), ("meta1", "meta", 0.80)]
         )
         assert [p.title for p in s._select_for_digest(posts)] == ["aws1", "aws2"]
+
+
+class TestFilterInputIsProseNotMarkup:
+    """Filtering is ~74% of this pipeline's Bedrock cost and its input was raw
+    HTML, of which ~87% was markup on a real run (77,417 chars of HTML around
+    5,669 chars of article). The rubric scores topic and quality, which live in
+    the prose, so the markup was pure spend."""
+
+    def _captured_inputs(self, summarizer, posts):
+        captured: list[dict] = []
+
+        class _Capture(_FakeChain):
+            def batch(self, inputs, config=None):
+                captured.extend(inputs)
+                return [{"score": "0.90", "reason": "", "title": ""} for _ in inputs]
+
+        summarizer.filter = _Capture([])
+        summarizer._filter_posts(posts)
+        return captured
+
+    def test_markup_stripped_from_filter_input(self):
+        s = _summarizer(min_score=0.0)
+        html = (
+            '<div class="nav"><script>var a=1;</script>'
+            "<style>.x{color:red}</style><p>Real article prose here.</p></div>"
+        )
+        captured = self._captured_inputs(s, [_post("a", content=html)])
+        sent = captured[0]["post"]
+        assert "Real article prose here." in sent
+        assert "<script>" not in sent and "class=" not in sent
+        assert len(sent) < len(html)
+
+    def test_summarization_still_receives_full_html(self):
+        """Only the FILTER gets prose; the summarizer needs the markup for code
+        blocks, tables and image URLs."""
+        s = _summarizer(min_score=0.0)
+        html = '<p>Body</p><img src="https://cdn.example.com/x.png">'
+        post = _post("a", content=html)
+        captured: list[dict] = []
+
+        class _Capture(_FakeChain):
+            def batch(self, inputs, config=None):
+                captured.extend(inputs)
+                return [{"summary": "ok", "tags": [], "urls": []}]
+
+        s.summarizer = _Capture([])
+        s._summarize_posts([post])
+        assert captured[0]["post"] == html
+
+    def test_flag_restores_raw_html_for_filtering(self):
+        s = _summarizer(min_score=0.0, filter_on_visible_text=False)
+        html = "<p>Prose</p>"
+        captured = self._captured_inputs(s, [_post("a", content=html)])
+        assert captured[0]["post"] == html

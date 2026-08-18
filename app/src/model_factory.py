@@ -450,7 +450,7 @@ class BedrockLanguageModelFactory(
             enable_thinking and model_info.supports_thinking
         )
         model_config = self._build_model_config(
-            model_info, resolved_model_id, use_converse, **kwargs
+            model_info, resolved_model_id, use_converse, model_id=model_id, **kwargs
         )
         model_class = ChatBedrockConverse if use_converse else ChatBedrock
         model = model_class(**model_config)
@@ -524,6 +524,15 @@ class BedrockLanguageModelFactory(
             "client": self._client,
             "callbacks": callbacks or None,
         }
+        # An application inference profile is identified by ARN, and an ARN does not
+        # encode the model provider, so langchain_aws cannot infer it and refuses to
+        # construct ("Model provider should be supplied when passing a model ARN").
+        # Derive it from the catalog id ("anthropic.claude-...") rather than
+        # hardcoding, so adding a non-Anthropic model stays correct.
+        if resolved_model_id.startswith("arn:"):
+            config["provider"] = kwargs.get("provider") or self._provider_of(
+                kwargs.get("model_id")
+            )
         if (
             self.boto_session.profile_name
             and self.boto_session.profile_name != "default"
@@ -637,6 +646,13 @@ class BedrockLanguageModelFactory(
         else:
             config.setdefault("model_kwargs", {}).update(think_config)
         logger.debug("Applied thinking mode (budget_tokens=%d)", budget)
+
+    @staticmethod
+    def _provider_of(model_id: LanguageModelId | None) -> str:
+        """Bedrock provider prefix of a catalog model id ("anthropic.claude-..")."""
+        if model_id is None:
+            return "anthropic"
+        return model_id.value.split(".", 1)[0]
 
     @staticmethod
     def _validate_max_tokens(

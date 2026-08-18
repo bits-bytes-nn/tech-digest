@@ -199,3 +199,44 @@ class TestTokenUsageLogger:
     def test_malformed_response_never_raises(self):
         """A telemetry callback must not be able to fail a generation."""
         TokenUsageLogger("greeting", "m").on_llm_end(object())
+
+
+class TestArnRequiresProvider:
+    """An application inference profile is identified by ARN, and an ARN does not
+    encode the provider — langchain_aws then refuses to construct the client with
+    "Model provider should be supplied when passing a model ARN as model_id".
+
+    Regression: this surfaced only once real profiles existed, i.e. it would have
+    broken the next scheduled run rather than any test or synth.
+    """
+
+    def _factory(self):
+        from app.src.model_factory import BedrockLanguageModelFactory
+
+        factory = BedrockLanguageModelFactory.__new__(BedrockLanguageModelFactory)
+        factory.region_name = "us-west-2"
+        factory._client = object()
+        factory.boto_session = SimpleNamespace(profile_name=None)
+        return factory
+
+    def test_provider_supplied_for_an_arn_model_id(self):
+        from app.src.model_factory import _LANGUAGE_MODEL_INFO
+
+        config = self._factory()._build_model_config(
+            _LANGUAGE_MODEL_INFO[MODEL], APP_ARN, True, model_id=MODEL
+        )
+        assert config["provider"] == "anthropic"
+
+    def test_no_provider_needed_for_a_plain_model_id(self):
+        from app.src.model_factory import _LANGUAGE_MODEL_INFO
+
+        config = self._factory()._build_model_config(
+            _LANGUAGE_MODEL_INFO[MODEL], SYSTEM_PROFILE, True, model_id=MODEL
+        )
+        assert "provider" not in config
+
+    def test_provider_derived_from_the_catalog_id_not_hardcoded(self):
+        from app.src.model_factory import BedrockLanguageModelFactory
+
+        assert BedrockLanguageModelFactory._provider_of(MODEL) == "anthropic"
+        assert BedrockLanguageModelFactory._provider_of(None) == "anthropic"
