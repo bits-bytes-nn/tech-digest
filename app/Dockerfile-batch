@@ -37,8 +37,12 @@ RUN fc-cache -fv
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt
+# Install from the LOCK, not the ranges: requirements.txt says what versions are
+# compatible, requirements.lock says which ones this image ships. Resolving the
+# ranges at build time meant a `cdk deploy` could pull a release CI never tested,
+# and two deploys of one commit could differ.
+COPY requirements.txt requirements.lock ./
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.lock
 
 COPY . ./
 
