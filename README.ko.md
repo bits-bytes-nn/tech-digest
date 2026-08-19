@@ -199,7 +199,13 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(381개 테스트, 커버리지 81%)
+pytest                       # 빠른 오프라인 단위/통합 스위트(451개 테스트)
+
+# 생성된 실행 결과에 대한 출력 품질 루빅스 — 결정적이며 AWS·비용 없음.
+# 각 차원이 요약 프롬프트의 규칙 하나에 대응하므로, 낮은 점수는 어느 지시문을
+# 고쳐야 하는지를 알려줍니다. --compare로 프롬프트 수정 효과를 검증합니다.
+python scripts/eval_summary_quality.py --date 2026-08-19
+python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
 ```
 
 이 검사들은 모든 푸시와 풀 리퀘스트에서 CI로도 똑같이 실행됩니다

@@ -275,12 +275,14 @@ class TestClipBudget:
     weight, so a regression in either surfaces here instead of in an inbox."""
 
     # Upper bound of the Korean summary budget stated in SummarizationPrompt.
-    KO_SUMMARY_CHARS = 2300
+    KO_SUMMARY_CHARS = 6000
 
-    def _issue(self, article_count: int) -> NewsletterData:
+    def _issue(
+        self, article_count: int, summary_chars: int | None = None
+    ) -> NewsletterData:
         body = (
             "<h3>📌 왜 이 아티클에 주목해야 하나요?</h3><p>"
-            + "가" * self.KO_SUMMARY_CHARS
+            + "가" * (summary_chars or self.KO_SUMMARY_CHARS)
             + "</p>"
         )
         articles = [
@@ -314,15 +316,34 @@ class TestClipBudget:
             language=Language.KO,
         )
 
-    @pytest.mark.parametrize("article_count", [3, 5])
-    def test_issue_fits_within_clip_budget(self, templates_dir, article_count):
+    # The budget and max_posts are a PAIR: summary length is calibrated for the
+    # configured max_posts of 3. Raising max_posts requires tightening the summary
+    # budget, which is why both pairings are pinned here rather than one number.
+    @pytest.mark.parametrize(
+        "article_count,summary_chars", [(3, KO_SUMMARY_CHARS), (5, 4000)]
+    )
+    def test_issue_fits_within_clip_budget(
+        self, templates_dir, article_count, summary_chars
+    ):
         renderer = NewsletterRenderer(templates_dir)
-        html = renderer.render_newsletter(self._issue(article_count))
+        html = renderer.render_newsletter(
+            self._issue(article_count, summary_chars=summary_chars)
+        )
         size = len(html.encode("utf-8"))
         assert size <= GMAIL_CLIP_BYTES, (
-            f"{article_count}-article issue is {size / 1024:.1f} KB, over the "
-            f"{GMAIL_CLIP_BYTES / 1024:.0f} KB clip budget — Gmail will truncate it."
+            f"{article_count} articles x {summary_chars} chars is "
+            f"{size / 1024:.1f} KB, over the {GMAIL_CLIP_BYTES / 1024:.0f} KB clip "
+            f"budget — Gmail will truncate it."
         )
+
+    def test_the_budget_is_calibrated_not_merely_generous(self, templates_dir):
+        """Guards the other direction: the budget was once cut to 2,300 chars,
+        which threw away technical depth the clip limit never required. If the
+        ceiling could be raised a lot without clipping, it is too low."""
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._issue(3, summary_chars=8000))
+        headroom = GMAIL_CLIP_BYTES - len(html.encode("utf-8"))
+        assert headroom > 0, "8,000 chars x 3 should still fit; budget can rise"
 
     def test_oversized_issue_is_reported(
         self, templates_dir, caplog, propagating_logger

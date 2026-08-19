@@ -486,18 +486,19 @@ explanations that make complex technical concepts accessible without sacrificing
    - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
    - Help readers understand the "why" behind technical decisions, not just the "what"
 
-3. **Length Budget (HARD CONSTRAINT)**
-   - Total <summary> body: **900-1,600 words of visible text**, excluding HTML tags
-   - Per-section budget: 📌 3-4 sentences / 🔄 1-2 paragraphs / 🛠️ 2-3 paragraphs /
-     📊 1 paragraph (a table may replace the metric list) / 🔮 2-3 sentences
-   - This is an EMAIL newsletter card, not a blog post. Several of these are
-     delivered in one message, and a message over ~100 KB is TRUNCATED by mail
-     clients — an over-long summary literally loses its ending for the reader
+3. **Length Budget**
+   - Total <summary> body: **1,300-2,000 words of visible text**, excluding HTML tags
+   - Rough per-section shape — 🛠️ should be the LONGEST section by a clear margin:
+     📌 4-6 sentences / 🔄 2-3 paragraphs / 🛠️ **4-6 paragraphs** /
+     📊 1-2 paragraphs (a table may carry the metrics) / 🔮 3-4 sentences
+   - The reader is a practitioner who came for the technical substance. Depth in
+     🛠️ is the POINT of this newsletter — never sacrifice a mechanism, a
+     parameter, a measured number or a design tradeoff to hit a word count
+   - When you must cut, cut RESTATEMENT: anything already said in another section,
+     scene-setting, and generic framing. Never cut technical specifics
    - Do not scale length to the source article. A 20,000-word paper and a
      2,000-word post get the SAME budget; a longer source means being more
-     selective, not writing more
-   - Prefer cutting restatement over cutting substance: drop anything already
-     said in another section before dropping a technical detail
+     selective about WHICH details, not writing more
 
 4. **Educational Focus**
    - Prioritize clarity and understanding over exhaustiveness
@@ -515,9 +516,19 @@ explanations that make complex technical concepts accessible without sacrificing
      roadmap, expansion directions, and opportunities the article explicitly mentions. If there is
      nothing new and forward-looking to add, OMIT this section
 
+**SPECIFICITY RULES (this newsletter's core value):**
+- Carry over EVERY measured number the article reports, WITH its unit ("22-66% lower", "8,000 tokens",
+  "3,200 Gbps", "16 GPUs across 2 nodes"). Never replace a number with an adjective like "significantly
+  faster" — once the figures are gone the summary is useless to a practitioner
+- If the article contains code, configuration, CLI or a schema, include at least the most load-bearing
+  snippet in `<pre><code class="highlight">` (never invent one that is not in the source)
+- When three or more numbers are being compared, put them in a TABLE rather than in prose
+- Name parameters, flags and thresholds exactly as the article does (`routingThreshold`, `PD_BUFFER_SIZE`)
+
 **SECTION SKIP RULE:**
 - If the source material does not contain sufficient information for a section, OMIT that section entirely
-- Do NOT write sections that merely state "no information is available" or "the article does not mention this"
+- These phrasings are BANNED — if you are about to write one, delete the section instead: "no information
+  is available", "the article does not mention", "this is not specified"
 - Only include sections where you can provide meaningful, substantive content based on the source material
 
 **REQUIRED STRUCTURE:**
@@ -581,7 +592,8 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
-<one_liner>[ONE plain-text sentence, 15-30 words, that a reader scanning the digest can use to decide whether to read
+<one_liner>[ONE plain-text sentence, 15-28 words — it must not wrap past two lines in the card. Count the
+words before answering. that a reader scanning the digest can use to decide whether to read
 this card. State the most concrete, specific thing the article establishes — the mechanism plus its measured effect
 where available (e.g. "Splitting prefill and decode onto separate GPU pools over RDMA cuts per-token latency 22-66%
 at high concurrency"). NO adjectives of praise, NO "this article explains/explores/discusses", NO restating the
@@ -609,16 +621,18 @@ Korean:
    - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
    - Help readers understand the "why" behind technical decisions, not just the "what"
 
-3. **분량 예산 (Length Budget — 반드시 지킬 제약)**
-   - <summary> 본문 전체: **한글 1,400~2,300자** (HTML 태그 제외, 가시 텍스트 기준)
-   - 섹션별 배분: 📌 3~4문장 / 🔄 1~2단락 / 🛠️ 2~3단락 / 📊 1단락(수치는 표로 대체 가능) /
-     🔮 2~3문장
-   - 이것은 블로그 글이 아니라 **이메일 뉴스레터 카드**입니다. 한 통에 여러 편이 함께
-     실리고, 메일이 약 100KB를 넘으면 클라이언트가 뒷부분을 **잘라냅니다** — 분량이
-     넘치면 독자는 결말을 아예 못 읽습니다
-   - 원문 길이에 비례해 늘리지 마세요. 2만 단어 논문과 2천 단어 포스트의 예산은
-     **같습니다**. 원문이 길다는 건 더 많이 쓰라는 뜻이 아니라 더 골라내라는 뜻입니다
-   - 줄여야 할 때는 기술적 사실보다 **중복 서술**을 먼저 버리세요
+3. **분량 예산 (Length Budget)**
+   - <summary> 본문 전체: **한글 4,000~6,000자** (HTML 태그 제외, 가시 텍스트 기준)
+   - 섹션별 대략의 배분 — 🛠️가 **확실히 가장 긴 섹션**이어야 합니다:
+     📌 4~6문장 / 🔄 2~3단락 / 🛠️ **4~6단락** / 📊 1~2단락(수치는 표로) / 🔮 3~4문장
+   - 이 뉴스레터의 독자는 기술적 실체를 보러 온 실무자입니다. **🛠️의 깊이가 이
+     뉴스레터의 존재 이유**입니다 — 분량을 맞추려고 메커니즘·파라미터·측정된 수치·설계
+     트레이드오프를 **절대 희생하지 마세요**
+   - 줄여야 한다면 **중복 서술**을 자르세요: 다른 섹션에서 이미 말한 것, 배경 깔기,
+     일반론. 기술적 구체성은 자르지 마세요
+   - 원문 길이에 비례해 늘리지는 마세요. 2만 단어 논문과 2천 단어 포스트의 예산은
+     **같습니다**. 원문이 길다는 건 더 많이 쓰라는 게 아니라 **어떤** 디테일을 고를지
+     더 신중하라는 뜻입니다
 
 4. **Educational Focus**
    - Prioritize clarity and understanding over exhaustiveness
@@ -641,9 +655,20 @@ Korean:
    - 🔮 향후 섹션은 🛠️에서 이미 열거한 한계점을 뒤집어 재서술하는 곳이 아닙니다. 원문이 명시한
      **로드맵·확장 방향·기회**를 다루세요. 새로 덧붙일 forward-looking 내용이 없으면 이 섹션을 생략하세요
 
+**구체성 규칙 (이 뉴스레터의 핵심 가치):**
+- 원문이 보고하는 **측정값은 단위와 함께 빠짐없이** 옮기세요("22~66% 감소", "8,000토큰",
+  "3,200Gbps", "2노드 16 GPU"). 숫자를 "크게 개선"처럼 형용사로 바꾸지 마세요 — 수치가
+  사라지면 이 요약은 실무자에게 쓸모가 없어집니다
+- 원문에 **코드·설정·CLI·스키마가 있으면**, 가장 핵심적인 조각을 최소 하나
+  `<pre><code class="highlight">`로 실으세요(원문에 없으면 만들어내지 마세요)
+- 수치가 3개 이상 비교되면 산문으로 늘어놓지 말고 **표**로 만드세요
+- 파라미터·플래그·임계값의 **이름을 그대로** 쓰세요(`routingThreshold`, `PD_BUFFER_SIZE`)
+
 **섹션 생략 규칙:**
-- 원문에 해당 섹션을 채울 충분한 정보가 없으면, 그 섹션을 통째로 생략하세요
-- "원문에 관련 정보가 없습니다" 또는 "언급되지 않았습니다" 같은 내용으로 섹션을 채우지 마세요
+- 원문에 해당 섹션을 채울 충분한 정보가 없으면, 그 섹션을 **통째로 생략**하세요
+- 다음 표현은 **금지**입니다 — 이런 문장을 쓰게 될 상황이면 그 섹션을 지우세요:
+  "원문에 관련 정보가 없습니다", "언급되지 않았습니다", "확인할 수 없습니다",
+  "명시되어 있지 않습니다"
 - 원문을 기반으로 실질적이고 의미 있는 내용을 작성할 수 있는 섹션만 포함하세요
 
 **REQUIRED STRUCTURE:**
@@ -712,7 +737,8 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
-<one_liner>[한국어 **한 문장**, 50~90자. 다이제스트를 훑는 독자가 이 카드를 읽을지 판단할 근거가 되도록, 이 아티클이
+<one_liner>[한국어 **한 문장**, 공백 포함 **40~100자** — 카드에서 두 줄을 넘지 않는 길이입니다.
+쓴 뒤 글자 수를 직접 세고, 100자를 넘으면 줄이세요. 다이제스트를 훑는 독자가 이 카드를 읽을지 판단할 근거가 되도록, 이 아티클이
 확립한 가장 구체적인 사실 — 메커니즘 + 측정된 효과 — 을 쓰세요. 예: "prefill과 decode를 별도 GPU 풀로 분리해
 동시성이 높을 때 토큰당 지연을 22~66% 줄였습니다". 합니다체를 유지하되, 칭찬 형용사·"이 글은 ~를 다룹니다" 같은
 메타 서술·제목 반복은 금지. 평문만(HTML·마크다운 금지)]</one_liner>
