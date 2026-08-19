@@ -40,19 +40,24 @@ scraping:
   # Posts below this are reported as filtered-out, not summarized.
   min_content_length: 600
   # Sources whose failure is KNOWN and expected, matched as a substring of the
-  # configured URL. They still appear in the crawl-health report but do not raise
-  # the SNS alert. Both of these fail from AWS datacenter egress IPs on essentially
-  # every run, and alerting weekly on something nobody can act on trains you to
-  # ignore the alarm — which then hides a real breakage.
+  # configured URL. They still appear in the crawl-health report and in the run log
+  # but do not raise the SNS alert. All three below are bot-protected and
+  # unreachable from AWS datacenter egress IPs on essentially every run; alerting
+  # weekly on something nobody can act on trains you to ignore the alarm, which
+  # then hides a source that broke for real.
   #
-  # The two fail differently, and BOTH triggers have to be suppressed:
-  #   x.ai         — errors outright, so the source is FAILED.
-  #   ai.meta.com  — returns HTTP 200 and serves a page with ZERO matching post
-  #                  links (21 from a non-datacenter IP, measured 2026-08-19), so
-  #                  it is EMPTY-with-nothing-to-filter rather than FAILED.
+  # They fail in two different SHAPES, and both alert triggers must be suppressed:
+  #   x.ai           — errors outright, so the source is FAILED.
+  #   ai.meta.com    — returns HTTP 200 with ZERO matching post links, so it is
+  #                    EMPTY-with-nothing-to-filter rather than FAILED.
+  #   anthropic.com  — same shape as ai.meta.com.
+  # Measured 2026-08-19 from a non-datacenter IP: Meta 21 candidates, Anthropic 25;
+  # from AWS both 0. Headers cannot fix an ASN block — the request ladder already
+  # sends three realistic browser fingerprints.
   expected_flaky_urls:
     - "x.ai/news"
     - "ai.meta.com"
+    - "anthropic.com"
 
 summarization:
   use_filtering: True
