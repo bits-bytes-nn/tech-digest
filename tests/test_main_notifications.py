@@ -411,9 +411,12 @@ class TestNoRecipientsAlert:
             ]
         )
 
-    def test_alert_names_the_object_to_go_look_at(self):
+    def test_alert_names_the_object_to_go_look_at(self, monkeypatch):
         from configs import Config
 
+        # The committed CI config, not the developer's: config-dev.yaml is
+        # gitignored, so loading it passes locally and fails in CI.
+        monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci")
         session = _FakeSession()
         config = Config.load()
         main._send_no_recipients_alert(session, "arn:topic", config, self._report())
