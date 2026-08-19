@@ -6,6 +6,8 @@ import re
 import shutil
 import sys
 import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from pprint import pformat
 from typing import Any, Final
@@ -36,9 +38,11 @@ from src import (
     get_ssm_param_value,
     is_running_in_aws,
     logger,
+    read_s3_json,
     send_email,
     upload_to_s3,
     validate_emails,
+    write_s3_json,
 )
 
 SEND_INTERVAL_SECONDS: Final[float] = 0.5
@@ -132,20 +136,32 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                 len(posts),
             )
         if config.newsletter.send_emails:
-            success, failed, total = _process_newsletter_emails(
+            outcome = _process_newsletter_emails(
                 newsletter_path,
                 date_suffix,
                 config,
                 default_boto_session,
+                language,
                 None if recipients is None else recipients.split(","),
             )
+            if outcome.skipped and not outcome.attempted:
+                # A retry of an issue that was already fully delivered. Not a
+                # failure and not alarm-worthy — the guard did its job.
+                logger.info(
+                    "All %d recipient(s) had already received this issue; "
+                    "nothing was sent. This run is a retry of a completed send.",
+                    outcome.skipped,
+                )
             if is_running_in_aws() and topic_arn:
-                if total == 0:
-                    # Nothing was even attempted. The partial-delivery alert below
-                    # cannot catch this: it keys on failed recipients, and a run
-                    # with no recipients has none. So an unreadable or missing
-                    # recipients file in S3 meant the issue was built, uploaded
-                    # and silently never sent, with the run still returning 200.
+                if outcome.resolved == 0:
+                    # No recipients could be RESOLVED at all — keyed on the
+                    # resolved count, not on how many were attempted, so a retry
+                    # that legitimately skipped everyone does not read as "nobody
+                    # to send to". The partial-delivery alert below cannot catch
+                    # this either: it keys on failed recipients, and a run with no
+                    # recipients has none. So an unreadable or missing recipients
+                    # file in S3 meant the issue was built, uploaded and silently
+                    # never sent, with the run still returning 200.
                     _send_no_recipients_alert(
                         default_boto_session, topic_arn, config, crawl_report
                     )
@@ -153,9 +169,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                     default_boto_session,
                     topic_arn,
                     config.resources.project_name,
-                    success,
-                    total,
-                    failed,
+                    outcome.succeeded,
+                    outcome.attempted,
+                    outcome.failed,
                     crawl_report,
                 )
         return {"statusCode": 200, "body": "Newsletter processed successfully"}
@@ -413,25 +429,130 @@ def _upload_files_to_s3(
             logger.warning("File not found, skipping upload: '%s'", path)
 
 
+@dataclass
+class DeliveryOutcome:
+    """What one run's send phase actually did.
+
+    ``skipped`` is what distinguishes a retry that had nothing left to do from a
+    run that found nobody to send to — the two used to be indistinguishable at the
+    call site (both produced ``total == 0``), and only one of them is alarm-worthy.
+    """
+
+    #: Recipients the run resolved, before the already-delivered ledger.
+    resolved: int = 0
+    #: Recipients skipped because the ledger says this issue already reached them.
+    skipped: int = 0
+    #: Recipients this run actually tried to send to.
+    attempted: int = 0
+    succeeded: int = 0
+    failed: list[str] = field(default_factory=list)
+
+
 def _process_newsletter_emails(
     newsletter_path: Path,
     date_suffix: str,
     config: Config,
     boto_session: boto3.Session,
+    language: Language,
     recipients: list[str] | None = None,
-) -> tuple[int, list[str], int]:
+) -> DeliveryOutcome:
+    override = recipients is not None
     recipients = _get_recipients(config, boto_session, recipients)
     if not recipients:
         logger.warning("No recipients found, skipping email sending.")
-        return 0, [], 0
+        return DeliveryOutcome()
     newsletter_content = _get_newsletter_content(newsletter_path)
     if not newsletter_content:
         logger.error("Failed to read newsletter content, skipping email sending.")
-        return 0, recipients, len(recipients)
-    success_count, failed_recipients = _send_emails_to_recipients(
-        recipients, newsletter_content, date_suffix, config, boto_session
+        return DeliveryOutcome(
+            resolved=len(recipients), attempted=len(recipients), failed=recipients
+        )
+    # An explicit --recipients run is the operator addressing a specific mailbox on
+    # purpose (a test send, a resend to one reader), so it neither reads nor writes
+    # the ledger. The ledger governs the list-driven issue, which is the only thing
+    # a retry can duplicate.
+    ledger_key = (
+        None if override else _delivery_ledger_key(config, date_suffix, language)
     )
-    return success_count, failed_recipients, len(recipients)
+    return _send_emails_to_recipients(
+        recipients,
+        newsletter_content,
+        date_suffix,
+        config,
+        boto_session,
+        ledger_key=ledger_key,
+    )
+
+
+def _delivery_ledger_key(config: Config, date_suffix: str, language: Language) -> str:
+    """S3 key of the delivery ledger for one issue.
+
+    Keyed by stage, date and language because those are exactly what identify an
+    issue — the same three parts the rendered filename uses. Two runs that differ
+    in any of them are different issues and must not share a ledger.
+    """
+    prefix = (config.resources.s3_prefix or "").strip("/")
+    name = f"delivered-{config.resources.stage}-{date_suffix}-{language.value}.json"
+    return f"{prefix}/{S3Paths.DELIVERIES.value}/{name}".lstrip("/")
+
+
+def _already_delivered(
+    boto_session: boto3.Session, config: Config, ledger_key: str
+) -> set[str]:
+    """Addresses this issue has already reached, lowercased for comparison.
+
+    Fails OPEN: an unreadable or absent ledger yields an empty set, so the run
+    sends to everyone. That is the pre-existing behaviour, and it is the right way
+    to be wrong — a duplicate issue is an annoyance, an issue nobody receives is
+    the failure this pipeline exists to avoid.
+    """
+    ledger = read_s3_json(boto_session, config.resources.s3_bucket_name, ledger_key)
+    if not ledger:
+        return set()
+    delivered = ledger.get("delivered")
+    if not isinstance(delivered, list):
+        logger.warning(
+            "Delivery ledger 's3://%s/%s' has no usable 'delivered' list; "
+            "treating this issue as undelivered.",
+            config.resources.s3_bucket_name,
+            ledger_key,
+        )
+        return set()
+    return {item.strip().lower() for item in delivered if isinstance(item, str)}
+
+
+def _record_delivery(
+    boto_session: boto3.Session,
+    config: Config,
+    ledger_key: str,
+    delivered: list[str],
+) -> None:
+    """Persist the delivered set. Called after EVERY successful send.
+
+    Once per recipient rather than once per run, because the crash this guards
+    against can land in the middle of the loop: a ledger written only at the end
+    would be absent exactly when it is needed, and the retry would re-send to
+    everyone — which is the bug.
+    """
+    written = write_s3_json(
+        boto_session,
+        config.resources.s3_bucket_name,
+        ledger_key,
+        {
+            "stage": config.resources.stage,
+            "updated_at": datetime.now(UTC).isoformat(),
+            # A snapshot: the caller keeps appending to its list as the loop runs,
+            # and a payload that aliases it would not describe this moment.
+            "delivered": list(delivered),
+        },
+    )
+    if not written:
+        logger.warning(
+            "Could not update the delivery ledger 's3://%s/%s'. A retry of this "
+            "run may re-send to recipients already served.",
+            config.resources.s3_bucket_name,
+            ledger_key,
+        )
 
 
 def _get_recipients(
@@ -476,25 +597,66 @@ def _send_emails_to_recipients(
     date_suffix: str,
     config: Config,
     boto_session: boto3.Session,
-) -> tuple[int, list[str]]:
+    ledger_key: str | None = None,
+) -> DeliveryOutcome:
+    """Send the issue to each recipient, skipping any the ledger already covers.
+
+    The ledger makes the send loop idempotent PER RECIPIENT, which is the unit the
+    harm is measured in. Both retry paths in this pipeline (the Batch job
+    definition's ``retry_attempts=2`` and the EventBridge target's) re-run
+    ``main.py`` from the start, so a job that died anywhere after the first send —
+    a Spot reclaim being the likeliest cause now that Spot is the preferred compute
+    environment — used to deliver the whole issue a second time.
+
+    Recipient-level granularity also makes a mid-loop crash strictly better than
+    before rather than merely not-worse: the retry serves exactly the readers who
+    had not been reached, instead of everyone (duplicate) or nobody (an
+    issue-level marker would have claimed the whole issue was done).
+    """
     subject = f"[{date_suffix}] {config.newsletter.header_title}"
-    success_count = 0
-    failed_recipients = []
+    already = (
+        _already_delivered(boto_session, config, ledger_key) if ledger_key else set()
+    )
+    outcome = DeliveryOutcome(resolved=len(recipients))
+    delivered: list[str] = []
 
     for recipient in recipients:
+        if recipient.strip().lower() in already:
+            outcome.skipped += 1
+            delivered.append(recipient)
+            logger.info(
+                "Skipping '%s': this issue was already delivered to them.", recipient
+            )
+            continue
+        outcome.attempted += 1
         if send_email(
             boto_session, subject, str(config.newsletter.sender), [recipient], content
         ):
-            success_count += 1
+            outcome.succeeded += 1
+            delivered.append(recipient)
+            if ledger_key:
+                _record_delivery(boto_session, config, ledger_key, delivered)
         else:
-            failed_recipients.append(recipient)
-
+            outcome.failed.append(recipient)
+        # Only after a real SES call — a skipped recipient has nothing to pace.
         time.sleep(SEND_INTERVAL_SECONDS)
 
-    logger.info(
-        "Email sending complete: %d/%d successful", success_count, len(recipients)
-    )
-    return success_count, failed_recipients
+    if outcome.skipped:
+        logger.info(
+            "Email sending complete: %d/%d successful, %d already delivered "
+            "(skipped) of %d resolved recipients.",
+            outcome.succeeded,
+            outcome.attempted,
+            outcome.skipped,
+            outcome.resolved,
+        )
+    else:
+        logger.info(
+            "Email sending complete: %d/%d successful",
+            outcome.succeeded,
+            outcome.attempted,
+        )
+    return outcome
 
 
 def _publish_alarm(

@@ -4,6 +4,7 @@ success notification's crawl summary. Uses a fake boto session — no AWS."""
 from __future__ import annotations
 
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -227,9 +228,15 @@ class TestGeneratePostFilename:
 
 class TestEmailOrchestration:
     """_process_newsletter_emails counts successes/failures correctly so the
-    partial-delivery alert fires on an all-failed (silent) delivery."""
+    partial-delivery alert fires on an all-failed (silent) delivery, and skips
+    recipients a previous attempt at the same issue already reached."""
 
     class _Cfg:
+        class resources:
+            stage = "dev"
+            s3_bucket_name = "bucket"
+            s3_prefix = "tech-digest"
+
         class newsletter:
             header_title = "Digest"
             sender = "sender@example.com"
@@ -238,30 +245,33 @@ class TestEmailOrchestration:
         newsletter = tmp_path / "n.html"
         newsletter.write_text("<html>body</html>", encoding="utf-8")
         monkeypatch.setattr(main, "send_email", lambda *a, **k: False)
-        success, failed, total = main._process_newsletter_emails(
+        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
+        outcome = main._process_newsletter_emails(
             newsletter,
             "2026-07-11",
             self._Cfg(),
             object(),
+            main.Language.KO,
             recipients=["a@example.com", "b@example.com"],
         )
-        assert success == 0
-        assert total == 2
-        assert set(failed) == {"a@example.com", "b@example.com"}
+        assert outcome.succeeded == 0
+        assert outcome.attempted == 2
+        assert set(outcome.failed) == {"a@example.com", "b@example.com"}
 
     def test_unreadable_newsletter_reports_all_failed(self, monkeypatch, tmp_path):
         missing = tmp_path / "does-not-exist.html"
         monkeypatch.setattr(main, "send_email", lambda *a, **k: True)
-        success, failed, total = main._process_newsletter_emails(
+        outcome = main._process_newsletter_emails(
             missing,
             "2026-07-11",
             self._Cfg(),
             object(),
+            main.Language.KO,
             recipients=["a@example.com"],
         )
-        assert success == 0
-        assert total == 1
-        assert failed == ["a@example.com"]
+        assert outcome.succeeded == 0
+        assert outcome.attempted == 1
+        assert outcome.failed == ["a@example.com"]
 
     def test_partial_success_counts_split(self, monkeypatch, tmp_path):
         newsletter = tmp_path / "n.html"
@@ -270,16 +280,45 @@ class TestEmailOrchestration:
         outcomes = iter([True, False])
         monkeypatch.setattr(main, "send_email", lambda *a, **k: next(outcomes))
         monkeypatch.setattr(main.time, "sleep", lambda *_: None)
-        success, failed, total = main._process_newsletter_emails(
+        outcome = main._process_newsletter_emails(
             newsletter,
             "2026-07-11",
             self._Cfg(),
             object(),
+            main.Language.KO,
             recipients=["ok@example.com", "bad@example.com"],
         )
-        assert success == 1
-        assert failed == ["bad@example.com"]
-        assert total == 2
+        assert outcome.succeeded == 1
+        assert outcome.failed == ["bad@example.com"]
+        assert outcome.attempted == 2
+
+    def test_explicit_recipients_bypass_the_ledger(self, monkeypatch, tmp_path):
+        """A --recipients run is the operator addressing one mailbox on purpose.
+
+        It must neither read nor write the ledger, or a test send would make the
+        scheduled run skip that reader for the rest of the issue's life.
+        """
+        newsletter = tmp_path / "n.html"
+        newsletter.write_text("<html>body</html>", encoding="utf-8")
+        monkeypatch.setattr(main, "send_email", lambda *a, **k: True)
+        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
+        touched = []
+        monkeypatch.setattr(
+            main, "read_s3_json", lambda *a, **k: touched.append("read") or None
+        )
+        monkeypatch.setattr(
+            main, "write_s3_json", lambda *a, **k: touched.append("write") or True
+        )
+        outcome = main._process_newsletter_emails(
+            newsletter,
+            "2026-07-11",
+            self._Cfg(),
+            object(),
+            main.Language.KO,
+            recipients=["me@example.com"],
+        )
+        assert outcome.succeeded == 1
+        assert touched == []
 
 
 class TestHandlerControlFlow:
@@ -489,3 +528,149 @@ class TestClippedNewsletterAlert:
             session, "arn:topic", PROJECT, tmp_path / "absent.html", 3
         )
         assert session.sns.published == []
+
+
+class TestDuplicateSendGuard:
+    """The ledger makes the send loop idempotent per recipient.
+
+    Both retry paths (the Batch job definition's ``retry_attempts=2`` and the
+    EventBridge target's) re-run main.py from the start, so a job that died after
+    the send loop used to deliver the whole issue a second time — and a Spot
+    reclaim is the likeliest cause now that Spot is the preferred compute
+    environment.
+    """
+
+    class _Cfg:
+        class resources:
+            stage = "prod"
+            s3_bucket_name = "bucket"
+            s3_prefix = "tech-digest"
+
+        class newsletter:
+            header_title = "Digest"
+            sender = "sender@example.com"
+
+    def _run(self, monkeypatch, tmp_path, ledger, send_results=None):
+        """Run the send phase against a fake ledger; returns (outcome, writes)."""
+        newsletter = tmp_path / "n.html"
+        newsletter.write_text("<html>body</html>", encoding="utf-8")
+        sent: list[str] = []
+        writes: list[dict] = []
+        results = iter(send_results) if send_results is not None else None
+
+        def _send(_session, _subject, _sender, to, _content):
+            sent.append(to[0])
+            return next(results) if results is not None else True
+
+        monkeypatch.setattr(main, "send_email", _send)
+        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
+        monkeypatch.setattr(main, "read_s3_json", lambda *a, **k: ledger)
+        monkeypatch.setattr(
+            main,
+            "write_s3_json",
+            # Deep-copy the payload: the real helper serializes it immediately,
+            # while this fake would otherwise keep a reference that the loop keeps
+            # mutating, making every recorded write look identical.
+            lambda _s, _b, _k, payload: writes.append(deepcopy(payload)) or True,
+        )
+        outcome = main._process_newsletter_emails(
+            newsletter,
+            "2026-08-22",
+            self._Cfg(),
+            object(),
+            main.Language.KO,
+            recipients=None,
+        )
+        return outcome, sent, writes
+
+    def _patch_recipients(self, monkeypatch, recipients):
+        monkeypatch.setattr(main, "_get_recipients", lambda *a, **k: list(recipients))
+
+    def test_a_retry_of_a_completed_send_sends_nothing(self, monkeypatch, tmp_path):
+        self._patch_recipients(monkeypatch, ["a@example.com", "b@example.com"])
+        outcome, sent, _ = self._run(
+            monkeypatch,
+            tmp_path,
+            ledger={"delivered": ["a@example.com", "b@example.com"]},
+        )
+        assert sent == []
+        assert outcome.skipped == 2
+        assert outcome.attempted == 0
+        assert outcome.resolved == 2
+
+    def test_a_retry_after_a_mid_loop_crash_serves_only_the_remainder(
+        self, monkeypatch, tmp_path
+    ):
+        """Strictly better than before, not merely not-worse.
+
+        An issue-level marker would have claimed the whole issue was done and left
+        the unserved readers with nothing; no marker at all re-sent to everyone.
+        """
+        self._patch_recipients(
+            monkeypatch, ["a@example.com", "b@example.com", "c@example.com"]
+        )
+        outcome, sent, _ = self._run(
+            monkeypatch, tmp_path, ledger={"delivered": ["a@example.com"]}
+        )
+        assert sent == ["b@example.com", "c@example.com"]
+        assert outcome.skipped == 1
+        assert outcome.succeeded == 2
+
+    def test_the_ledger_is_written_after_every_success_not_once_at_the_end(
+        self, monkeypatch, tmp_path
+    ):
+        """A ledger written only at the end is absent exactly when it matters."""
+        self._patch_recipients(monkeypatch, ["a@example.com", "b@example.com"])
+        _outcome, _sent, writes = self._run(monkeypatch, tmp_path, ledger=None)
+        assert len(writes) == 2
+        assert writes[0]["delivered"] == ["a@example.com"]
+        assert writes[1]["delivered"] == ["a@example.com", "b@example.com"]
+
+    def test_a_failed_send_is_not_recorded_as_delivered(self, monkeypatch, tmp_path):
+        """Otherwise the retry would skip the reader who never got the issue."""
+        self._patch_recipients(monkeypatch, ["ok@example.com", "bad@example.com"])
+        outcome, _sent, writes = self._run(
+            monkeypatch, tmp_path, ledger=None, send_results=[True, False]
+        )
+        assert outcome.failed == ["bad@example.com"]
+        assert writes[-1]["delivered"] == ["ok@example.com"]
+
+    def test_comparison_is_case_insensitive(self, monkeypatch, tmp_path):
+        self._patch_recipients(monkeypatch, ["Reader@Example.COM"])
+        outcome, sent, _ = self._run(
+            monkeypatch, tmp_path, ledger={"delivered": ["reader@example.com"]}
+        )
+        assert sent == []
+        assert outcome.skipped == 1
+
+    def test_an_unreadable_ledger_fails_open(self, monkeypatch, tmp_path):
+        """A duplicate issue is an annoyance; an issue nobody receives is the
+        failure this pipeline exists to avoid. So an absent or malformed ledger
+        must send, not withhold."""
+        self._patch_recipients(monkeypatch, ["a@example.com"])
+        for ledger in (None, {}, {"delivered": "not-a-list"}, {"other": 1}):
+            _outcome, sent, _ = self._run(monkeypatch, tmp_path, ledger=ledger)
+            assert sent == ["a@example.com"], ledger
+
+    def test_ledger_key_identifies_stage_date_and_language(self):
+        key = main._delivery_ledger_key(self._Cfg(), "2026-08-22", main.Language.EN)
+        assert key == "tech-digest/deliveries/delivered-prod-2026-08-22-en.json"
+
+    def test_ledger_key_without_an_s3_prefix_has_no_leading_slash(self):
+        class _NoPrefix(self._Cfg):
+            class resources:
+                stage = "dev"
+                s3_bucket_name = "bucket"
+                s3_prefix = None
+
+        key = main._delivery_ledger_key(_NoPrefix(), "2026-08-22", main.Language.KO)
+        assert key == "deliveries/delivered-dev-2026-08-22-ko.json"
+
+    def test_a_different_issue_gets_a_different_ledger(self):
+        cfg = self._Cfg()
+        keys = {
+            main._delivery_ledger_key(cfg, "2026-08-22", main.Language.KO),
+            main._delivery_ledger_key(cfg, "2026-08-22", main.Language.EN),
+            main._delivery_ledger_key(cfg, "2026-08-29", main.Language.KO),
+        }
+        assert len(keys) == 3

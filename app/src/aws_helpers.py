@@ -1,8 +1,10 @@
+import json
 import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import make_msgid
 from pathlib import Path
+from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
@@ -47,6 +49,66 @@ def check_and_download_from_s3(
         return True
     except ClientError as e:
         logger.error("Failed to download from S3: %s", e)
+        return False
+
+
+def read_s3_json(
+    boto_session: boto3.Session, s3_bucket_name: str, s3_key: str
+) -> dict[str, Any] | None:
+    """A small JSON object from S3, or None when there is no usable answer.
+
+    None covers BOTH "the object does not exist" and "the read failed", because
+    every caller so far treats them the same way — and the log line says which it
+    was. A caller that needs to distinguish them must not use this.
+    """
+    if not all([s3_bucket_name, s3_key]):
+        logger.error("S3 bucket name and key are required.")
+        return None
+    try:
+        response = boto_session.client("s3").get_object(
+            Bucket=s3_bucket_name, Key=s3_key
+        )
+        payload = json.loads(response["Body"].read().decode("utf-8"))
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code in ("NoSuchKey", "404"):
+            logger.info("No object at 's3://%s/%s'.", s3_bucket_name, s3_key)
+        else:
+            logger.error("Failed to read 's3://%s/%s': %s", s3_bucket_name, s3_key, e)
+        return None
+    except (ValueError, UnicodeDecodeError) as e:
+        logger.error(
+            "Object 's3://%s/%s' is not readable JSON: %s", s3_bucket_name, s3_key, e
+        )
+        return None
+    if not isinstance(payload, dict):
+        logger.error(
+            "Object 's3://%s/%s' is JSON but not an object.", s3_bucket_name, s3_key
+        )
+        return None
+    return payload
+
+
+def write_s3_json(
+    boto_session: boto3.Session,
+    s3_bucket_name: str,
+    s3_key: str,
+    payload: dict[str, Any],
+) -> bool:
+    """Write a small JSON object to S3, overwriting. False on any failure."""
+    if not all([s3_bucket_name, s3_key]):
+        logger.error("S3 bucket name and key are required.")
+        return False
+    try:
+        boto_session.client("s3").put_object(
+            Bucket=s3_bucket_name,
+            Key=s3_key,
+            Body=json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+            ContentType="application/json",
+        )
+        return True
+    except ClientError as e:
+        logger.error("Failed to write 's3://%s/%s': %s", s3_bucket_name, s3_key, e)
         return False
 
 

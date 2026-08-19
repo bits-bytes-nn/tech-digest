@@ -12,10 +12,12 @@ from botocore.exceptions import ClientError
 from app.src.aws_helpers import (
     check_and_download_from_s3,
     get_ssm_param_value,
+    read_s3_json,
     send_email,
     submit_batch_job,
     upload_to_s3,
     wait_for_batch_job_completion,
+    write_s3_json,
 )
 
 
@@ -257,3 +259,97 @@ class TestWaitForBatchJob:
 
         job_definition_timeout_seconds = 3 * 3600  # deploy_infra job definition
         assert DEFAULT_BATCH_TIMEOUT > job_definition_timeout_seconds
+
+
+# --------------------------------------------------------------------------- #
+# read_s3_json / write_s3_json
+#
+# These back the delivery ledger, whose contract is FAIL OPEN: every way of not
+# getting an answer must look the same to the caller (None), because sending a
+# duplicate issue is an annoyance while withholding one is the failure the
+# pipeline exists to avoid.
+# --------------------------------------------------------------------------- #
+class _FakeS3Objects:
+    def __init__(self, body: bytes | None = None, error: ClientError | None = None):
+        self._body = body
+        self._error = error
+        self.puts: list[dict] = []
+
+    def get_object(self, **kwargs):
+        if self._error:
+            raise self._error
+        return {"Body": _FakeBody(self._body or b"")}
+
+    def put_object(self, **kwargs):
+        if self._error:
+            raise self._error
+        self.puts.append(kwargs)
+        return {}
+
+
+class _FakeBody:
+    def __init__(self, data: bytes):
+        self._data = data
+
+    def read(self):
+        return self._data
+
+
+class TestReadS3Json:
+    def test_reads_a_json_object(self):
+        client = _FakeS3Objects(body=b'{"delivered": ["a@example.com"]}')
+        out = read_s3_json(_FakeSession(client), "bucket", "key.json")
+        assert out == {"delivered": ["a@example.com"]}
+
+    def test_missing_object_is_none(self):
+        client = _FakeS3Objects(error=_client_error("NoSuchKey"))
+        assert read_s3_json(_FakeSession(client), "bucket", "key.json") is None
+
+    def test_other_client_error_is_also_none(self):
+        """Absent and unreadable are the same answer to every caller so far; the
+        log line is what distinguishes them."""
+        client = _FakeS3Objects(error=_client_error("AccessDenied"))
+        assert read_s3_json(_FakeSession(client), "bucket", "key.json") is None
+
+    def test_malformed_json_is_none(self):
+        client = _FakeS3Objects(body=b"{not json")
+        assert read_s3_json(_FakeSession(client), "bucket", "key.json") is None
+
+    def test_json_that_is_not_an_object_is_none(self):
+        client = _FakeS3Objects(body=b'["a@example.com"]')
+        assert read_s3_json(_FakeSession(client), "bucket", "key.json") is None
+
+    def test_undecodable_bytes_are_none(self):
+        client = _FakeS3Objects(body=b"\xff\xfe not utf-8")
+        assert read_s3_json(_FakeSession(client), "bucket", "key.json") is None
+
+    @pytest.mark.parametrize("bucket,key", [("", "k"), ("b", ""), ("", "")])
+    def test_missing_bucket_or_key_is_none(self, bucket, key):
+        client = _FakeS3Objects(body=b"{}")
+        assert read_s3_json(_FakeSession(client), bucket, key) is None
+
+
+class TestWriteS3Json:
+    def test_writes_utf8_json(self):
+        client = _FakeS3Objects()
+        assert write_s3_json(
+            _FakeSession(client),
+            "bucket",
+            "key.json",
+            {"delivered": ["가@example.com"]},
+        )
+        put = client.puts[0]
+        assert put["Bucket"] == "bucket"
+        assert put["Key"] == "key.json"
+        assert put["ContentType"] == "application/json"
+        # ensure_ascii=False, so non-ASCII survives as itself.
+        assert "가@example.com" in put["Body"].decode("utf-8")
+
+    def test_client_error_returns_false(self):
+        client = _FakeS3Objects(error=_client_error("AccessDenied"))
+        assert not write_s3_json(_FakeSession(client), "bucket", "key.json", {"a": 1})
+
+    @pytest.mark.parametrize("bucket,key", [("", "k"), ("b", "")])
+    def test_missing_bucket_or_key_returns_false(self, bucket, key):
+        client = _FakeS3Objects()
+        assert not write_s3_json(_FakeSession(client), bucket, key, {"a": 1})
