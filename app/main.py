@@ -679,7 +679,7 @@ def _publish_alarm(
 ) -> None:
     """Format and publish one alarm to SNS.
 
-    Single place where the project's alarm format meets the SNS client; the five
+    Single place where the project's alarm format meets the SNS client; the six
     alert paths below differ only in their event name and fields. ``project`` is
     threaded from config rather than left to a default in ``format_alarm``, which
     is how every alarm subject came to read "[tech-digest]" whatever the

@@ -33,15 +33,19 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
 - **Clip-budget aware**. mail clients truncate a message over \~100 KB. The
   summary length budget and the template's markup weight are both tuned to stay
   under it, and the build warns if an issue would be cut.
-- **Crawl-health monitoring**. tracks every source's fetch status and raises an
-  SNS alert when a source fails, so silent breakage surfaces fast — with an
-  allow-list for sources that are known to fail from AWS egress IPs, so the alarm
-  stays actionable.
+- **Crawl-health monitoring**. tracks every source's fetch status and alerts when
+  one fails *or* stops offering anything to filter — a moved feed and a broken
+  scraper look identical to a quiet blog otherwise, and \~12 of 19 sources are
+  legitimately empty in a normal week. A quiet blog never pages; an allow-list
+  covers sources known to fail from AWS egress IPs, so the alarm stays actionable.
 - **Serverless infrastructure**. AWS Lambda *or* Batch (config-selectable),
   scheduled by EventBridge, defined as code with the AWS CDK.
 - **Professional email**. responsive HTML templates with dark-mode support,
   per-source logos, score badges, captioned figures and fully localized chrome
   (KO/EN), delivered through Amazon SES.
+- **Idempotent delivery**. a per-issue ledger in S3 records which recipients an
+  issue has reached, so a retried run — a Spot reclaim, an OOM — serves only the
+  readers who were not yet served instead of delivering the whole issue twice.
 - **Measured, not guessed**. two rubric harnesses steer tuning instead of taste:
   one scores the *filter* (does the right article get picked?) and one scores the
   *output* (is the write-up any good?). Every output check is deterministic and

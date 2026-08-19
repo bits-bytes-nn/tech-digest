@@ -277,7 +277,8 @@ tech-digest/
   `thinking_effort`로 조절하고, `xhigh`/`max`는 **Opus 티어 전용**입니다.
 - `LocalPaths`. 디렉터리와 파일명 상수(inputs, outputs, logs, templates,
   recipients).
-- `SSMParams` / `S3Paths`: SSM 파라미터 suffix와 S3 프리픽스.
+- `SSMParams` / `S3Paths`: SSM 파라미터 suffix와 S3 프리픽스
+  (`articles`/`newsletters`/`recipients`, 그리고 전달 원장이 쓰는 `deliveries` — §16).
 - `AppConstants`. `NULL_STRING = "null"`(Batch가 "값 없음"을 전달할 때 쓰는
   센티넬입니다. Batch 파라미터는 진짜 빈 값을 가질 수 없습니다), 그리고
   스크레이퍼 라우팅에 쓰는 URL 패턴 조각을 담은 `External` enum.
@@ -1641,7 +1642,7 @@ boto3 위에 얹은, 얇고 로깅이 잘 된 래퍼들입니다. 우아한 성�
    돌려줍니다. 예전에는 3-튜플이었는데, 그러면 "보낼 사람이 없었다"와 "이미 다 보냈다"가
    똑같이 `total == 0`으로 보이고 둘 중 하나만 경보 대상이라 구분이 필요했습니다.
 
-9. 처리되지 않은 예외가 나면 실패 알림을 발행하고 500을 반환합니다. 네 종류의 알림은
+9. 처리되지 않은 예외가 나면 실패 알림을 발행하고 500을 반환합니다. 여섯 종류의 알림은
    모두 `format_alarm()`으로 형식을 통일하고 `_publish_alarm()` 한 곳에서
    발행합니다(§7).
 
@@ -1982,9 +1983,19 @@ synth하려고 `CDK_SYNTH_DUMMY_AZS=1`을, 시크릿 쓰기 경로를 건너뛰�
   `python app/main.py ...`.
 - "No posts found"가 뜰 때: 크롤 헬스 SNS 알림이나 로그에서 `FAILED` 소스를
   확인하세요. 날짜 윈도우(`days_back`)가 최신 글을 포함하는지도 확인합니다.
-- 특정 소스가 안 보일 때: 헬스 리포트에서 `FAILED`(페치 오류/안티봇)인지
-  `EMPTY`(기간 내 글 없음/오래된 피드)인지 찾으세요. 설정 URL을 갱신하거나 프록시
-  뒤로 옮깁니다.
+- 특정 소스가 안 보일 때: 헬스 리포트에서 `FAILED`(페치 오류/안티봇)인지 `EMPTY`인지
+  찾고, `EMPTY`면 **후보 개수**를 보세요(§7). `offered 14 item(s)`이면 그 블로그가
+  이번 주에 글을 안 쓴 것이니 할 일이 없습니다. `offered 0 items — LIKELY BROKEN`이면
+  피드가 이전했거나 스크레이퍼 셀렉터가 깨진 것입니다. 설정 URL을 갱신하거나 스크레이퍼의
+  `LINK_PATTERN`/`ITEM_SELECTOR`를 실제 페이지와 맞추세요.
+- **"Sources offering nothing" 알림이 왔을 때:** 위와 같습니다. 알림 본문의
+  "Check these"에 확인할 URL이 들어 있습니다. 해당 사이트를 브라우저로 열어 마크업이
+  바뀌었는지 보고, `tests/fixtures/scrapers/`의 fixture를 새 마크업으로 갱신한 뒤
+  스크레이퍼를 맞추는 것이 이 프로젝트의 순서입니다.
+- **같은 호를 두 번 받았을 때:** 전달 원장이 동작하지 않은 것입니다(§16). 로그에서
+  `Could not update the delivery ledger`를 찾아 S3 쓰기 실패를 확인하고,
+  `s3://<bucket>/<prefix>/deliveries/delivered-<stage>-<date>-<lang>.json`이
+  존재하는지 보세요. 원장은 **fail open**이라 못 읽으면 전원에게 보냅니다.
 - 요약이 비거나 너무 짧을 때: 콘텐츠 게이트가 이를 막아 주지만, 충실한 글까지
   제외된다면 `scraping.min_content_length`를 낮추세요.
 - **이메일이 안 갈 때:** SES 아이덴티티·검증 상태와 발신자 주소를 확인하세요. SNS
