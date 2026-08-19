@@ -213,11 +213,13 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (461 tests, 83% cov)
+pytest                       # fast, offline unit/integration suite (503 tests, 83% cov)
 
 # Output-quality rubric over a generated run — deterministic, no AWS, no cost.
-# Each dimension maps onto one summarization-prompt rule, so a low score says
-# which instruction to change. --compare diffs two runs to verify a prompt edit.
+# Each of the 11 dimensions maps onto one summarization-prompt rule, so a low
+# score says which instruction to change. Two of them — translationese and
+# cliche — score a rate rather than presence, since the phrasing they catch is
+# ordinary Korean at low frequency. --compare diffs two runs to verify an edit.
 python scripts/eval_summary_quality.py --date 2026-08-19
 python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
 ```

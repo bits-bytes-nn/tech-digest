@@ -14,10 +14,12 @@ import pytest
 from app.src.quality_metrics import (
     KO_LENGTH_BAND,
     QualityReport,
+    cliche_hits,
     evaluate_summary,
     han_da_sentences,
     quantities,
     split_sections,
+    translationese_hits,
     visible_text,
 )
 
@@ -151,6 +153,98 @@ class TestStructurePenalties:
     def test_subsection_headers_penalised(self):
         html = _summary("본문") + "<h4>소제목</h4>"
         assert evaluate_summary("a", html).subsection_headers == 1
+
+
+class TestTranslationese:
+    """Rate, not presence: these words are ordinary Korean, so a summary is only
+    penalised once they pile up. A rubric that demanded zero would tune the prompt
+    into avoiding vocabulary rather than into writing better sentences."""
+
+    def test_english_structure_carried_over_is_detected(self):
+        found = translationese_hits(
+            "샤딩을 통해 노드들에 분산하며, 지연에 대한 개선을 제공합니다."
+        )
+        assert found == {
+            "~를 통해": 1,
+            "~에 대한": 1,
+            "복수 -들": 1,
+            "제공/지원합니다": 1,
+        }
+
+    def test_korean_native_phrasing_is_clean(self):
+        assert (
+            translationese_hits("샤딩으로 노드에 분산해 지연을 22% 줄였습니다.") == {}
+        )
+
+    def test_a_single_occurrence_does_not_penalise(self):
+        """One "~를 통해" in a full-length summary is not a defect."""
+        body = "샤딩을 통해 분산합니다. " + "지연을 22% 줄였습니다. " * 120
+        assert evaluate_summary("a", _summary(body)).translationese_score == 1.0
+
+    def test_saturation_scores_zero(self):
+        body = "모델들을 통해 성능에 대한 개선을 제공합니다. " * 40
+        assert evaluate_summary("a", _summary(body)).translationese_score == 0.0
+
+    def test_published_corpus_generations_are_separable(self):
+        """The dimension has to rank prose, not just flag it. Prose from the
+        pre-rubric prompt and prose from the current one must land apart."""
+        old = "이 모델들은 벤치마크를 통해 다양한 태스크에 대한 성능을 제공합니다. " * 6
+        new = "이 모델은 12개 벤치마크에서 정확도를 3.4포인트 높였습니다. " * 6
+        assert (
+            evaluate_summary("new", _summary(new)).translationese_score
+            > evaluate_summary("old", _summary(old)).translationese_score
+        )
+
+
+class TestCliche:
+    def test_praise_adjectives_are_flagged(self):
+        assert "칭찬 형용사" in cliche_hits("가장 혁신적인 부분은 강력한 성능입니다.")
+
+    def test_not_just_x_but_y_contrast_is_flagged(self):
+        assert "단순히 X가 아니라" in cliche_hits(
+            "이는 단순히 표기법 변경이 아니라 문제의 재구성입니다."
+        )
+
+    def test_the_point_is_that_ending_is_flagged(self):
+        """The one marker that got WORSE between prompt generations (2.4 -> 4.0
+        hits per 10,000 characters), which is why it is measured."""
+        assert "~라는 점입니다" in cliche_hits("지연이 줄었다는 점입니다.")
+
+    def test_meta_narration_is_flagged(self):
+        assert "메타 서술" in cliche_hits("결론적으로 이 구조를 살펴보겠습니다.")
+
+    def test_measured_claims_are_clean(self):
+        assert cliche_hits("p99 지연이 12ms로, 이전 대비 22% 낮습니다.") == {}
+
+
+class TestToneRulesAreInThePrompt:
+    """Each marker exists because a prompt rule asks for the opposite. If the rule
+    is edited away the measurement becomes noise, so pin them together."""
+
+    @staticmethod
+    def _template() -> str:
+        from app.src.constants import Language
+        from app.src.prompts import SummarizationPrompt
+
+        return SummarizationPrompt._human_prompt_template[Language.KO]
+
+    @pytest.mark.parametrize("phrase", ["번역투", "을 통해", "에 대한", "제공합니다"])
+    def test_translationese_rules_are_stated(self, phrase):
+        assert phrase in self._template()
+
+    @pytest.mark.parametrize(
+        "phrase", ["혁신적인", "다양한", "단순히 X가 아니라", "라는/다는 점입니다"]
+    )
+    def test_cliche_rules_are_stated(self, phrase):
+        assert phrase in self._template()
+
+    def test_english_template_bans_its_own_filler(self):
+        from app.src.constants import Language
+        from app.src.prompts import SummarizationPrompt
+
+        template = SummarizationPrompt._human_prompt_template[Language.EN]
+        for phrase in ("groundbreaking", "not just X, it's Y", "let's dive in"):
+            assert phrase in template
 
 
 class TestReport:

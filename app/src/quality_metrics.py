@@ -24,6 +24,8 @@ dimension                     prompt rule it measures
 ``boilerplate``               the banned formulaic audience call-out
 ``lede``                      the one-sentence ``one_liner`` contract
 ``captions``                  images wrapped in a figure WITH a caption
+``translationese``            "영어 문장 구조를 옮기지 말고" (번역투 금지)
+``cliche``                    the banned praise adjectives and filler formulas
 ============================  ==================================================
 
 Kept free of boto3/LangChain/bs4-optional so it is unit-testable offline.
@@ -90,6 +92,90 @@ _MEASURED = re.compile(
     r"[Bb]ps|Gbps|Mbps|fps|토큰|tokens?|vCPU|GPU|원|달러|USD|건|개|회|"
     r"포인트|p|x(?=\s|$))"
 )
+
+
+# --------------------------------------------------------------------------- #
+# 번역투 (translationese) and 상투구 (cliché).
+#
+# These two dimensions differ from the rest in one important way: their marker
+# lists are a SAMPLE of a pattern, not a definition of it. Every other check here
+# measures something the prompt states exactly ("end sentences with a period"),
+# so presence is the defect. Here the words are not forbidden — "다양한" and
+# "~를 통해" are ordinary Korean — it is the RATE that reveals prose translated
+# out of English rather than written in Korean.
+#
+# So the scores below are densities with a tolerance floor, and the markers were
+# picked by frequency over the 59 summaries in ``inputs/``, not by taste. The
+# spread across prompt generations is what makes them usable as a signal: per
+# 1,000 visible characters the first six issues ran 4.8 translationese / 1.8
+# cliché, and the three most recent ran 2.1 / 0.7. Anything that only fires on
+# bad prose but never on good prose cannot steer a prompt.
+# --------------------------------------------------------------------------- #
+TRANSLATIONESE_MARKERS: dict[str, str] = {
+    # Instrumental "through/via", where a Korean particle carries the same sense.
+    "~를 통해": r"(?:을|를) 통(?:해|하여)",
+    # "about/for X", where the plain noun phrase would do.
+    "~에 대한": r"에 (?:대해|대한|대하여)",
+    # Nominalisation: "the fact that ~ing", where a finite verb is shorter.
+    "~하는 것": r"[가-힣]는 것(?:이|은|을|과|와|입니다)",
+    # Redundant plural: Korean does not mark number, so "-들" carried over from
+    # English plurals piles up. Approximate — it also catches verb stems ending
+    # in 들 ("이야기를 들을") — which the density tolerance absorbs.
+    "복수 -들": r"(?<=[가-힣A-Za-z0-9])들(?=[이은을의과와에로])",
+    # "provides/supports" as the whole predicate, in place of what it does.
+    "제공/지원합니다": r"(?:제공|지원)(?:합니다|됩니다|하는|되는|하며|되며)",
+    # Agentless passive where Korean prefers an active subject.
+    "~에 의해": r"에 의(?:해|하여)",
+}
+
+CLICHE_MARKERS: dict[str, str] = {
+    # Evaluation by adjective, in a newsletter whose value is measured numbers.
+    "칭찬 형용사": r"(?:혁신적|획기적|강력한|놀라운|인상적인|매력적인|눈부신)",
+    # "various", without saying various what, or how many.
+    "다양한": r"다양한",
+    # The "not just X, but Y" contrast: a shape a model reaches for by default.
+    "단순히 X가 아니라": r"단순(?:한|히|하게)?\s*[^.]{0,25}?(?:가|이|것이)\s*아니(?:라|고|며)",
+    # Ending on "the point is that ~" instead of just asserting it. The one
+    # marker that rose between prompt generations (2.4 -> 4.0 per 10,000).
+    "~라는 점입니다": r"(?:라는|다는) 점(?:입니다|이며|이라|에서|은|을)",
+    # Meta-narration and summary-of-the-summary.
+    "메타 서술": r"(?:살펴보|알아보|짚어보|정리해\s*보)(?:겠습니다|았습니다|면)"
+    r"|결론적으로|요약하(?:면|자면)|종합하(?:면|자면)",
+}
+
+_TRANSLATIONESE = {k: re.compile(v) for k, v in TRANSLATIONESE_MARKERS.items()}
+_CLICHE = {k: re.compile(v) for k, v in CLICHE_MARKERS.items()}
+
+# (full credit at or below, zero at or above) hits per 1,000 visible characters.
+# The floors are deliberately non-zero: demanding zero would tune the prompt into
+# avoiding ordinary Korean words, which is a different defect.
+TRANSLATIONESE_BAND: tuple[float, float] = (1.0, 5.0)
+CLICHE_BAND: tuple[float, float] = (0.3, 2.0)
+
+
+def _marker_hits(text: str, patterns: dict[str, re.Pattern[str]]) -> dict[str, int]:
+    """Per-marker counts, kept so a score can be traced to specific phrases."""
+    counts = {name: len(rx.findall(text)) for name, rx in patterns.items()}
+    return {name: n for name, n in counts.items() if n}
+
+
+def translationese_hits(text: str) -> dict[str, int]:
+    return _marker_hits(text, _TRANSLATIONESE)
+
+
+def cliche_hits(text: str) -> dict[str, int]:
+    return _marker_hits(text, _CLICHE)
+
+
+def _density_score(hits: int, length: int, band: tuple[float, float]) -> float:
+    """Score a per-1,000-character rate against a (free, zero) band."""
+    if not length:
+        return 0.0
+    free, zero = band
+    rate = 1000 * hits / length
+    if rate <= free:
+        return 1.0
+    return max(0.0, 1.0 - (rate - free) / (zero - free))
 
 
 def visible_text(html: str) -> str:
@@ -177,6 +263,8 @@ class SummaryQuality:
     images: int = 0
     captioned_images: int = 0
     banned_closings: tuple[str, ...] = ()
+    translationese: dict[str, int] = field(default_factory=dict)
+    cliches: dict[str, int] = field(default_factory=dict)
     lede: str = ""
     lede_sentences: int = 0
     notes: list[str] = field(default_factory=list)
@@ -253,6 +341,17 @@ class SummaryQuality:
             return 1.0  # nothing to caption is not a defect
         return self.captioned_images / self.images
 
+    @property
+    def translationese_score(self) -> float:
+        """English sentence structure carried into Korean, by rate not presence."""
+        return _density_score(
+            sum(self.translationese.values()), self.length, TRANSLATIONESE_BAND
+        )
+
+    @property
+    def cliche_score(self) -> float:
+        return _density_score(sum(self.cliches.values()), self.length, CLICHE_BAND)
+
     DIMENSIONS = (
         "length",
         "structure",
@@ -263,6 +362,8 @@ class SummaryQuality:
         "boilerplate",
         "lede",
         "caption",
+        "translationese",
+        "cliche",
     )
 
     def scores(self) -> dict[str, float]:
@@ -312,6 +413,8 @@ def evaluate_summary(
         images=len(images),
         captioned_images=captioned,
         banned_closings=tuple(p for p in BANNED_CLOSINGS if p in text),
+        translationese=translationese_hits(text),
+        cliches=cliche_hits(text),
         lede=one_liner.strip(),
         lede_sentences=len(sentences(one_liner)) if one_liner.strip() else 0,
     )

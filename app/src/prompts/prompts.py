@@ -383,6 +383,8 @@ not submit it.
 4. 마지막은 아티클로 넘겨주는 짧은 한 문장으로 닫으세요
 5. 반말, 자신감 있는 어조. 기술 용어는 필요하면 영어 그대로
 6. 흔한 표현의 띄어쓰기를 일관되게 (항상 "이번 주", "이번주"는 쓰지 않음)
+7. "혁신적인", "강력한", "놀라운", "다양한" 같은 칭찬·뭉갬 형용사와 "~라는 점이야" 같은
+   맺음은 쓰지 마세요. 구체적인 것을 그냥 말하면 됩니다
 7. 평문만 출력 — 마크다운 금지
 
 **OUTPUT:** Newsletter introduction in Korean only.""",
@@ -516,6 +518,20 @@ explanations that make complex technical concepts accessible without sacrificing
      roadmap, expansion directions, and opportunities the article explicitly mentions. If there is
      nothing new and forward-looking to add, OMIT this section
 
+6. **No Filler Register**
+   - These are shapes a model reaches for by default, and a reader recognises them as such.
+     Do not use them:
+     - Praise adjectives as assessment — "groundbreaking", "revolutionary", "powerful",
+       "impressive", "remarkable", "cutting-edge", "seamless", "robust". In this newsletter
+       the MEASUREMENTS do the assessing: not "impressive throughput" but "3,200 Gbps"
+     - "various" / "a variety of" without saying which or how many
+     - The "not just X, it's Y" contrast, and "it's worth noting that"
+     - Meta-narration: "let's dive in", "let's take a look", "in conclusion", "to summarize".
+       Each section IS the content, not an announcement of it
+     - "delve into", "landscape", "realm", "underscores", "a testament to", "game-changer"
+   - Prefer the concrete verb to the abstract one: not "leverages caching" but "keeps decoded
+     KV blocks in the cache so the prefix is not recomputed"
+
 **SPECIFICITY RULES (this newsletter's core value):**
 - Carry over EVERY measured number the article reports, WITH its unit ("22-66% lower", "8,000 tokens",
   "3,200 Gbps", "16 GPUs across 2 nodes"). Never replace a number with an adjective like "significantly
@@ -584,6 +600,7 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 ❌ DO NOT create subsection headers within the main sections
 ❌ DO NOT repeat information across different sections
 ❌ DO NOT include sections that only state the absence of information — omit them instead
+❌ DO NOT reach for praise adjectives, "not just X, it's Y", or meta-narration (principle 6)
 ✅ DO acknowledge when information is limited or unclear
 ✅ DO stay faithful to the source material
 ✅ DO explain only what is actually presented
@@ -654,6 +671,34 @@ Korean:
      아닙니다. 그 수치가 의미하는 **비즈니스·실무적 함의**나 아직 언급하지 않은 결과에 집중하세요
    - 🔮 향후 섹션은 🛠️에서 이미 열거한 한계점을 뒤집어 재서술하는 곳이 아닙니다. 원문이 명시한
      **로드맵·확장 방향·기회**를 다루세요. 새로 덧붙일 forward-looking 내용이 없으면 이 섹션을 생략하세요
+
+7. **번역투 금지 (원문이 영어여도 한국어로 쓴 문장이어야 합니다)**
+   - 원문의 **문장 구조를 옮기지 말고**, 뜻을 파악한 뒤 한국어로 처음부터 쓰세요. 아래 목록을
+     외우는 게 아니라 원리를 적용하세요: **같은 뜻을 군더더기 없이 말할 수 있으면 그렇게 씁니다.**
+     - "X를 통해 Y" → 수단은 조사로 붙입니다: "샤딩을 통해 분산합니다" → "샤딩으로 분산합니다"
+     - "X에 대한/대해" → 대상도 조사로: "지연에 대한 개선" → "지연 개선"
+     - "~하는 것이 아니라", "~하는 것을 의미합니다" → 동사로 끝냅니다: "~라는 뜻입니다"
+     - "모델들이", "노드들을" → 한국어는 수를 표시하지 않습니다. 수량 표현이 이미 있으면
+       특히 어색합니다: "16개 GPU들" → "16개 GPU"
+     - "~를 제공합니다/지원합니다"로 문장을 끝내지 말고 **실제로 하는 일**을 쓰세요:
+       "캐싱을 제공합니다" → "결과를 캐시에 보관해 재계산을 건너뜁니다"
+     - "~에 의해 처리됩니다" → 행위자를 주어로: "스케줄러가 처리합니다"
+
+8. **상투구 금지 (내용이 없거나, 모델이 기본값으로 집어드는 문형입니다)**
+   - 평가는 형용사가 아니라 **측정값이 합니다**. "강력한 성능" 대신 "p99 지연 12ms".
+     "혁신적인", "획기적인", "놀라운", "인상적인"을 쓰지 마세요
+   - "다양한"은 몇 가지인지로: "다양한 로봇에서" → "ALOHA 2와 Apollo 두 기종에서"
+   - "단순히 X가 아니라 Y입니다" 대조 문형과 "결론적으로", "요약하면", "살펴보겠습니다" 같은
+     메타 서술을 쓰지 마세요. 각 섹션은 요약이 아니라 내용입니다
+   - "~라는/다는 점입니다"로 문장을 맺지 마세요. 감싸던 절을 서술문으로 내려 쓰면 됩니다:
+     "지연이 줄었다는 점입니다" → "지연이 22% 줄었습니다"
+
+   **원칙 7·8은 문체 규칙이고, 우선순위는 원칙 3보다 낮습니다.** 표현을 다듬느라 메커니즘·
+   파라미터·측정값·코드를 빼지 마세요. 번역투를 피하려고 문장을 짧게 끊는 것도, 강조하려고 앞
+   섹션의 수치를 뒤 섹션에서 다시 꺼내는 것도 금지입니다. **고칠 것은 문장이고, 줄일 것은
+   중복 서술뿐입니다.**
+   - "결론적으로", "요약하면", "살펴보겠습니다" 같은 **메타 서술**을 쓰지 마세요. 각 섹션은
+     요약이 아니라 내용입니다
 
 **구체성 규칙 (이 뉴스레터의 핵심 가치):**
 - 원문이 보고하는 **측정값은 단위와 함께 빠짐없이** 옮기세요("22~66% 감소", "8,000토큰",
@@ -728,6 +773,8 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 ❌ DO NOT repeat information across different sections
 ❌ DO NOT use English technical terms when clear Korean translations exist
 ❌ DO NOT include sections that only state the absence of information — omit them instead
+❌ DO NOT write 번역투 — 영어 구조를 그대로 옮긴 문장 (원칙 7)
+❌ DO NOT evaluate with 칭찬 형용사 or close a sentence with "~라는 점입니다" (원칙 8)
 ✅ DO acknowledge when information is limited or unclear
 ✅ DO stay faithful to the source material
 ✅ DO explain only what is actually presented
