@@ -210,14 +210,19 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(545개 테스트, 커버리지 85%)
+pytest                       # 빠른 오프라인 단위/통합 스위트(559개 테스트, 커버리지 84.5%)
 
-# 생성된 실행 결과에 대한 출력 품질 루빅스. 결정적이며 AWS 호출도 비용도 없습니다.
+# 생성된 실행 결과에 대한 출력 품질 루빅스. 채점은 결정적이고 오프라인이며 무료입니다.
+# --regenerate만 예외로 실제 Bedrock을 호출합니다.
 # 11개 차원이 각각 요약 프롬프트의 규칙 하나에 대응하므로, 낮은 점수는 어느
 # 지시문을 고쳐야 하는지를 알려줍니다. 이 중 번역투와 상투구 두 차원은 빈도로
 # 채점합니다 — 적게 쓰면 평범한 한국어이기 때문입니다. --compare로 수정 효과 검증.
 python scripts/eval_summary_quality.py --date 2026-08-19
 python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
+
+# 프롬프트 수정을 같은 입력으로 A/B: 과거 실행에 저장된 기사를 현재 프롬프트로 다시
+# 요약해 루빅스를 비교합니다. 비용이 발생합니다(기사당 호출 1회).
+python scripts/eval_summary_quality.py --regenerate 2026-08-19
 ```
 
 이 검사들은 모든 푸시와 풀 리퀘스트에서 CI로도 똑같이 실행됩니다

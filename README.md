@@ -213,15 +213,20 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (545 tests, 85% cov)
+pytest                       # fast, offline unit/integration suite (559 tests, 84.5% cov)
 
-# Output-quality rubric over a generated run — deterministic, no AWS, no cost.
+# Output-quality rubric over a generated run. Scoring is deterministic, offline
+# and free; --regenerate is the exception and makes real Bedrock calls.
 # Each of the 11 dimensions maps onto one summarization-prompt rule, so a low
 # score says which instruction to change. Two of them — translationese and
 # cliche — score a rate rather than presence, since the phrasing they catch is
 # ordinary Korean at low frequency. --compare diffs two runs to verify an edit.
 python scripts/eval_summary_quality.py --date 2026-08-19
 python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
+
+# A/B a prompt edit on identical input: re-summarize a past run's stored articles
+# with the current prompt and diff the rubric. COSTS MONEY (one call per article).
+python scripts/eval_summary_quality.py --regenerate 2026-08-19
 ```
 
 These same checks run in CI on every push and pull request
