@@ -105,3 +105,39 @@ class TestDockerfilesInstallFromTheLock:
         assert from_lines
         for line in from_lines:
             assert "@sha256:" in line, f"unpinned base image: {line}"
+
+
+class TestGateToolsArePinned:
+    """The tools that decide what merges must be the same locally and in CI.
+
+    They were declared as floors, so CI installed whatever was newest while a
+    developer kept whatever was installed. Measured 2026-08-19: ruff 0.15.15 vs
+    0.16.3, pytest 7.4.0 vs 9.1.1, mypy 1.15.0 vs 2.3.1 — a major version apart.
+    A clean local run therefore said little about CI, and CI could fail on a tool
+    release with no code change. It did: ruff 0.16 formats Python inside Markdown
+    fences and 0.15 does not.
+    """
+
+    GATE_TOOLS = ("pytest", "pytest-cov", "ruff", "mypy")
+
+    def _dev_requirements(self) -> list[str]:
+        import re
+
+        text = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+        block = re.search(r"^dev = \[(.*?)^\]", text, re.S | re.M)
+        assert block, "dev extra not found in pyproject.toml"
+        return re.findall(r'"([^"]+)"', block.group(1))
+
+    @pytest.mark.parametrize("tool", GATE_TOOLS)
+    def test_pinned_to_an_exact_version(self, tool):
+        entries = self._dev_requirements()
+        entry = next(
+            (e for e in entries if e.split("[")[0].split("=")[0] == tool), None
+        )
+        assert entry, f"{tool} missing from the dev extra"
+        assert "==" in entry, (
+            f"{tool} is declared as '{entry}'. A gate tool on a floor lets CI and "
+            "local diverge; pin it exactly."
+        )

@@ -503,7 +503,7 @@ and "technical report" not in line.lower()
 
 ```python
 nav_words = {"continue", "more", "next", "page", "prev", "previous"}
-if title_words & nav_words:   # nav 단어가 하나라도 있으면 버림
+if title_words & nav_words:  # nav 단어가 하나라도 있으면 버림
     return None
 ```
 

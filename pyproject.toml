@@ -31,11 +31,24 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The three gate tools are pinned EXACTLY, unlike the runtime ranges above.
+#
+# They were floors (`ruff>=0.6.0`, `mypy>=1.10.0`, `pytest>=7.4.0`), so CI resolved
+# whatever was newest while a developer's environment kept whatever it had
+# installed. Measured on 2026-08-19 that was ruff 0.15.15 vs 0.16.3, pytest 7.4.0
+# vs 9.1.1, and mypy 1.15.0 vs 2.3.1 — a MAJOR version apart. The gate guarding
+# the repository was not the gate anyone ran locally: a clean local run said very
+# little, and CI could fail on a tool release with no code change (it did — 0.16
+# formats Python inside Markdown fences, which 0.15 ignores).
+#
+# This is the same reproducibility hole `app/requirements.lock` closed for runtime
+# dependencies, and it matters more here because these tools decide what merges.
+# To move one, bump it here and run the gate locally in the same commit.
 dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "ruff>=0.6.0",
-    "mypy>=1.10.0",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.3",
+    "mypy==2.3.1",
     "boto3-stubs[bedrock-runtime,s3,ses,sns,ssm,batch,sts]>=1.35.0",
     # Stubs so `mypy .` (which now also checks main.py / run_batch.py) is clean.
     "types-PyYAML>=6.0",
