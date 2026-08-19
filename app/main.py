@@ -96,6 +96,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
             _send_crawl_health_alert(
                 default_boto_session,
                 topic_arn,
+                config.resources.project_name,
                 crawl_report,
                 config.scraping.expected_flaky_urls,
             )
@@ -108,6 +109,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                 _maybe_send_empty_digest_alert(
                     default_boto_session,
                     topic_arn,
+                    config.resources.project_name,
                     crawl_report,
                     filtered_out_posts,
                 )
@@ -123,7 +125,11 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         )
         if is_running_in_aws() and topic_arn:
             _maybe_send_clipped_newsletter_alert(
-                default_boto_session, topic_arn, newsletter_path, len(posts)
+                default_boto_session,
+                topic_arn,
+                config.resources.project_name,
+                newsletter_path,
+                len(posts),
             )
         if config.newsletter.send_emails:
             success, failed, total = _process_newsletter_emails(
@@ -146,6 +152,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                 _maybe_send_partial_delivery_alert(
                     default_boto_session,
                     topic_arn,
+                    config.resources.project_name,
                     success,
                     total,
                     failed,
@@ -156,7 +163,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         logger.error("An error occurred: %s", e, exc_info=True)
         topic_arn = os.environ.get(EnvVars.TOPIC_ARN.value)
         if is_running_in_aws() and topic_arn:
-            _send_failure_notification(default_boto_session, topic_arn, str(e))
+            _send_failure_notification(
+                default_boto_session, topic_arn, config.resources.project_name, str(e)
+            )
         return {"statusCode": 500, "body": f"An error occurred: {e}"}
 
 
@@ -354,17 +363,26 @@ def _build_newsletter(
         Path(__file__).resolve().parent / LocalPaths.TEMPLATES_DIR.value,
         logos=config.newsletter.logos,
     )
+    # Only pass the chrome fields the config actually sets, so an unset one falls
+    # through to BuildConfiguration's default. Coercing None to "" (as this used
+    # to) overrode those defaults with the empty string, which made every entry in
+    # NewsletterConfig.DEFAULT_STYLES unreachable — and, for the one field the
+    # renderer requires to be non-empty, turned "no header_title configured" into
+    # a Header validation error that fails the whole build.
+    chrome = {
+        "header_title": config.newsletter.header_title,
+        "header_description": config.newsletter.header_description,
+        "header_thumbnail": config.newsletter.header_thumbnail,
+        "first_section_intro": first_section_intro,
+        "footer_title": config.newsletter.footer_title,
+    }
     build_config = BuildConfiguration(
         stage=config.resources.stage,
         date_suffix=date_suffix,
         language=language,
-        header_title=config.newsletter.header_title or "",
-        header_description=config.newsletter.header_description or "",
-        header_thumbnail=config.newsletter.header_thumbnail or "",
-        first_section_intro=first_section_intro,
-        footer_title=config.newsletter.footer_title or "",
         save_individual_articles=config.newsletter.save_articles,
         convert_to_images=config.newsletter.convert_to_images,
+        **{key: value for key, value in chrome.items() if value},
     )
     newsletter_path, article_filenames = builder.build(build_config)
     logger.info("Newsletter created: '%s'", newsletter_path)
@@ -483,16 +501,22 @@ def _publish_alarm(
     boto_session: boto3.Session,
     topic_arn: str,
     *,
+    project: str,
     event: str,
     status: str,
     fields: dict[str, str],
 ) -> None:
     """Format and publish one alarm to SNS.
 
-    Single place where the project's alarm format meets the SNS client; the four
-    alert paths below differ only in their event name and fields.
+    Single place where the project's alarm format meets the SNS client; the five
+    alert paths below differ only in their event name and fields. ``project`` is
+    threaded from config rather than left to a default in ``format_alarm``, which
+    is how every alarm subject came to read "[tech-digest]" whatever the
+    deployment was actually called.
     """
-    subject, message = format_alarm(event=event, status=status, fields=fields)
+    subject, message = format_alarm(
+        event=event, status=status, fields=fields, project=project
+    )
     boto_session.client("sns").publish(
         TopicArn=topic_arn, Subject=subject, Message=message
     )
@@ -501,6 +525,7 @@ def _publish_alarm(
 def _maybe_send_partial_delivery_alert(
     boto_session: boto3.Session,
     topic_arn: str,
+    project: str,
     success_count: int,
     total_recipients: int,
     failed_recipients: list[str],
@@ -519,6 +544,7 @@ def _maybe_send_partial_delivery_alert(
     _publish_alarm(
         boto_session,
         topic_arn,
+        project=project,
         event="Newsletter Delivery",
         status="ALERT",
         fields=fields,
@@ -528,6 +554,7 @@ def _maybe_send_partial_delivery_alert(
 def _maybe_send_empty_digest_alert(
     boto_session: boto3.Session,
     topic_arn: str,
+    project: str,
     crawl_report: CrawlReport,
     filtered_out_posts: list[tuple[Post, str]],
 ) -> None:
@@ -550,6 +577,7 @@ def _maybe_send_empty_digest_alert(
     _publish_alarm(
         boto_session,
         topic_arn,
+        project=project,
         event="Empty Digest",
         status="ALERT",
         fields={
@@ -578,6 +606,7 @@ def _send_no_recipients_alert(
     _publish_alarm(
         boto_session,
         topic_arn,
+        project=config.resources.project_name,
         event="No Recipients",
         status="ALERT",
         fields={
@@ -595,6 +624,7 @@ def _send_no_recipients_alert(
 def _maybe_send_clipped_newsletter_alert(
     boto_session: boto3.Session,
     topic_arn: str,
+    project: str,
     newsletter_path: Path,
     article_count: int,
 ) -> None:
@@ -623,6 +653,7 @@ def _maybe_send_clipped_newsletter_alert(
     _publish_alarm(
         boto_session,
         topic_arn,
+        project=project,
         event="Newsletter Clipped",
         status="ALERT",
         fields={
@@ -641,6 +672,7 @@ def _maybe_send_clipped_newsletter_alert(
 def _send_crawl_health_alert(
     boto_session: boto3.Session,
     topic_arn: str,
+    project: str,
     crawl_report: CrawlReport,
     expected_flaky: list[str],
 ) -> None:
@@ -671,6 +703,7 @@ def _send_crawl_health_alert(
     _publish_alarm(
         boto_session,
         topic_arn,
+        project=project,
         event="Crawl Health",
         status="ALERT",
         fields={
@@ -682,11 +715,12 @@ def _send_crawl_health_alert(
 
 
 def _send_failure_notification(
-    boto_session: boto3.Session, topic_arn: str, error_message: str
+    boto_session: boto3.Session, topic_arn: str, project: str, error_message: str
 ) -> None:
     _publish_alarm(
         boto_session,
         topic_arn,
+        project=project,
         event="Newsletter Delivery",
         status="FAILED",
         fields={"Error": error_message},

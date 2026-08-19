@@ -43,9 +43,18 @@ class TestFormatAlarm:
 
     def test_subject_format(self):
         subject, _ = format_alarm(
-            event="Newsletter Delivery", status="FAILED", fields={"Error": "boom"}
+            event="Newsletter Delivery",
+            status="FAILED",
+            fields={"Error": "boom"},
+            project="tech-digest",
         )
         assert subject == "[tech-digest] Newsletter Delivery — FAILED"
+
+    def test_project_is_required(self):
+        """It used to default to the literal "tech-digest" and no caller passed
+        it, so every alarm named that project whatever the deployment was."""
+        with pytest.raises(TypeError):
+            format_alarm(event="X", status="ALERT", fields={})
 
     def test_custom_project_in_subject(self):
         subject, _ = format_alarm(
@@ -58,6 +67,7 @@ class TestFormatAlarm:
             event="Newsletter Delivery",
             status="ALERT",
             fields={"Delivered": "2/3", "Failed recipients": "a@b.com"},
+            project="tech-digest",
             timestamp=self._TS,
         )
         assert "Delivered:         2/3" in msg
@@ -70,6 +80,7 @@ class TestFormatAlarm:
             event="Crawl Health",
             status="ALERT",
             fields={"Failing sources": "2", "Detail": "line1\nline2"},
+            project="tech-digest",
             timestamp=self._TS,
         )
         assert "Failing sources: 2" in msg

@@ -19,7 +19,7 @@ from feedparser.exceptions import CharacterEncodingOverride
 from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import RequestException
 
-from .constants import AppConstants
+from .constants import DEFAULT_TAGS, MAX_TAGS, AppConstants
 from .logger import logger
 
 # Cap on redirects we will follow per request. Bounds redirect-chain abuse and
@@ -122,12 +122,16 @@ def _host_resolves_to_blocked(host: str) -> bool:
     return False
 
 
+# Every member must be a VALUE in ``ScraperConfig.SOURCE_MAPPING`` (or
+# "unknown"), because that map is the only thing that produces a source — see
+# ``Post._determine_source``. "deepmind" used to be listed here and was
+# unreachable: ``deepmind.google`` maps to "google". ``test_feed_parser`` pins
+# the two together now.
 SourceType: TypeAlias = Literal[
     "airbnb",
     "amazon",
     "anthropic",
     "aws",
-    "deepmind",
     "eugene_yan",
     "google",
     "huggingface",
@@ -187,7 +191,6 @@ class ScraperConfig:
         "%m/%d/%Y",
         "%d.%m.%Y",
     )
-    DEFAULT_TAGS: ClassVar[list[str]] = ["uncategorized"]
     # Visible-text length below which a feed entry is considered a teaser and we
     # go scrape the full article page. Distinct from ``scraping.min_content_length``
     # (the configurable ~600-char gate that decides whether a post is substantive
@@ -195,7 +198,6 @@ class ScraperConfig:
     # "min content length", which invited confusing one for the other.
     FULL_SCRAPE_TEXT_THRESHOLD: ClassVar[int] = 3000
     MARKDOWN_IMAGE_PATTERN: ClassVar[re.Pattern] = re.compile(r"!\[.*?]\((.*?)\)")
-    MAX_TAGS: ClassVar[int] = 5
     # Full, realistic browser header sets. The Sec-Fetch-* / Sec-Ch-Ua and
     # Upgrade-Insecure-Requests headers materially reduce 403s from anti-bot
     # filters (e.g. Meta, Medium) that reject bare User-Agent-only requests.
@@ -493,23 +495,32 @@ class Post(BaseModel):
     @classmethod
     def validate_tags(cls, v):
         if not v:
-            return ScraperConfig.DEFAULT_TAGS.copy()
+            return list(DEFAULT_TAGS)
         # Preserve the source ordering (tags are emitted most-significant-first)
         # while de-duplicating, then cap. dict.fromkeys keeps first-seen order;
         # sorting here would discard relevance and drop important trailing tags.
         unique_tags = list(dict.fromkeys(tag for tag in v if isinstance(tag, str)))
-        return unique_tags[: ScraperConfig.MAX_TAGS]
+        return unique_tags[:MAX_TAGS]
 
     @classmethod
     def from_entry(cls, entry: feedparser.FeedParserDict) -> "Post":
+        """Build a Post from a feed entry or a scraper-built ``FeedParserDict``.
+
+        ``source`` is always DERIVED from the link via ``SOURCE_MAPPING``, never
+        read off the entry: that map is the single source of truth, and a
+        per-scraper source would be a second copy of it that could drift. The
+        index-page scrapers used to pass ``source=`` here and it was silently
+        ignored — one of them had drifted to a hardcoded literal without anyone
+        noticing, which is what a duplicate nobody reads looks like.
+        """
         link_str = getattr(entry, "link", "")
-        content_html = cls._extract_content_from_entry(entry, link_str)
+        content = cls._extract_content_from_entry(entry, link_str)
         return cls(
             title=getattr(entry, "title", "No Title").strip(),
             link=link_str,
             published_date=parse_published_date(getattr(entry, "published", "")),
             source=cls._determine_source(link_str),
-            content=content_html,
+            content=content,
             # ``summary`` is deliberately NOT seeded from the feed's teaser.
             # It is the slot the LLM summary lands in, and downstream code uses
             # "summary is non-empty" as the signal that summarization SUCCEEDED
@@ -517,7 +528,7 @@ class Post(BaseModel):
             # it with the RSS teaser made that signal always true, so a post
             # whose summarization failed shipped its raw feed teaser as the
             # article body while ALSO being reported as filtered-out.
-            images=cls._extract_images(content_html, link_str),
+            images=cls._extract_images(content, link_str),
             tags=[
                 tag.term for tag in getattr(entry, "tags", []) if hasattr(tag, "term")
             ],
@@ -885,9 +896,8 @@ class BasePageScraper:
     def _strip_call_to_action(self, accessible_name: str) -> str:
         return self.TITLE_CALL_TO_ACTION.sub("", accessible_name, count=1)
 
-    def __init__(self, page_url: str, source: SourceType):
+    def __init__(self, page_url: str):
         self.page_url = page_url
-        self.source = source
         self.source_url = page_url
 
     @property
@@ -1043,7 +1053,6 @@ class AnthropicBlogScraper(BasePageScraper):
                     title=title.strip(),
                     link=urljoin(self.page_url, href),
                     published=pub_date.isoformat(),
-                    source=self.source,
                 )
             )
 
@@ -1067,7 +1076,6 @@ class GoogleBlogScraper(GenericPageScraper):
             title=title_elem.text.strip(),
             link=urljoin(self.page_url, str(href)),
             published=date_elem.text.strip(),
-            source=self.source,
         )
 
 
@@ -1098,7 +1106,6 @@ class LinkedInBlogScraper(GenericPageScraper):
             # already-absolute URLs.
             link=urljoin(self.page_url, str(href)),
             published=date_elem.text.strip(),
-            source=self.source,
             tags=[{"term": tag} for tag in tags],
         )
 
@@ -1120,20 +1127,31 @@ class MetaAIBlogScraper(BasePageScraper):
         soup = self._fetch_page()
 
         posts = []
-        seen_urls = set()
+        # Deduplicate on the RESOLVED url, not the raw href: an index page can
+        # link the same post both relatively ("/blog/x") and absolutely, which a
+        # raw-href set treats as two posts. This used to be a raw-href set
+        # followed by a second, resolved-url pass over the finished list — two
+        # passes to express one rule.
+        seen_urls: set[str] = set()
         blog_links = soup.find_all("a", href=self.link_pattern)
         logger.info(f"Meta AI: Found {len(blog_links)} potential blog links")
 
         for i, link in enumerate(blog_links):
             try:
                 href = link.get("href", "")
-                if not href or href in seen_urls:
+                if not href:
                     continue
 
                 if href.endswith("/blog/") or "?page=" in href:
                     continue
 
-                seen_urls.add(href)
+                # urljoin handles both relative ("/blog/x") and absolute hrefs
+                # against the scraper's own page_url, so the host is never
+                # hardcoded here (single source of truth: the configured URL).
+                full_url = urljoin(self.page_url, str(href))
+                if full_url in seen_urls:
+                    continue
+                seen_urls.add(full_url)
 
                 title = self._extract_title(link)
                 if not title:
@@ -1152,17 +1170,11 @@ class MetaAIBlogScraper(BasePageScraper):
                     logger.debug(f"Meta AI: '{title}' date unparseable or out of range")
                     continue
 
-                # urljoin handles both relative ("/blog/x") and absolute hrefs
-                # against the scraper's own page_url, so the host is never
-                # hardcoded here (single source of truth: the configured URL).
-                full_url = urljoin(self.page_url, href)
-
                 post = Post.from_entry(
                     feedparser.FeedParserDict(
                         title=title.strip(),
                         link=full_url,
                         published=pub_date.isoformat(),
-                        source=self.source,
                     )
                 )
                 posts.append(post)
@@ -1171,15 +1183,8 @@ class MetaAIBlogScraper(BasePageScraper):
             except Exception as e:
                 logger.error(f"Meta AI: Error processing link {i}: {e}")
 
-        unique_posts = []
-        seen_links = set()
-        for post in posts:
-            if str(post.link) not in seen_links:
-                unique_posts.append(post)
-                seen_links.add(str(post.link))
-
-        logger.info(f"Meta AI: Found {len(unique_posts)} unique posts in date range")
-        return unique_posts
+        logger.info(f"Meta AI: Found {len(posts)} unique posts in date range")
+        return posts
 
 
 class QwenBlogScraper(GenericPageScraper):
@@ -1218,7 +1223,6 @@ class QwenBlogScraper(GenericPageScraper):
             title=title.strip(),
             link=urljoin(self.page_url, href) if href.startswith("/") else href,
             published=date_match.group(1),
-            source=self.source,
         )
 
 
@@ -1274,7 +1278,6 @@ class XAIBlogScraper(BasePageScraper):
                         title=title.strip(),
                         link=full_url,
                         published=pub_date.isoformat(),
-                        source="xai",
                     )
                 )
                 posts.append(post)
@@ -1287,28 +1290,27 @@ class XAIBlogScraper(BasePageScraper):
 
 
 class ScraperRegistry:
-    _SCRAPER_MAPPING: ClassVar[dict[str, tuple[type[BasePageScraper], SourceType]]] = {
-        AppConstants.External.ANTHROPIC_ENGINEERING.value: (
-            AnthropicBlogScraper,
-            "anthropic",
-        ),
-        AppConstants.External.GOOGLE_RESEARCH.value: (GoogleBlogScraper, "google"),
-        AppConstants.External.LINKEDIN_ENGINEERING.value: (
-            LinkedInBlogScraper,
-            "linkedin",
-        ),
-        AppConstants.External.META_AI.value: (MetaAIBlogScraper, "meta"),
-        AppConstants.External.QWEN.value: (QwenBlogScraper, "qwen"),
-        AppConstants.External.XAI.value: (XAIBlogScraper, "xai"),
+    # URL fragment -> scraper. No source is recorded alongside the class: the
+    # source comes from ``SOURCE_MAPPING`` via the post's link, so pairing one
+    # here would be a second copy of that map. The entries used to be
+    # ``(class, source)`` tuples whose source was threaded down and then
+    # discarded by ``Post.from_entry``.
+    _SCRAPER_MAPPING: ClassVar[dict[str, type[BasePageScraper]]] = {
+        AppConstants.External.ANTHROPIC_ENGINEERING.value: AnthropicBlogScraper,
+        AppConstants.External.GOOGLE_RESEARCH.value: GoogleBlogScraper,
+        AppConstants.External.LINKEDIN_ENGINEERING.value: LinkedInBlogScraper,
+        AppConstants.External.META_AI.value: MetaAIBlogScraper,
+        AppConstants.External.QWEN.value: QwenBlogScraper,
+        AppConstants.External.XAI.value: XAIBlogScraper,
         # NOTE: add new scrapers here
     }
 
     @classmethod
     def get_fetcher(cls, url: str) -> PostFetcher:
-        for url_pattern, (scraper_class, source) in cls._SCRAPER_MAPPING.items():
+        for url_pattern, scraper_class in cls._SCRAPER_MAPPING.items():
             if url_pattern in url:
                 logger.info("Using %s for URL: '%s'", scraper_class.__name__, url)
-                return scraper_class(page_url=url, source=source)
+                return scraper_class(page_url=url)
         return RssFetcher(url)
 
     @classmethod

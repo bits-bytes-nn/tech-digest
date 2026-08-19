@@ -9,7 +9,6 @@ markdown>=3.4.1
 pillow>=10.2.0
 pydantic[email]>=2.10.3
 python-dotenv>=1.0.1
-pytz>=2023.3.post1
 requests>=2.32.3
 selenium>=4.30.0
 tenacity>=8.2.2

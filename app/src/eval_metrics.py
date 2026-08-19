@@ -36,13 +36,12 @@ def is_on_grid(score: float, tol: float = 0.001) -> bool:
 #   0.35 Weak                                                     -> weak
 #   0.15 Poor / 0.05 Not ML                                       -> reject
 #
-# This mapping is the single source of truth, and the cutoffs below are derived
-# from it rather than invented separately. They previously were separate: the
-# cutoffs put 0.60 in "strong" even though the rubric calls 0.60 "Good" and
-# reserves "Strong" for 0.70 — so an article the model scored exactly per the
-# rubric was reported as a band mismatch. Two independent numeric scales for the
-# same concept will always drift; ``test_eval_metrics`` now pins every anchor to
-# the band its rubric label names.
+# This mapping is the SINGLE source of truth: ``band_of_score`` classifies by
+# nearest anchor and there is no second table of cutoffs to drift from it. There
+# used to be one, and it did drift — it put 0.60 in "strong" even though the
+# rubric calls 0.60 "Good" and reserves "Strong" for 0.70, so an article scored
+# exactly per the rubric was reported as a band mismatch. ``test_eval_metrics``
+# pins every anchor to the band its rubric label names.
 ANCHOR_BANDS: dict[float, str] = {
     0.85: "high",
     0.80: "high",
@@ -55,22 +54,34 @@ ANCHOR_BANDS: dict[float, str] = {
     0.05: "reject",
 }
 
-# Lower bound of each band, placed midway between the adjacent anchors so a
-# one-step +-0.05 adjustment stays inside its anchor's band.
-_BAND_CUTOFFS: tuple[tuple[float, str], ...] = (
-    (0.75, "high"),
-    (0.65, "strong"),
-    (0.45, "moderate"),
-    (0.25, "weak"),
-)
-
 
 def band_of_score(score: float) -> str:
-    """Coarse quality band label for a score (for alignment reporting)."""
-    for cutoff, band in _BAND_CUTOFFS:
-        if score >= cutoff:
-            return band
-    return "reject"
+    """Coarse quality band label for a score: the band of its NEAREST anchor.
+
+    Derived from ``ANCHOR_BANDS`` rather than from a second table of cutoffs.
+    That table claimed to place each bound "midway between the adjacent anchors
+    so a one-step +-0.05 adjustment stays inside its anchor's band", and it did
+    neither: two of its four values were not the midpoint (0.75 for a 0.725
+    midpoint, 0.45 for 0.425), and the property is unachievable anyway wherever
+    two bands' anchors are one or two steps apart. 0.70 ("Strong") adjusted one
+    step up is 0.75, which is the "Adequate/high" anchor itself; no cutoff can
+    call that value both. Measured against the old table, three of nine anchors
+    left their own band on a legal one-step adjustment — including 0.70, which is
+    the default ``min_score``, so ``band_stability_rate`` under-reported.
+
+    Nearest-anchor has no second scale to drift, and ties resolve DOWN, matching
+    the rubric's own instruction ("when torn between two anchors, choose the
+    LOWER one"). Only the exact tie points move relative to the old table: 0.65
+    reads moderate rather than strong, 0.25 reject rather than weak.
+    """
+    # The distance is rounded before comparing: 0.65 is nominally equidistant from
+    # 0.70 and 0.60, but in binary those distances are 0.049999... and 0.050000...,
+    # so an exact comparison would silently pick the higher anchor and defeat the
+    # tie-break below.
+    nearest = min(
+        ANCHOR_BANDS, key=lambda anchor: (round(abs(score - anchor), 6), anchor)
+    )
+    return ANCHOR_BANDS[nearest]
 
 
 @dataclass

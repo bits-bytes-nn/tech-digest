@@ -5,6 +5,7 @@ ordered, localized issue. Exercises the real templates against real files.
 from __future__ import annotations
 
 import json
+from typing import ClassVar
 
 import pytest
 
@@ -176,3 +177,71 @@ class TestBuildOutputs:
         builder = _builder(inputs, outputs, templates_dir)
         articles = builder._load_articles("2026-06-01", Language.KO)
         assert [a.title for a in articles] == ["Good"]
+
+
+class TestChromeDefaultsAreReachable:
+    """An unset header field must fall back to the renderer's default.
+
+    main.py coerced each config value with ``or ""``, which overrode
+    BuildConfiguration's defaults with the empty string — making every entry in
+    NewsletterConfig.DEFAULT_STYLES dead, and turning "no header_title configured"
+    into a Header validation error that failed the whole build.
+    """
+
+    def test_unset_fields_use_default_styles(self):
+        from app.src.newsletter_renderer import BuildConfiguration, NewsletterConfig
+
+        config = BuildConfiguration(stage="dev", date_suffix="2026-08-19")
+        for field, expected in NewsletterConfig.DEFAULT_STYLES.items():
+            assert getattr(config, field) == expected, field
+
+    def test_empty_header_title_is_rejected_not_silently_shipped(self):
+        from pydantic import ValidationError
+
+        from app.src.newsletter_renderer import Header
+
+        with pytest.raises(ValidationError):
+            Header(title="", description="d", thumbnail="t", publish_date="2026-08-19")
+
+    def test_main_omits_unset_chrome_so_defaults_apply(self, tmp_path, monkeypatch):
+        """The composition root must not pass "" for an unset field."""
+        import app.main as main
+        from app.src.newsletter_renderer import NewsletterConfig
+
+        captured = {}
+
+        class _Builder:
+            def __init__(self, *a, **k):
+                pass
+
+            def build(self, build_config):
+                captured["config"] = build_config
+                return tmp_path / "out.html", []
+
+        class _Cfg:
+            class resources:
+                stage = "dev"
+
+            class newsletter:
+                header_title = None
+                header_description = None
+                header_thumbnail = None
+                footer_title = None
+                save_articles = False
+                convert_to_images = False
+                logos: ClassVar[dict[str, str]] = {}
+
+        monkeypatch.setattr(main, "NewsletterBuilder", _Builder)
+        main._build_newsletter(
+            tmp_path / "inputs" / "2026-08-19",
+            tmp_path,
+            "2026-08-19",
+            "intro",
+            _Cfg(),
+            main.Language.KO,
+        )
+        assert (
+            captured["config"].header_title
+            == NewsletterConfig.DEFAULT_STYLES["header_title"]
+        )
+        assert captured["config"].first_section_intro == "intro"

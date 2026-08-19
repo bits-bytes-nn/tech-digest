@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -149,3 +151,55 @@ newsletter:
         assert config.resources.project_name == "tech-digest"
         assert config.summarization.min_score == 0.7
         assert len(config.scraping.rss_urls) == 1
+
+
+class TestSummarizationSwitchesReachTheSummarizer:
+    """A knob documented in the template must survive config load.
+
+    ``filter_on_visible_text`` and ``summarize_on_cleaned_html`` were documented
+    in config-template.yaml and design.md as switches with a "set False to revert"
+    instruction, but were never declared on the Summarization model — so
+    pydantic's ignore-extras dropped them and SummarizerSettings fell back to its
+    own default. The defaults matched, so the pipeline looked correct while both
+    switches did nothing at all.
+    """
+
+    @pytest.mark.parametrize(
+        "field", ["filter_on_visible_text", "summarize_on_cleaned_html"]
+    )
+    def test_switch_is_a_declared_field(self, field):
+        assert field in Summarization.model_fields
+
+    @pytest.mark.parametrize(
+        "field", ["filter_on_visible_text", "summarize_on_cleaned_html"]
+    )
+    def test_false_in_yaml_reaches_summarizer_settings(self, field):
+        from app.src import SummarizerSettings
+
+        section = Summarization(
+            filtering_criteria=FilteringCriteria.ALL,
+            filtering_model_id=LanguageModelId.CLAUDE_V5_SONNET,
+            summarization_model_id=LanguageModelId.CLAUDE_V5_SONNET,
+            greeting_model_id=LanguageModelId.CLAUDE_V4_5_HAIKU,
+            **{field: False},
+        )
+        settings = SummarizerSettings.model_validate(section.model_dump())
+        assert getattr(settings, field) is False
+
+    def test_template_documents_only_switches_that_exist(self):
+        """Every summarization key in the shipped template must be a real field."""
+        import yaml
+
+        template = yaml.safe_load(
+            (
+                Path(__file__).resolve().parent.parent
+                / "app"
+                / "configs"
+                / "config-template.yaml"
+            ).read_text(encoding="utf-8")
+        )
+        unknown = set(template["summarization"]) - set(Summarization.model_fields)
+        assert not unknown, (
+            f"config-template.yaml documents summarization keys the model ignores: "
+            f"{sorted(unknown)}"
+        )

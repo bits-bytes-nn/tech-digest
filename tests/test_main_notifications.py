@@ -18,6 +18,8 @@ import main  # noqa: E402
 
 from src.feed_parser import CrawlReport, SourceHealth, SourceStatus  # noqa: E402
 
+PROJECT = "tech-digest"
+
 
 class _FakeSNS:
     def __init__(self):
@@ -60,7 +62,7 @@ def failing_report() -> CrawlReport:
 class TestCrawlHealthAlert:
     def test_alert_published_with_failures(self, failing_report):
         session = _FakeSession()
-        main._send_crawl_health_alert(session, "arn:topic", failing_report, [])
+        main._send_crawl_health_alert(session, "arn:topic", PROJECT, failing_report, [])
         assert len(session.sns.published) == 1
         msg = session.sns.published[0]
         assert "Crawl Health" in msg["Subject"]
@@ -73,7 +75,7 @@ class TestCrawlHealthAlert:
         page, or the alarm becomes noise that hides a genuinely new breakage."""
         session = _FakeSession()
         main._send_crawl_health_alert(
-            session, "arn:topic", failing_report, ["ai.meta.com"]
+            session, "arn:topic", PROJECT, failing_report, ["ai.meta.com"]
         )
         assert session.sns.published == []
 
@@ -90,7 +92,7 @@ class TestCrawlHealthAlert:
         )
         session = _FakeSession()
         main._send_crawl_health_alert(
-            session, "arn:topic", failing_report, ["ai.meta.com"]
+            session, "arn:topic", PROJECT, failing_report, ["ai.meta.com"]
         )
         assert len(session.sns.published) == 1
         assert "research.google/blog" in session.sns.published[0]["Message"]
@@ -106,6 +108,7 @@ class TestPartialDeliveryAlert:
         main._maybe_send_partial_delivery_alert(
             session,
             "arn:topic",
+            PROJECT,
             success_count=2,
             total_recipients=3,
             failed_recipients=["bad@example.com"],
@@ -125,6 +128,7 @@ class TestPartialDeliveryAlert:
         main._maybe_send_partial_delivery_alert(
             session,
             "arn:topic",
+            PROJECT,
             success_count=3,
             total_recipients=3,
             failed_recipients=[],
@@ -163,7 +167,7 @@ class TestEmptyDigestAlert:
             (self._post("C"), "Low relevance score."),
         ]
         main._maybe_send_empty_digest_alert(
-            session, "arn:topic", self._report(3), filtered_out
+            session, "arn:topic", PROJECT, self._report(3), filtered_out
         )
         assert len(session.sns.published) == 1
         msg = session.sns.published[0]["Message"]
@@ -176,14 +180,18 @@ class TestEmptyDigestAlert:
     def test_no_alert_when_nothing_collected(self):
         # An empty crawl is covered by crawl-health alerts, not this one.
         session = _FakeSession()
-        main._maybe_send_empty_digest_alert(session, "arn:topic", self._report(0), [])
+        main._maybe_send_empty_digest_alert(
+            session, "arn:topic", PROJECT, self._report(0), []
+        )
         assert session.sns.published == []
 
     def test_no_alert_when_no_filtered_out_posts(self):
         # Defensive: total>0 but nothing recorded as filtered out (shouldn't
         # normally happen) must not fire a misleading alert.
         session = _FakeSession()
-        main._maybe_send_empty_digest_alert(session, "arn:topic", self._report(5), [])
+        main._maybe_send_empty_digest_alert(
+            session, "arn:topic", PROJECT, self._report(5), []
+        )
         assert session.sns.published == []
 
 
@@ -283,6 +291,10 @@ class TestHandlerControlFlow:
 
         class _Cfg:
             class resources:
+                # project_name is read for the alarm subject line, so a stub
+                # without it makes the failure paths raise inside the handler's
+                # own error handling.
+                project_name = PROJECT
                 profile_name = None
                 default_region_name = "ap-northeast-2"
                 bedrock_region_name = "us-west-2"
@@ -433,7 +445,7 @@ class TestNoRecipientsAlert:
         """Pins the reason a separate alarm is needed rather than reusing that one."""
         session = _FakeSession()
         main._maybe_send_partial_delivery_alert(
-            session, "arn:topic", 0, 0, [], failing_report
+            session, "arn:topic", PROJECT, 0, 0, [], failing_report
         )
         assert session.sns.published == []
 
@@ -450,7 +462,9 @@ class TestClippedNewsletterAlert:
         path = tmp_path / "n.html"
         path.write_bytes(b"x" * (GMAIL_CLIP_BYTES - 1))
         session = _FakeSession()
-        main._maybe_send_clipped_newsletter_alert(session, "arn:topic", path, 3)
+        main._maybe_send_clipped_newsletter_alert(
+            session, "arn:topic", PROJECT, path, 3
+        )
         assert session.sns.published == []
 
     def test_alert_over_the_limit_reports_size_and_remedy(self, tmp_path):
@@ -459,7 +473,9 @@ class TestClippedNewsletterAlert:
         path = tmp_path / "n.html"
         path.write_bytes(b"x" * (GMAIL_CLIP_BYTES + 2048))
         session = _FakeSession()
-        main._maybe_send_clipped_newsletter_alert(session, "arn:topic", path, 5)
+        main._maybe_send_clipped_newsletter_alert(
+            session, "arn:topic", PROJECT, path, 5
+        )
         assert len(session.sns.published) == 1
         published = session.sns.published[0]
         assert "Newsletter Clipped" in published["Subject"]
@@ -470,6 +486,6 @@ class TestClippedNewsletterAlert:
         """A size check must never be the thing that fails a successful run."""
         session = _FakeSession()
         main._maybe_send_clipped_newsletter_alert(
-            session, "arn:topic", tmp_path / "absent.html", 3
+            session, "arn:topic", PROJECT, tmp_path / "absent.html", 3
         )
         assert session.sns.published == []

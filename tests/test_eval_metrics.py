@@ -99,11 +99,19 @@ class TestBandOfScore:
         assert report.band_match_rate == 1.0
         assert report.band_stability_rate == 0.0
 
-    def test_band_boundaries_inclusive(self):
-        assert band_of_score(0.75) == "high"
-        assert band_of_score(0.65) == "strong"
-        assert band_of_score(0.45) == "moderate"
-        assert band_of_score(0.25) == "weak"
+    def test_values_between_anchors(self):
+        """A non-anchor score takes its nearest anchor's band, ties going DOWN.
+
+        This used to assert 0.65 -> "strong" and 0.25 -> "weak", which was the old
+        ``_BAND_CUTOFFS`` table's behaviour: both are exact midpoints between two
+        bands' anchors, and that table resolved them upward. The rubric's own
+        instruction for an ambiguous case is the opposite ("when torn between two
+        anchors, always choose the LOWER one"), so they now read as the lower band.
+        """
+        assert band_of_score(0.75) == "high"  # an anchor
+        assert band_of_score(0.65) == "moderate"  # tie: 0.70 strong / 0.60 moderate
+        assert band_of_score(0.45) == "moderate"  # nearest 0.50
+        assert band_of_score(0.25) == "reject"  # tie: 0.35 weak / 0.15 reject
 
 
 class TestArticleScoreStats:
@@ -156,3 +164,38 @@ class TestBuildReport:
         report = build_report({"a": [0.85, 0.85]}, {"a": "high"})
         table = report.format_table()
         assert "determinism=" in table and "band-match=" in table
+
+
+class TestBandsHaveNoSecondScale:
+    """``band_of_score`` must be derived from ANCHOR_BANDS, not a parallel table.
+
+    There used to be a ``_BAND_CUTOFFS`` tuple documented as sitting "midway
+    between the adjacent anchors so a one-step ±0.05 adjustment stays inside its
+    anchor's band". Two of its four values were not the midpoint, and the property
+    is unachievable where two bands' anchors are one step apart — measured, three
+    of nine anchors left their own band on a legal adjustment, including 0.70,
+    which is the default ``min_score``.
+    """
+
+    def test_no_cutoff_table_remains(self):
+        import app.src.eval_metrics as em
+
+        assert not hasattr(em, "_BAND_CUTOFFS")
+
+    def test_ties_resolve_to_the_lower_band(self):
+        """The rubric says "when torn between two anchors, choose the LOWER one",
+        so a score exactly between two anchors must read as the lower one's band."""
+        assert band_of_score(0.65) == "moderate"  # between 0.70 strong / 0.60 moderate
+        assert band_of_score(0.25) == "reject"  # between 0.35 weak / 0.15 reject
+
+    def test_a_score_reads_as_its_nearest_anchor(self):
+        from app.src.eval_metrics import ANCHOR_BANDS
+
+        for anchor, band in ANCHOR_BANDS.items():
+            assert band_of_score(anchor) == band, anchor
+            # A hair off an anchor is still that anchor's band.
+            assert band_of_score(round(anchor + 0.01, 2)) == band, anchor
+
+    def test_out_of_grid_extremes_still_classify(self):
+        assert band_of_score(1.0) == "high"
+        assert band_of_score(0.0) == "reject"

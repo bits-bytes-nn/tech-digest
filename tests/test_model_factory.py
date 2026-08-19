@@ -63,7 +63,7 @@ class TestModelInfoRegistry:
         assert LanguageModelId.CLAUDE_V5_OPUS.value == "anthropic.claude-opus-5"
         info = _LANGUAGE_MODEL_INFO[LanguageModelId.CLAUDE_V5_OPUS]
         assert info.supports_prompt_caching is True
-        assert info.supports_1m_context_window is True
+        assert info.context_window_size >= 200_000
 
 
 class TestValidateMaxTokens:

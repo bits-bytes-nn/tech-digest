@@ -5,7 +5,7 @@ from .constants import Language, LanguageModelId
 from .logger import logger
 from .model_factory import BedrockLanguageModelFactory
 from .prompts import GreetingPrompt, GreetingRevisionPrompt
-from .utils import RetryableBase
+from .utils import retry_with_backoff
 
 
 def measure_greeting(text: str, language: Language) -> int:
@@ -19,7 +19,7 @@ def measure_greeting(text: str, language: Language) -> int:
     return len(text.split())
 
 
-class Greeter(RetryableBase):
+class Greeter:
     def __init__(
         self,
         boto_session: boto3.Session,
@@ -68,11 +68,11 @@ class Greeter(RetryableBase):
         draft = self._generate(context)
         return self._enforce_length(draft)
 
-    @RetryableBase._retry("greeting")
+    @retry_with_backoff("greeting")
     def _generate(self, context: str | None = None) -> str:
         return self.greeter.invoke({"context": context or ""})
 
-    @RetryableBase._retry("greeting-revision")
+    @retry_with_backoff("greeting-revision")
     def _revise(self, draft: str, measured: int) -> str:
         low, high = self.length_range
         return self.reviser.invoke(

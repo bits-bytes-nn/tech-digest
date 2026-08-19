@@ -385,7 +385,7 @@ not submit it.
 6. 흔한 표현의 띄어쓰기를 일관되게 (항상 "이번 주", "이번주"는 쓰지 않음)
 7. "혁신적인", "강력한", "놀라운", "다양한" 같은 칭찬·뭉갬 형용사와 "~라는 점이야" 같은
    맺음은 쓰지 마세요. 구체적인 것을 그냥 말하면 됩니다
-7. 평문만 출력 — 마크다운 금지
+8. 평문만 출력 — 마크다운 금지
 
 **OUTPUT:** Newsletter introduction in Korean only.""",
     }
@@ -609,12 +609,13 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
-<one_liner>[ONE plain-text sentence, 15-28 words — it must not wrap past two lines in the card. Count the
-words before answering. that a reader scanning the digest can use to decide whether to read
-this card. State the most concrete, specific thing the article establishes — the mechanism plus its measured effect
+<one_liner>[ONE plain-text sentence a reader scanning the digest can use to decide whether to read this
+card. 15-28 words — count them before answering; it must not wrap past two lines in the card.
+State the most concrete, specific thing the article establishes — the mechanism plus its measured effect
 where available (e.g. "Splitting prefill and decode onto separate GPU pools over RDMA cuts per-token latency 22-66%
 at high concurrency"). NO adjectives of praise, NO "this article explains/explores/discusses", NO restating the
-title, NO trailing period-free fragments. Plain text only, no HTML, no markdown]</one_liner>
+title. Write a complete sentence ending in a period, not a headline fragment. Plain text only, no HTML,
+no markdown]</one_liner>
 <tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies,
 or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI"
 unless they represent novel approaches discussed]</tags>
@@ -697,8 +698,6 @@ Korean:
    파라미터·측정값·코드를 빼지 마세요. 번역투를 피하려고 문장을 짧게 끊는 것도, 강조하려고 앞
    섹션의 수치를 뒤 섹션에서 다시 꺼내는 것도 금지입니다. **고칠 것은 문장이고, 줄일 것은
    중복 서술뿐입니다.**
-   - "결론적으로", "요약하면", "살펴보겠습니다" 같은 **메타 서술**을 쓰지 마세요. 각 섹션은
-     요약이 아니라 내용입니다
 
 **구체성 규칙 (이 뉴스레터의 핵심 가치):**
 - 원문이 보고하는 **측정값은 단위와 함께 빠짐없이** 옮기세요("22~66% 감소", "8,000토큰",

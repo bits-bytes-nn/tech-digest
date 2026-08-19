@@ -116,6 +116,35 @@ class TestStructure:
         assert not broken, f"{path.name}: dead anchors {broken}"
 
 
+class TestNumbersMatchTheirSource:
+    """A number in the docs that nothing checks goes stale at the first change.
+
+    Both READMEs advertised "71 Python dependencies" for weeks after the lock
+    dropped to 65 — the same commit that corrected design.md missed them, because
+    nothing tied the sentence to the file it describes.
+    """
+
+    def test_dependency_count_matches_the_lock(self):
+        pinned = sum(
+            1
+            for line in (REPO / "app" / "requirements.lock")
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if "==" in line and not line.lstrip().startswith("#")
+        )
+        for path in (REPO / "README.md", REPO / "README.ko.md"):
+            text = path.read_text(encoding="utf-8")
+            claimed = re.findall(
+                r"(?:all (\d+) Python\s+dependencies|Python 의존성 (\d+)개)", text
+            )
+            flat = [int(n) for pair in claimed for n in pair if n]
+            assert flat, f"{path.name}: no dependency-count claim found to check"
+            assert all(n == pinned for n in flat), (
+                f"{path.name} claims {flat} pinned dependencies, "
+                f"app/requirements.lock has {pinned}"
+            )
+
+
 class TestReadmesStayInSync:
     """The Korean README is a translation, not a fork: same sections, same order."""
 

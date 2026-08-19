@@ -6,7 +6,6 @@ module in the project; it now lives in ``model_factory``.
 
 import functools
 import math
-import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -14,6 +13,8 @@ from typing import Any
 
 import tenacity
 from bs4 import BeautifulSoup
+from email_validator import EmailNotValidError
+from email_validator import validate_email as _validate_email
 from langchain_core.exceptions import OutputParserException
 from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.runnables import RunnableConfig
@@ -22,18 +23,52 @@ from tqdm import tqdm
 
 from .logger import logger
 
+# Retry policy for a single Bedrock call, shared by the batch processor's
+# sequential fallback and by ``retry_with_backoff``. One set of numbers: these
+# used to be module constants for one caller and duplicate pydantic field
+# defaults for the other, with nothing keeping the two in step.
 MAX_RETRIES: int = 5
 RETRY_MAX_WAIT: int = 120
-RETRY_MULTIPLIER: int = 30
+RETRY_MULTIPLIER: float = 30.0
 
-EMAIL_PATTERN: str = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
+def _retry_log_callback(operation_name: str) -> Callable:
+    def log_retry(retry_state):
+        logger.warning(
+            "Retrying '%s' (attempt %d failed). Waiting %.1fs",
+            operation_name,
+            retry_state.attempt_number,
+            retry_state.next_action.sleep if retry_state.next_action else 0,
+        )
+
+    return log_retry
+
+
+def retry_with_backoff(
+    operation_name: str,
+    multiplier: float = RETRY_MULTIPLIER,
+    max_wait: int = RETRY_MAX_WAIT,
+    attempts: int = MAX_RETRIES,
+) -> Callable:
+    """Exponential-backoff retry decorator that logs each attempt.
+
+    Replaces a ``RetryableBase`` class whose only member was this as a static
+    method and which was inherited purely to reach it — a mixin carrying no
+    state, where a plain function does the same job without implying a hierarchy.
+    """
+    return tenacity.retry(
+        wait=tenacity.wait_exponential(multiplier=multiplier, max=max_wait),
+        stop=tenacity.stop_after_attempt(attempts),
+        before_sleep=_retry_log_callback(operation_name),
+        reraise=True,
+    )
 
 
 class BatchProcessor(BaseModel):
     max_concurrency: int = Field(default=5, ge=1)
-    retry_multiplier: float = Field(default=30.0, ge=1.0)
-    retry_max_wait: int = Field(default=120, ge=0)
-    max_retries: int = Field(default=5, ge=1)
+    retry_multiplier: float = Field(default=RETRY_MULTIPLIER, ge=1.0)
+    retry_max_wait: int = Field(default=RETRY_MAX_WAIT, ge=0)
+    max_retries: int = Field(default=MAX_RETRIES, ge=1)
     batch_size: int = Field(default=10, ge=1)
 
     def execute_with_fallback(
@@ -43,21 +78,16 @@ class BatchProcessor(BaseModel):
         batch_func: Callable[..., list[Any]],
         sequential_func: Callable[..., Any],
         task_name: str,
-        run_config: dict[str, Any] | None = None,
         show_progress: bool = True,
     ) -> list[Any]:
+        # Concurrency and chunk size come from the instance, which the composition
+        # root sizes from config. There used to be a ``run_config`` mapping that
+        # could override both per call; no caller ever passed one, so it was two
+        # unreachable branches over a parameter that existed to be ignored.
         if not items_to_process:
             return []
-        max_concurrency = (
-            run_config.get("max_concurrency", self.max_concurrency)
-            if run_config
-            else self.max_concurrency
-        )
-        batch_size = (
-            run_config.get("batch_size", self.batch_size)
-            if run_config
-            else self.batch_size
-        )
+        max_concurrency = self.max_concurrency
+        batch_size = self.batch_size
         prepared_batch_func = self._create_batch_func(batch_func, max_concurrency)
         retrying_sequential_func = self._create_retry_decorator(task_name)(
             sequential_func
@@ -124,27 +154,12 @@ class BatchProcessor(BaseModel):
         return _batch_func
 
     def _create_retry_decorator(self, operation_name: str) -> Callable:
-        return tenacity.retry(
-            wait=tenacity.wait_exponential(
-                multiplier=self.retry_multiplier, max=self.retry_max_wait
-            ),
-            stop=tenacity.stop_after_attempt(self.max_retries),
-            before_sleep=self._create_retry_log_callback(operation_name),
-            reraise=True,
+        return retry_with_backoff(
+            operation_name,
+            multiplier=self.retry_multiplier,
+            max_wait=self.retry_max_wait,
+            attempts=self.max_retries,
         )
-
-    @staticmethod
-    def _create_retry_log_callback(operation_name: str) -> Callable:
-        def log_retry(retry_state):
-            wait_time = retry_state.next_action.sleep if retry_state.next_action else 0
-            logger.warning(
-                "Retrying '%s' (attempt %d failed). Waiting %.1fs",
-                operation_name,
-                retry_state.attempt_number,
-                wait_time,
-            )
-
-        return log_retry
 
     @staticmethod
     def _process_sequentially_with_fallback(
@@ -222,29 +237,30 @@ class HTMLTagOutputParser(BaseOutputParser):
         return "html_tag_output_parser"
 
 
-class RetryableBase:
-    @staticmethod
-    def _retry(operation_name: str) -> Callable:
-        return tenacity.retry(
-            wait=tenacity.wait_exponential(
-                multiplier=RETRY_MULTIPLIER, max=RETRY_MAX_WAIT
-            ),
-            stop=tenacity.stop_after_attempt(MAX_RETRIES),
-            before_sleep=lambda retry_state: logger.warning(
-                "Retrying '%s' (attempt %d failed). Waiting %.1fs",
-                operation_name,
-                retry_state.attempt_number,
-                retry_state.next_action.sleep if retry_state.next_action else 0,
-            ),
-            reraise=True,
-        )
-
-
 def validate_email(email: str) -> bool:
-    return bool(re.match(EMAIL_PATTERN, email.strip()))
+    """Whether ``email`` is a syntactically valid address.
+
+    Delegates to ``email_validator``, which the project already depends on (it is
+    what backs pydantic's ``EmailStr``, used for ``newsletter.sender``). This was
+    a hand-written regex, which is both a second definition of "valid address"
+    and a weaker one — it rejects tagged locals with unusual characters and any
+    internationalized domain, and a recipient it drops is a reader who silently
+    stops receiving the digest.
+
+    Deliverability is NOT checked: that would issue an MX lookup per recipient
+    from inside the run.
+    """
+    try:
+        _validate_email(email.strip(), check_deliverability=False)
+    except EmailNotValidError:
+        return False
+    return True
 
 
 def validate_emails(emails: list[str]) -> list[str]:
+    # The address is returned as written (stripped), not in the validator's
+    # normalized form: SES sends to what the recipients file says, and silently
+    # rewriting an address is not this function's job.
     valid_emails = [email.strip() for email in emails if validate_email(email)]
     if len(valid_emails) < len(emails):
         logger.warning(
@@ -258,7 +274,7 @@ def format_alarm(
     event: str,
     status: str,
     fields: dict[str, str],
-    project: str = "tech-digest",
+    project: str,
     timestamp: datetime | None = None,
 ) -> tuple[str, str]:
     """Build a ``(subject, message)`` pair in the project family's unified alarm
@@ -276,6 +292,11 @@ def format_alarm(
     ordered mapping; single-line values render as an aligned ``Key: Value`` block,
     multi-line values render under their own ``Key:`` header. Omit a row by leaving
     it out of the dict.
+
+    ``project`` is required rather than defaulted. It used to default to the
+    literal "tech-digest" and no caller passed it, so every alarm subject named
+    that project regardless of ``resources.project_name`` — a deployment under any
+    other name would have paged with the wrong identity in the subject line.
     """
     ts = (timestamp or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M:%S")
     subject = f"[{project}] {event} — {status}"

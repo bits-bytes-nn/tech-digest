@@ -328,3 +328,95 @@ class TestSpecificitySaturationIsReachable:
 
     def test_a_summary_of_vibes_still_scores_near_zero(self):
         assert evaluate_summary("a", _summary("가" * 2000)).specificity_score == 0.0
+
+
+class TestMeasuredQuantitiesRequireARealUnit:
+    """A unit that is one unbounded letter matches the next word, not a unit.
+
+    ``p`` was listed as a unit (for 퍼센트포인트) with no boundary, so "2 pods",
+    "3 papers" and "5 people" all counted as measured quantities — inflating
+    ``specificity`` and inventing "📊 repeats a figure" findings, the same
+    over-counting the version-string exclusion was added to stop.
+    """
+
+    @pytest.mark.parametrize(
+        "text", ["2 pods를 배치했습니다", "3 papers를 인용합니다", "5 people"]
+    )
+    def test_a_number_before_an_ordinary_p_word_is_not_a_measurement(self, text):
+        from app.src.quality_metrics import quantities
+
+        assert quantities(text) == set()
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("지연이 22% 줄었습니다", {"22%"}),
+            ("3,200Gbps를 처리합니다", {"3,200Gbps"}),
+            ("8,000토큰", {"8,000토큰"}),
+            ("2노드 16 GPU", {"16 GPU"}),
+            ("정확도가 5포인트 올랐습니다", {"5포인트"}),
+        ],
+    )
+    def test_real_units_still_count(self, text, expected):
+        from app.src.quality_metrics import quantities
+
+        assert quantities(text) == expected
+
+
+class TestTerminalColonAgreesWithTheCorrector:
+    """The rubric must count exactly what ``_postprocess_summary`` corrects.
+
+    They had separate patterns: the corrector deliberately preserves a colon that
+    introduces a list (the prompt permits exactly that), while the rubric ran
+    ``[다요죠]:`` over the markup-stripped text, where such a colon is followed by
+    a space — so every legitimate list colon scored the dimension a hard 0.
+    """
+
+    def test_list_introducing_colon_is_not_a_defect(self):
+        from app.src.summarizer import _postprocess_summary
+
+        html = (
+            "<h3>📌 왜</h3><p>구성 요소는 다음과 같습니다:</p><ul><li>A</li></ul>"
+            "<h3>🛠️ 심층</h3><p>지연이 22% 줄었습니다.</p>"
+        )
+        # The corrector leaves it alone...
+        assert _postprocess_summary(html) == html
+        # ...so the rubric must not report it.
+        result = evaluate_summary("a", html)
+        assert result.terminal_colons == 0
+        assert result.terminal_colon_score == 1.0
+
+    def test_a_genuine_terminal_colon_is_still_a_defect(self):
+        html = "<h3>📌 왜</h3><p>동작합니다:</p><p>다음 단락</p>"
+        result = evaluate_summary("a", html)
+        assert result.terminal_colons == 1
+        assert result.terminal_colon_score == 0.0
+
+
+class TestIsKorean:
+    """The rubric is Korean-only, so callers need a way to refuse other input.
+
+    Six dimensions return full marks on English prose because nothing they look
+    for can appear in it, which would report a pass the rubric never measured.
+    """
+
+    def test_korean_summary_with_english_identifiers(self):
+        from app.src.quality_metrics import is_korean
+
+        assert is_korean(
+            "PD_BUFFER_SIZE를 8로 두면 prefill 지연이 22% 줄어듭니다. "
+            "스케줄러가 RDMA로 KV 블록을 옮깁니다."
+        )
+
+    def test_english_summary_is_rejected(self):
+        from app.src.quality_metrics import is_korean
+
+        assert not is_korean(
+            "Splitting prefill and decode onto separate GPU pools over RDMA cuts "
+            "per-token latency by 22-66% at high concurrency."
+        )
+
+    def test_empty_is_not_korean(self):
+        from app.src.quality_metrics import is_korean
+
+        assert not is_korean("   ")

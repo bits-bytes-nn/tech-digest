@@ -59,7 +59,6 @@ pydantic==2.13.4
 PySocks==1.7.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
-pytz==2026.3.post1
 PyYAML==6.0.3
 requests-toolbelt==1.0.0
 requests==2.34.2

@@ -46,7 +46,7 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
   one scores the *filter* (does the right article get picked?) and one scores the
   *output* (is the write-up any good?). Every output check is deterministic and
   maps onto a specific prompt rule, so a low score says which instruction to fix.
-- **Reproducible builds**. base images pinned by digest *and* all 71 Python
+- **Reproducible builds**. base images pinned by digest *and* all 64 Python
   dependencies pinned in `app/requirements.lock`, which CI applies as a
   constraints file so the suite tests exactly what the image ships.
 - **Attributable cost**. on-demand Bedrock carries no taggable resource, so the
@@ -213,7 +213,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (559 tests, 84.7% cov)
+pytest                       # fast, offline unit/integration suite (588 tests, 85.0% cov)
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline
 # and free; --regenerate is the exception and makes real Bedrock calls.

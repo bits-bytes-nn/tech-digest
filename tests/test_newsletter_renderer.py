@@ -17,7 +17,7 @@ from app.src.newsletter_renderer import (
     Section,
     collapse_html_whitespace,
     estimate_reading_minutes,
-    validate_date,
+    normalize_date,
 )
 
 
@@ -31,11 +31,11 @@ class TestValidateDate:
         ],
     )
     def test_known_formats(self, raw, expected):
-        assert validate_date(raw) == expected
+        assert normalize_date(raw) == expected
 
     def test_unparseable_falls_back_to_today(self):
         # Should not raise; returns *some* YYYY-MM-DD string.
-        out = validate_date("garbage")
+        out = normalize_date("garbage")
         assert len(out) == 10 and out[4] == "-"
 
 

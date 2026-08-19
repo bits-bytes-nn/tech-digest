@@ -53,8 +53,8 @@ def no_network(monkeypatch):
     monkeypatch.setattr(feed_parser, "_make_robust_request", lambda url: None)
 
 
-def _bind(scraper_cls, fixture: str, page_url: str, source: str, monkeypatch):
-    scraper = scraper_cls(page_url=page_url, source=source)
+def _bind(scraper_cls, fixture: str, page_url: str, monkeypatch):
+    scraper = scraper_cls(page_url=page_url)
     soup = _load(fixture)
     monkeypatch.setattr(scraper, "_fetch_page", lambda: soup)
     return scraper
@@ -66,7 +66,6 @@ class TestGoogleScraper:
             GoogleBlogScraper,
             "google.html",
             "https://research.google/blog",
-            "google",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -81,7 +80,6 @@ class TestGoogleScraper:
             GoogleBlogScraper,
             "google.html",
             "https://research.google/blog",
-            "google",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -95,7 +93,6 @@ class TestLinkedInScraper:
             LinkedInBlogScraper,
             "linkedin.html",
             "https://www.linkedin.com/blog/engineering",
-            "linkedin",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -116,7 +113,7 @@ class TestLinkedInScraper:
             "Relative Link Post</a></li>"
         )
         scraper = LinkedInBlogScraper(
-            page_url="https://www.linkedin.com/blog/engineering", source="linkedin"
+            page_url="https://www.linkedin.com/blog/engineering"
         )
         soup = BeautifulSoup(html, "html.parser")
         monkeypatch.setattr(scraper, "_fetch_page", lambda: soup)
@@ -132,7 +129,6 @@ class TestQwenScraper:
             QwenBlogScraper,
             "qwen.html",
             "https://qwenlm.github.io/blog/",
-            "qwen",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -149,9 +145,7 @@ class TestQwenNavWordBoundary:
     -> 'page', 'Continued' -> 'continue') are not silently dropped."""
 
     def _parse_title(self, title: str, monkeypatch):
-        scraper = QwenBlogScraper(
-            page_url="https://qwenlm.github.io/blog/", source="qwen"
-        )
+        scraper = QwenBlogScraper(page_url="https://qwenlm.github.io/blog/")
         # The anchor text is the title; the date lives as a sibling in the
         # parent (where _parse_item searches via str(item.parent)).
         html = (
@@ -186,7 +180,6 @@ class TestMetaScraper:
             MetaAIBlogScraper,
             "meta.html",
             "https://ai.meta.com/blog",
-            "meta",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -201,7 +194,6 @@ class TestMetaScraper:
             MetaAIBlogScraper,
             "meta.html",
             "https://ai.meta.com/blog",
-            "meta",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -214,7 +206,6 @@ class TestXAIScraper:
             XAIBlogScraper,
             "xai.html",
             "https://x.ai/news",
-            "xai",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -228,7 +219,6 @@ class TestXAIScraper:
             XAIBlogScraper,
             "xai.html",
             "https://x.ai/news",
-            "xai",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -241,7 +231,6 @@ class TestAnthropicScraper:
             AnthropicBlogScraper,
             "anthropic.html",
             "https://www.anthropic.com/engineering",
-            "anthropic",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -255,7 +244,6 @@ class TestAnthropicScraper:
             AnthropicBlogScraper,
             "anthropic.html",
             "https://www.anthropic.com/engineering",
-            "anthropic",
             monkeypatch,
         )
         posts = scraper.fetch(*window)
@@ -288,9 +276,7 @@ class TestDateAttribution:
 
     @pytest.fixture
     def scraper(self):
-        return AnthropicBlogScraper(
-            page_url="https://www.anthropic.com/engineering", source="anthropic"
-        )
+        return AnthropicBlogScraper(page_url="https://www.anthropic.com/engineering")
 
     def test_undated_post_does_not_inherit_a_neighbours_date(self, scraper):
         found = self._links(
@@ -368,7 +354,7 @@ class TestXaiTitleExtraction:
 
     @pytest.fixture
     def scraper(self):
-        return XAIBlogScraper(page_url="https://x.ai/news", source="xai")
+        return XAIBlogScraper(page_url="https://x.ai/news")
 
     def test_heading_wins_over_the_whole_card_text(self, scraper):
         link = BeautifulSoup(
@@ -419,22 +405,18 @@ class TestTitleExtractionIsShared:
         assert "_extract_title" in vars(BasePageScraper)
 
     @pytest.mark.parametrize(
-        "cls,url,source",
+        "cls,url",
         [
-            (
-                AnthropicBlogScraper,
-                "https://www.anthropic.com/engineering",
-                "anthropic",
-            ),
-            (MetaAIBlogScraper, "https://ai.meta.com/blog", "meta"),
-            (XAIBlogScraper, "https://x.ai/news", "xai"),
+            (AnthropicBlogScraper, "https://www.anthropic.com/engineering"),
+            (MetaAIBlogScraper, "https://ai.meta.com/blog"),
+            (XAIBlogScraper, "https://x.ai/news"),
         ],
     )
-    def test_heading_beats_the_whole_card_on_every_scraper(self, cls, url, source):
+    def test_heading_beats_the_whole_card_on_every_scraper(self, cls, url):
         """The bug that was fixed for x.ai only. Meta's cards nest the teaser
         inside the anchor, so reading the anchor's text produced
         'ResearchAug 12, 2026Segment Anything 3SAM 3 extends...' as the title."""
-        scraper = cls(page_url=url, source=source)
+        scraper = cls(page_url=url)
         card = BeautifulSoup(
             '<a href="/blog/x"><div><span>Research</span><span>Aug 12, 2026</span>'
             "<h3>Segment Anything 3</h3><p>SAM 3 extends promptable segmentation "
@@ -446,12 +428,12 @@ class TestTitleExtractionIsShared:
     def test_no_credible_candidate_returns_empty_not_a_guess(self):
         """Fail closed, like the date gate: the caller skips the link rather than
         shipping a truncated blob as the title."""
-        scraper = XAIBlogScraper(page_url="https://x.ai/news", source="xai")
+        scraper = XAIBlogScraper(page_url="https://x.ai/news")
         link = BeautifulSoup('<a href="/news/x">Read more</a>', "html.parser").find("a")
         assert scraper._extract_title(link) == ""
 
     def test_labelled_element_wins_over_an_over_long_heading(self):
-        scraper = XAIBlogScraper(page_url="https://x.ai/news", source="xai")
+        scraper = XAIBlogScraper(page_url="https://x.ai/news")
         link = BeautifulSoup(
             f'<a href="/news/x"><h3>{"x" * 400}</h3>'
             '<span class="card-title">Short Real Title</span></a>',
@@ -462,14 +444,14 @@ class TestTitleExtractionIsShared:
     def test_when_every_candidate_is_over_long_nothing_is_shipped(self):
         """Previously the last resort truncated to 120 chars and appended "...",
         so a card with no heading shipped a sentence fragment as its title."""
-        scraper = XAIBlogScraper(page_url="https://x.ai/news", source="xai")
+        scraper = XAIBlogScraper(page_url="https://x.ai/news")
         link = BeautifulSoup(
             f'<a href="/news/x"><div>{"word " * 200}</div></a>', "html.parser"
         ).find("a")
         assert scraper._extract_title(link) == ""
 
     def test_aria_label_is_used_when_the_card_has_no_text(self):
-        scraper = MetaAIBlogScraper(page_url="https://ai.meta.com/blog", source="meta")
+        scraper = MetaAIBlogScraper(page_url="https://ai.meta.com/blog")
         link = BeautifulSoup(
             '<a href="/blog/x" aria-label="Llama 4 Multimodal Research">'
             '<img src="/x.png"></a>',
@@ -483,7 +465,7 @@ class TestNavChromeRejection:
 
     @pytest.fixture
     def scraper(self):
-        return QwenBlogScraper(page_url="https://qwenlm.github.io/blog/", source="qwen")
+        return QwenBlogScraper(page_url="https://qwenlm.github.io/blog/")
 
     @pytest.mark.parametrize(
         "text",
@@ -537,7 +519,7 @@ class TestAccessibleNameHandling:
 
     @pytest.fixture
     def scraper(self):
-        return MetaAIBlogScraper(page_url="https://ai.meta.com/blog", source="meta")
+        return MetaAIBlogScraper(page_url="https://ai.meta.com/blog")
 
     def test_visible_text_wins_over_the_accessible_name(self, scraper):
         """Meta emits both for the same post; the visible one is the title."""

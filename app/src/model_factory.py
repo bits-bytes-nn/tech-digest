@@ -12,8 +12,7 @@ helpers rather than the project's largest file.
 
 import os
 import re
-from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -21,7 +20,7 @@ from langchain_aws import ChatBedrock, ChatBedrockConverse
 from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel
 
-from .constants import EnvVars, LanguageModelId
+from .constants import DEFAULT_PROJECT_NAME, EnvVars, LanguageModelId
 from .logger import logger
 
 
@@ -73,12 +72,15 @@ class TokenUsageLogger(BaseCallbackHandler):
 
 
 class LanguageModelInfo(BaseModel):
+    # Documentary: no code path reads this. It records how long an input the model
+    # can take, which is what tells a reader whether a long article is safe to
+    # send; the pipeline's largest input is one article (~25k tokens), so nothing
+    # needs to branch on it. ``test_model_factory`` pins a floor so an entry
+    # cannot be added with a nonsense value.
     context_window_size: int
     max_output_tokens: int
-    supports_performance_optimization: bool = False
     supports_prompt_caching: bool = False
     supports_thinking: bool = False
-    supports_1m_context_window: bool = False
     # Newer models (Sonnet 5 and up) removed the sampling parameters
     # (temperature/top_k/top_p) and reject requests that include them with a
     # ValidationException. Default True for backward compatibility; set False
@@ -100,7 +102,6 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
     LanguageModelId.CLAUDE_V3_5_HAIKU: LanguageModelInfo(
         context_window_size=200000,
         max_output_tokens=8192,
-        supports_performance_optimization=True,
         supports_prompt_caching=True,
     ),
     LanguageModelId.CLAUDE_V4_5_HAIKU: LanguageModelInfo(
@@ -126,28 +127,24 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
     ),
     LanguageModelId.CLAUDE_V4_5_SONNET: LanguageModelInfo(
         context_window_size=200000,
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
     ),
     LanguageModelId.CLAUDE_V4_6_SONNET: LanguageModelInfo(
         context_window_size=200000,
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
     ),
     LanguageModelId.CLAUDE_V5_SONNET: LanguageModelInfo(
         context_window_size=1000000,
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
     ),
@@ -156,35 +153,30 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
     ),
     LanguageModelId.CLAUDE_V4_1_OPUS: LanguageModelInfo(
         context_window_size=200000,
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
     ),
     LanguageModelId.CLAUDE_V4_5_OPUS: LanguageModelInfo(
         context_window_size=200000,
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
     ),
     LanguageModelId.CLAUDE_V4_6_OPUS: LanguageModelInfo(
         context_window_size=1000000,
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
     ),
     LanguageModelId.CLAUDE_V4_7_OPUS: LanguageModelInfo(
         context_window_size=1000000,
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
     ),
@@ -193,7 +185,6 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
     ),
@@ -205,58 +196,11 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         max_output_tokens=64000,
         supports_prompt_caching=True,
         supports_thinking=True,
-        supports_1m_context_window=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
     ),
     # NOTE: add new models here
 }
-
-
-ModelIdT = TypeVar("ModelIdT")
-ModelInfoT = TypeVar("ModelInfoT")
-WrapperT = TypeVar("WrapperT")
-
-
-class BaseBedrockModelFactory(Generic[ModelIdT, ModelInfoT, WrapperT], ABC):
-    BOTO_READ_TIMEOUT: ClassVar[int] = 300
-    BOTO_MAX_ATTEMPTS: ClassVar[int] = 3
-    MAX_POOL_CONNECTIONS: ClassVar[int] = 50
-
-    def __init__(
-        self,
-        boto_session: boto3.Session | None = None,
-        region_name: str | None = None,
-        profile_name: str | None = None,
-    ) -> None:
-        self.boto_session = boto_session or boto3.Session(profile_name=profile_name)
-        self.region_name = region_name or self.boto_session.region_name
-        boto_config = BotoConfig(
-            read_timeout=self.BOTO_READ_TIMEOUT,
-            connect_timeout=60,
-            retries={"max_attempts": self.BOTO_MAX_ATTEMPTS, "mode": "adaptive"},
-            max_pool_connections=self.MAX_POOL_CONNECTIONS,
-        )
-        self._client = self.boto_session.client(
-            self._get_boto_service_name(),
-            region_name=self.region_name,
-            config=boto_config,
-        )
-        logger.debug(
-            "Initialized %s for region: '%s'", self.__class__.__name__, self.region_name
-        )
-
-    @abstractmethod
-    def _get_boto_service_name(self) -> str: ...
-
-    @abstractmethod
-    def _get_model_info_dict(self) -> dict[ModelIdT, ModelInfoT]: ...
-
-    @abstractmethod
-    def get_model(self, model_id: ModelIdT, **kwargs: Any) -> WrapperT: ...
-
-    def get_model_info(self, model_id: ModelIdT) -> ModelInfoT | None:
-        return self._get_model_info_dict().get(model_id)
 
 
 class BedrockCrossRegionModelHelper:
@@ -323,7 +267,7 @@ class BedrockCrossRegionModelHelper:
         """Deterministic name for this project/stage's application inference
         profile for a model. Shared by the resolver and
         ``scripts/put_inference_profiles.py`` so the two cannot drift."""
-        project = os.getenv(EnvVars.PROJECT_NAME.value, "tech-digest")
+        project = os.getenv(EnvVars.PROJECT_NAME.value, DEFAULT_PROJECT_NAME)
         stage = os.getenv(
             EnvVars.STAGE.value,
             os.getenv(EnvVars.CONFIG_FILE_SUFFIX.value, "dev"),
@@ -407,11 +351,21 @@ class BedrockCrossRegionModelHelper:
         return f"{prefix}.{model_id.value}"
 
 
-class BedrockLanguageModelFactory(
-    BaseBedrockModelFactory[
-        LanguageModelId, LanguageModelInfo, ChatBedrock | ChatBedrockConverse
-    ]
-):
+class BedrockLanguageModelFactory:
+    """Builds a configured LangChain chat model for a ``LanguageModelId``.
+
+    This used to derive from a ``BaseBedrockModelFactory(Generic[ModelIdT,
+    ModelInfoT, WrapperT], ABC)`` whose three abstract methods were a constant
+    string, a module-level dict and this class's own ``get_model``. One
+    implementation, three type variables, and every concrete answer already
+    known — the abstraction had no second case to serve and cost a reader two
+    hops to find the service name.
+    """
+
+    BOTO_READ_TIMEOUT: ClassVar[int] = 300
+    BOTO_MAX_ATTEMPTS: ClassVar[int] = 3
+    MAX_POOL_CONNECTIONS: ClassVar[int] = 50
+    BOTO_SERVICE_NAME: ClassVar[str] = "bedrock-runtime"
     DEFAULT_TEMPERATURE: ClassVar[float] = 0.0
     DEFAULT_TOP_K: ClassVar[int] = 50
     # Anthropic requires a thinking budget of at least 1024 tokens, and the
@@ -419,13 +373,33 @@ class BedrockLanguageModelFactory(
     # floor; callers (e.g. Summarizer) pass larger, task-tuned budgets.
     MIN_THINKING_BUDGET: ClassVar[int] = 1024
     DEFAULT_THINKING_BUDGET_TOKENS: ClassVar[int] = 4096
-    DEFAULT_LATENCY_MODE: ClassVar[str] = "normal"
 
-    def _get_boto_service_name(self) -> str:
-        return "bedrock-runtime"
+    def __init__(
+        self,
+        boto_session: boto3.Session | None = None,
+        region_name: str | None = None,
+        profile_name: str | None = None,
+    ) -> None:
+        self.boto_session = boto_session or boto3.Session(profile_name=profile_name)
+        self.region_name = region_name or self.boto_session.region_name
+        boto_config = BotoConfig(
+            read_timeout=self.BOTO_READ_TIMEOUT,
+            connect_timeout=60,
+            retries={"max_attempts": self.BOTO_MAX_ATTEMPTS, "mode": "adaptive"},
+            max_pool_connections=self.MAX_POOL_CONNECTIONS,
+        )
+        self._client = self.boto_session.client(
+            self.BOTO_SERVICE_NAME,
+            region_name=self.region_name,
+            config=boto_config,
+        )
+        logger.debug(
+            "Initialized %s for region: '%s'", self.__class__.__name__, self.region_name
+        )
 
-    def _get_model_info_dict(self) -> dict[LanguageModelId, LanguageModelInfo]:
-        return _LANGUAGE_MODEL_INFO
+    @staticmethod
+    def get_model_info(model_id: LanguageModelId) -> LanguageModelInfo | None:
+        return _LANGUAGE_MODEL_INFO.get(model_id)
 
     def get_model(
         self, model_id: LanguageModelId, **kwargs: Any
@@ -469,7 +443,6 @@ class BedrockLanguageModelFactory(
         **kwargs: Any,
     ) -> dict[str, Any]:
         enable_thinking = kwargs.get("enable_thinking", False)
-        supports_1m_context_window = kwargs.get("supports_1m_context_window", False)
         temperature = kwargs.get("temperature", self.DEFAULT_TEMPERATURE)
         final_temperature = (
             1.0
@@ -493,16 +466,13 @@ class BedrockLanguageModelFactory(
             config.update(sampling_params)
         else:
             config["model_kwargs"].update(sampling_params)
-        if supports_1m_context_window and model_info.supports_1m_context_window:
-            if use_converse:
-                config.setdefault("additional_model_request_fields", {}).update(
-                    {"anthropic_beta": ["context-1m-2025-08-07"]}
-                )
-            else:
-                config["model_kwargs"].setdefault(
-                    "additionalModelRequestFields", {}
-                ).update({"anthropic_beta": ["context-1m-2025-08-07"]})
-            logger.debug("Applied 1M context window support")
+        # NOTE: there is no 1M-context branch. It used to be here, gated on a
+        # ``supports_1m_context_window`` kwarg that no caller ever passed, next to
+        # a registry flag 11 models set to True — so the
+        # ``anthropic_beta: context-1m-2025-08-07`` header was never once sent and
+        # the flag documented a capability the code could not reach. The pipeline's
+        # largest single input is one article (~25k tokens), well inside every
+        # model's default window, so the feature had no user to gain.
         self._apply_model_features(config, model_info, use_converse, **kwargs)
         return config
 
@@ -558,16 +528,11 @@ class BedrockLanguageModelFactory(
         use_converse: bool,
         **kwargs: Any,
     ) -> None:
-        enable_perf = kwargs.get("enable_performance_optimization", False)
+        # NOTE: latency-optimized inference used to be applied here, gated on an
+        # ``enable_performance_optimization`` kwarg no caller passed and a registry
+        # flag only Claude 3.5 Haiku set — a model this project does not use. Three
+        # helpers and a constant existed to configure something no run could reach.
         enable_think = kwargs.get("enable_thinking", False)
-        if self._should_enable_performance_optimization(
-            enable_perf, model_info, use_converse
-        ):
-            latency = kwargs.get("latency_mode", self.DEFAULT_LATENCY_MODE)
-            config.setdefault("performanceConfig", {}).update({"latency": latency})
-            logger.debug(
-                "Applied performance optimization (latency_mode='%s')", latency
-            )
         if self._should_enable_thinking(enable_think, model_info):
             if model_info.uses_adaptive_thinking:
                 self._apply_adaptive_thinking(config, use_converse, **kwargs)
@@ -667,14 +632,6 @@ class BedrockLanguageModelFactory(
             )
             return model_info.max_output_tokens
         return final_max_tokens
-
-    @staticmethod
-    def _should_enable_performance_optimization(
-        enable: bool, model_info: LanguageModelInfo, use_converse: bool
-    ) -> bool:
-        return (
-            enable and model_info.supports_performance_optimization and not use_converse
-        )
 
     @staticmethod
     def _should_enable_thinking(enable: bool, model_info: LanguageModelInfo) -> bool:

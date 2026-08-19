@@ -34,6 +34,8 @@ from app.src.quality_metrics import (
     QualityReport,
     SummaryQuality,
     evaluate_summary,
+    is_korean,
+    visible_text,
 )
 
 INPUTS_DIR = Path(__file__).resolve().parent.parent / "inputs"
@@ -56,9 +58,17 @@ def load_report(date: str) -> QualityReport:
     if not directory.is_dir():
         raise SystemExit(f"no such run: {directory}")
     results = []
+    non_korean = []
     for path in sorted(directory.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
         if not data.get("summary"):
+            continue
+        # Refuse rather than score: six of the eleven dimensions are Korean-only
+        # and return full marks on English prose for want of anything to match,
+        # so an English issue would produce a number that looks like a mediocre
+        # pass while measuring nothing. See the note in ``quality_metrics``.
+        if not is_korean(visible_text(data["summary"])):
+            non_korean.append(data.get("title", path.stem))
             continue
         results.append(
             evaluate_summary(
@@ -66,6 +76,14 @@ def load_report(date: str) -> QualityReport:
                 summary_html=data["summary"],
                 one_liner=data.get("one_liner", ""),
             )
+        )
+    if non_korean:
+        raise SystemExit(
+            f"{len(non_korean)} summary/summaries in {directory} are not Korean "
+            f"(e.g. {non_korean[0][:60]!r}). This rubric only measures the Korean "
+            f"prompt's rules — register, 번역투, the cliché list and both length "
+            f"bands have no English equivalent here — so scoring them would "
+            f"report a pass it did not measure."
         )
     if not results:
         raise SystemExit(f"no summarized articles in {directory}")

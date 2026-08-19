@@ -52,11 +52,15 @@ class TestPostprocessSummary:
             == "<p>동작합니다.</p>\n<p>다음</p>"
         )
 
-    def test_url_host_normalized(self):
-        assert (
-            _postprocess_summary("see magazine.sebastianraschka.com")
-            == "see sebastianraschka.com"
-        )
+    def test_host_is_not_rewritten(self):
+        """Host "normalization" was removed, so a link is passed through intact.
+
+        It rewrote magazine.sebastianraschka -> sebastianraschka across the whole
+        document, which turns a working Substack URL into a 404 on the author's own
+        site (the two use different path layouts) and also fired on visible prose.
+        """
+        text = "see https://magazine.sebastianraschka.com/p/x for details"
+        assert _postprocess_summary(text) == text
 
     def test_no_change_when_clean(self):
         assert _postprocess_summary("<p>clean</p>") == "<p>clean</p>"

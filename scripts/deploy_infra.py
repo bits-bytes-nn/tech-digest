@@ -286,8 +286,11 @@ class NewsletterStack(Stack):
         return [
             # S3: read config/recipients, write newsletters/articles — object
             # actions on the bucket, plus ListBucket on the bucket itself.
+            # No s3:DeleteObject: the app never deletes an object (aws_helpers
+            # exposes upload and download only), and granting the one destructive
+            # action of the three contradicted the least-privilege claim above.
             iam.PolicyStatement(
-                actions=["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                actions=["s3:GetObject", "s3:PutObject"],
                 resources=[f"{bucket_arn}/*"],
             ),
             iam.PolicyStatement(
@@ -296,8 +299,11 @@ class NewsletterStack(Stack):
             ),
             # SES: deliver the newsletter, restricted (via FromAddress) to the
             # configured sender so the role cannot send as arbitrary identities.
+            # SendRawEmail only — that is the single API aws_helpers.send_email
+            # calls (it builds a MIME message to set Message-ID and
+            # List-Unsubscribe, which the simple SendEmail action cannot carry).
             iam.PolicyStatement(
-                actions=["ses:SendRawEmail", "ses:SendEmail"],
+                actions=["ses:SendRawEmail"],
                 resources=["*"],  # SES identity ARNs are account/region-specific
                 conditions=(
                     {"StringEquals": {"ses:FromAddress": self._sender}}
@@ -579,16 +585,19 @@ class NewsletterStack(Stack):
             "vpc_subnets": self.vpc_subnets,
         }
 
-        ondemand_env = batch.ManagedEc2EcsComputeEnvironment(
-            self,
-            "NewsletterOnDemandEnv",
-            allocation_strategy=batch.AllocationStrategy.BEST_FIT_PROGRESSIVE,
-            compute_environment_name=self._get_resource_name("newsletter-ondemand"),
-            maxv_cpus=4,
-            **compute_env_config,
-        )
-        job_queue.add_compute_environment(ondemand_env, 1)
-
+        # A queue prefers the LOWEST order, so Spot has to be order 1 for a Spot
+        # environment to mean anything. It was order 2 behind a 4-vCPU on-demand
+        # environment, and the job asks for 2 vCPU — so on-demand always had room
+        # and the Spot environment was never once scheduled onto. It existed, was
+        # deployed, and saved nothing.
+        #
+        # On-demand stays as order 2, which is what makes Spot-first safe: if Spot
+        # capacity is unavailable the job stays RUNNABLE and Batch places it there
+        # instead. TRADE-OFF: a Spot reclaim mid-run is now the likelier way for a
+        # run to be retried, and the job definition's `retry_attempts=2` re-runs
+        # main.py from the start — so a reclaim after the send loop would re-send
+        # the issue. That duplicate-send-on-retry exposure already existed for any
+        # post-send failure (see design.md §23); this raises its probability.
         spot_env = batch.ManagedEc2EcsComputeEnvironment(
             self,
             "NewsletterSpotEnv",
@@ -598,7 +607,17 @@ class NewsletterStack(Stack):
             maxv_cpus=8,
             **compute_env_config,
         )
-        job_queue.add_compute_environment(spot_env, 2)
+        job_queue.add_compute_environment(spot_env, 1)
+
+        ondemand_env = batch.ManagedEc2EcsComputeEnvironment(
+            self,
+            "NewsletterOnDemandEnv",
+            allocation_strategy=batch.AllocationStrategy.BEST_FIT_PROGRESSIVE,
+            compute_environment_name=self._get_resource_name("newsletter-ondemand"),
+            maxv_cpus=4,
+            **compute_env_config,
+        )
+        job_queue.add_compute_environment(ondemand_env, 2)
 
         return job_queue
 
@@ -807,7 +826,14 @@ def main() -> None:
             subnet_ids=config.resources.subnet_ids,
             lambda_or_batch=config.resources.lambda_or_batch,
             cron_expression=config.resources.cron_expression,
-            email_addresses=[str(config.newsletter.sender)],
+            # Empty when no sender is configured, never ``["None"]``. The config
+            # model only requires a sender when send_emails is true, so with it
+            # false and no sender set, ``str(None)`` used to subscribe the literal
+            # string "None" to the SNS topic and scope the SES FromAddress
+            # condition to it — an invalid subscription and an always-denied policy.
+            email_addresses=(
+                [str(config.newsletter.sender)] if config.newsletter.sender else []
+            ),
             default_region_name=config.resources.default_region_name,
             bedrock_region_name=config.resources.bedrock_region_name,
             environment_vars=env_vars,

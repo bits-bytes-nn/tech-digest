@@ -10,12 +10,27 @@ from langchain_classic.output_parsers import OutputFixingParser
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field, field_validator
 
-from .constants import FilteringCriteria, Language, LanguageModelId
+from .constants import (
+    DEFAULT_TAGS,
+    MAX_TAGS,
+    FilteringCriteria,
+    Language,
+    LanguageModelId,
+)
 from .eval_metrics import is_on_grid
 from .feed_parser import Post, content_html, is_safe_url, visible_text
 from .logger import logger
 from .model_factory import BedrockLanguageModelFactory
 from .prompts.prompts import FilteringPrompt, SummarizationPrompt
+
+# The terminal-colon rule lives in ``quality_metrics`` (which owns the
+# prompt-rule-to-check mapping and pulls in nothing heavier than bs4) so the
+# corrector below and the rubric that scores it cannot disagree — the same
+# reason ``is_on_grid`` is imported from ``eval_metrics`` above. They previously
+# had separate patterns and did disagree: the rubric counted the
+# list-introducing colon this corrector deliberately preserves, and scored a
+# correct summary 0 on that dimension.
+from .quality_metrics import KO_TERMINAL_COLON
 from .utils import (
     BatchProcessor,
     HTMLTagOutputParser,
@@ -24,8 +39,6 @@ from .utils import (
 
 
 class SummarizerConfig:
-    CONVERT_MARKDOWN_TO_HTML: ClassVar[bool] = True
-    DEFAULT_TAGS: ClassVar[list[str]] = ["uncategorized"]
     # NOTE: <table> is class-injected in _sanitize_html (BeautifulSoup catches
     # every table regardless of attributes; a literal "<table>" string match
     # here silently missed attributed tables and left them unstyled).
@@ -44,7 +57,6 @@ class SummarizerConfig:
         "tables",
         "toc",
     ]
-    MAX_TAGS: ClassVar[int] = 5
     # HTML sanitization allow-list for the model-generated summary, which is
     # rendered with Jinja ``| safe`` (autoescape off). Only these structural and
     # inline tags survive; everything else (notably <script>, <style>, <iframe>,
@@ -115,42 +127,21 @@ def _normalize_tags(tags_input: Any) -> list[str]:
     return tags
 
 
-# Korean sentence-ending verb syllables the model sometimes terminates with a
-# colon instead of a period ("...합니다:" -> "...합니다."). Korean prose does not
-# end a sentence with a colon, so a colon right after one of these syllables is
-# always a mistake — but ONLY when it actually ends the sentence.
-_KO_SENTENCE_END_SYLLABLES = "다요죠"
-
-# Match a sentence-ending syllable + colon ONLY at a real clause boundary: the
-# colon must be followed by markup (</p>, </li>, <br>, ...) or end-of-string.
-# This is the key difference from a blind ``"다:" -> "다."`` replace, which also
-# corrupts legitimate list-introducing colons (e.g. "결과는 다음과 같습니다: 첫째").
-# Post-processing runs AFTER markdown->HTML, so a terminal colon is always
-# followed by a closing tag; an introducing colon is followed by text.
-#
-# The trailing negative lookahead preserves a colon that introduces a BLOCK
-# list: markdown renders "...다음과 같습니다:" before a bulleted list as
-# "<p>...습니다:</p>\n<ul>" (or "...습니다:<br>\n<ul>" under nl2br), where the
-# colon IS at a boundary yet legitimately introduces the list — so skip it when
-# a <ul>/<ol> follows past the intervening closing tags / <br>.
-_KO_TERMINAL_COLON = re.compile(
-    rf"([{_KO_SENTENCE_END_SYLLABLES}]):(?=\s*(?:<|$))"
-    r"(?!\s*(?:(?:</[^>]+>|<br\s*/?>)\s*)*<[uo]l\b)"
-)
-
-# Host aliases: a source occasionally surfaces under a CDN/subdomain variant
-# that should be normalized to its canonical host in rendered links. These are
-# genuine per-host facts (not heuristics), so they live in an explicit map.
-_HOST_ALIASES: dict[str, str] = {
-    "magazine.sebastianraschka": "sebastianraschka",
-}
-
-
 def _postprocess_summary(summary: str) -> str:
-    summary = _KO_TERMINAL_COLON.sub(r"\1.", summary)
-    for variant, canonical in _HOST_ALIASES.items():
-        summary = summary.replace(variant, canonical)
-    return summary
+    """Deterministic corrections to the model's summary HTML.
+
+    Only the Korean terminal colon, which is unambiguously wrong and cheap to
+    detect (see ``KO_TERMINAL_COLON``). There used to be a second pass here that
+    rewrote host aliases — ``magazine.sebastianraschka`` ->
+    ``sebastianraschka`` — as a blind whole-document ``str.replace``. It was
+    removed because it did the opposite of what it claimed: the two hosts have
+    different path layouts, so the "normalized" link 404s where the original
+    resolves (verified: ``magazine.sebastianraschka.com/p/<slug>`` is 200,
+    ``sebastianraschka.com/p/<slug>`` is 404). It also fired on the visible
+    prose, not just on hrefs. A per-host rewrite table cannot know a site's URL
+    structure, so there is nothing here to fix.
+    """
+    return KO_TERMINAL_COLON.sub(r"\1.", summary)
 
 
 def _safe_anchor(url: str, text: str) -> str:
@@ -301,7 +292,7 @@ class SummaryOutput(BaseModel):
 
     @field_validator("summary", mode="before")
     def _convert_markdown_to_html(cls, v: str) -> str:
-        if not SummarizerConfig.CONVERT_MARKDOWN_TO_HTML or not isinstance(v, str):
+        if not isinstance(v, str):
             return v
         try:
             html = markdown.markdown(
@@ -325,11 +316,7 @@ class SummaryOutput(BaseModel):
         # de-duplicating; alphabetical sorting would drop important tags purely
         # because they sort late. dict.fromkeys preserves first-seen order.
         unique_tags = list(dict.fromkeys(tags))
-        return (
-            unique_tags[: SummarizerConfig.MAX_TAGS]
-            if unique_tags
-            else SummarizerConfig.DEFAULT_TAGS
-        )
+        return unique_tags[:MAX_TAGS] if unique_tags else list(DEFAULT_TAGS)
 
     @field_validator("urls", mode="before")
     def _validate_urls(cls, v: Any) -> list[str]:

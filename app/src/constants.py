@@ -1,5 +1,18 @@
 from enum import Enum, auto
 
+# Fallback project name for the two places that need one before config is in
+# scope: the alarm subject line and the Bedrock application-inference-profile
+# name. Both used to spell the literal "tech-digest" themselves, which is two
+# copies of a name that also lives in config and in EnvVars.PROJECT_NAME.
+DEFAULT_PROJECT_NAME: str = "tech-digest"
+
+# Tag policy for an article, applied in two places: the feed parser (tags carried
+# from an RSS entry) and the summarizer (tags the model emits). Both capped and
+# defaulted identically, so the numbers live here rather than being restated as a
+# ClassVar on each of the two config classes.
+DEFAULT_TAGS: tuple[str, ...] = ("uncategorized",)
+MAX_TAGS: int = 5
+
 
 class AutoNamedEnum(str, Enum):
     @staticmethod

@@ -1,12 +1,11 @@
 import argparse
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import boto3
-from pytz import timezone
 
 sys.path.append(str(Path(__file__).parent.parent))
 from configs import Config
@@ -38,7 +37,9 @@ def main(job_prefix: str, **kwargs: Any) -> None:
         raise ValueError(
             "Batch job queue or definition name not found in SSM parameters"
         )
-    timestamp = datetime.now(timezone("UTC")).strftime("%Y%m%d%H%M%S")
+    # ``datetime.UTC``, not ``pytz.timezone("UTC")``: pytz was in the image for
+    # this one line, and the stdlib has carried a UTC constant since 3.11.
+    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     job_name = f"{config.resources.project_name}-{config.resources.stage}-{job_prefix}-{timestamp}"
     sanitized_params = sanitize_parameters(kwargs)
     logger.info(
@@ -91,7 +92,14 @@ def sanitize_parameters(params: dict[str, Any]) -> dict[str, str]:
     return result
 
 
-def validate_date(date_str: str) -> bool:
+def is_valid_date(date_str: str) -> bool:
+    """Whether ``date_str`` is an accepted ``--end-date`` (or the null sentinel).
+
+    Renamed from ``validate_date``: ``newsletter_renderer`` had a function of the
+    same name that normalizes a date to a string instead of answering a question
+    about one, and two same-named functions with different return types in one
+    codebase is a trap for whoever greps next.
+    """
     if not date_str or date_str == AppConstants.NULL_STRING:
         return True
     try:
@@ -126,7 +134,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    if args.end_date and not validate_date(args.end_date):
+    if args.end_date and not is_valid_date(args.end_date):
         logger.error("Invalid date format for --end-date. Expected format: YYYY-MM-DD")
         sys.exit(1)
 

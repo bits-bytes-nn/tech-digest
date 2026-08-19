@@ -8,7 +8,7 @@ import shutil
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -112,7 +112,17 @@ class NewsletterConfig:
     }
 
 
-def validate_date(v: str) -> str:
+def normalize_date(v: str) -> str:
+    """A date string as ``YYYY-MM-DD``, falling back to today (UTC).
+
+    Named ``validate_date`` before, which collided with a same-named predicate in
+    ``run_batch`` that answers a different question (is this string a valid date?)
+    with a different type. This one normalizes and always returns a date.
+
+    The fallback is UTC because the rest of the pipeline is: the Batch image sets
+    TZ=Asia/Seoul, so a naive ``now()`` here dated an issue up to nine hours ahead
+    of the window it was actually built for.
+    """
     if not isinstance(v, str):
         v = str(v)
     for fmt in NewsletterConfig.DATE_FORMATS:
@@ -120,7 +130,7 @@ def validate_date(v: str) -> str:
             return datetime.strptime(v, fmt).strftime("%Y-%m-%d")
         except (ValueError, TypeError):
             continue
-    return datetime.now().strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 class Article(BaseModel):
@@ -138,7 +148,7 @@ class Article(BaseModel):
     tags: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
     score: float = Field(default=1.0, ge=0.0, le=1.0)
-    _validate_date = field_validator("published_date", mode="before")(validate_date)
+    _normalize_date = field_validator("published_date", mode="before")(normalize_date)
 
     @field_validator("link", mode="before")
     @classmethod
@@ -170,8 +180,8 @@ class Header(BaseModel):
     description: str
     thumbnail: str
     publish_date: str
-    _validate_publish_date = field_validator("publish_date", mode="before")(
-        validate_date
+    _normalize_publish_date = field_validator("publish_date", mode="before")(
+        normalize_date
     )
 
 
@@ -408,8 +418,10 @@ class HtmlToImageConverter:
 
 class BuildConfiguration(BaseModel):
     stage: str = "dev"
+    # UTC, like the rest of the pipeline. A naive now() here read as Asia/Seoul
+    # in the Batch image, so the default could name tomorrow's date.
     date_suffix: str = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d")
+        default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%d")
     )
     language: Language = Language.KO
     header_title: str = NewsletterConfig.DEFAULT_STYLES["header_title"]

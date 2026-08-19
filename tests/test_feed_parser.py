@@ -295,3 +295,46 @@ class TestPostFromEntry:
         )
         post = Post.from_entry(entry)
         assert post.content == rich
+
+
+class TestSourceTypeMatchesTheMapping:
+    """Every ``SourceType`` member must be producible by ``_determine_source``.
+
+    ``_determine_source`` resolves a source purely from ``SOURCE_MAPPING``, so a
+    literal absent from that map's values can never be assigned. "deepmind" was
+    exactly that: ``deepmind.google`` maps to "google", so the member was
+    unreachable while reading as a supported source.
+    """
+
+    def test_every_literal_is_reachable(self):
+        from typing import get_args
+
+        from app.src.feed_parser import ScraperConfig, SourceType
+
+        declared = set(get_args(SourceType))
+        producible = set(ScraperConfig.SOURCE_MAPPING.values()) | {"unknown"}
+        assert declared == producible, (
+            f"unreachable literals: {sorted(declared - producible)}; "
+            f"unmapped values: {sorted(producible - declared)}"
+        )
+
+
+class TestRegisteredScrapersResolveToAMappedSource:
+    """Each index-page scraper's own URL must resolve to a real source.
+
+    The registry used to pair every scraper with a hardcoded ``SourceType`` that
+    ``Post.from_entry`` then ignored. Removing it means ``SOURCE_MAPPING`` is the
+    only definition — which is only safe if each scraper's configured URL is in
+    that map. Otherwise its posts would silently render the "unknown" logo and
+    share one ``max_per_source`` bucket.
+    """
+
+    def test_each_scraper_url_maps_to_a_known_source(self):
+        from app.src.feed_parser import ScraperRegistry
+
+        unmapped = {
+            url: Post._determine_source(f"https://{url}/some-post")
+            for url in ScraperRegistry._SCRAPER_MAPPING
+            if Post._determine_source(f"https://{url}/some-post") == "unknown"
+        }
+        assert not unmapped, f"scraper URLs resolving to 'unknown': {unmapped}"

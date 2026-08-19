@@ -28,6 +28,15 @@ dimension                     prompt rule it measures
 ``cliche``                    the banned praise adjectives and filler formulas
 ============================  ==================================================
 
+The rubric is KOREAN-ONLY. Six of the eleven dimensions test properties that only
+exist in Korean prose (합니다체 register, 번역투, the Korean cliché list, the
+character-counted length and lede bands), and on an English issue they all return
+full marks for the trivial reason that no Korean marker can appear — while
+``length`` collapses to zero because the English budget is counted in words. The
+overall score would look like a mediocre pass when it measured nothing. Callers
+must therefore gate on ``is_korean`` before trusting a score; ``scripts/
+eval_summary_quality.py`` refuses a non-Korean run outright.
+
 Kept free of boto3/LangChain/bs4-optional so it is unit-testable offline.
 """
 
@@ -81,6 +90,56 @@ SPECIFICITY_SATURATION: float = 6.0
 # The five section markers the Korean prompt asks for, in order.
 SECTION_MARKERS: tuple[str, ...] = ("📌", "🔄", "🛠️", "📊", "🔮")
 
+# Korean sentence-ending verb syllables the model sometimes terminates with a
+# colon instead of a period ("...합니다:" -> "...합니다."). Korean prose does not
+# end a sentence with a colon, so a colon right after one of these syllables is
+# always a mistake — but ONLY when it actually ends the sentence.
+KO_SENTENCE_END_SYLLABLES = "다요죠"
+
+# Match a sentence-ending syllable + colon ONLY at a real clause boundary: the
+# colon must be followed by markup (</p>, </li>, <br>, ...) or end-of-string.
+# This is the key difference from a blind ``"다:" -> "다."`` replace, which also
+# corrupts legitimate list-introducing colons (e.g. "결과는 다음과 같습니다: 첫째").
+# The pattern runs on the summary HTML, AFTER markdown->HTML, so a terminal colon
+# is always followed by a closing tag; an introducing colon is followed by text.
+#
+# The trailing negative lookahead preserves a colon that introduces a BLOCK
+# list: markdown renders "...다음과 같습니다:" before a bulleted list as
+# "<p>...습니다:</p>\n<ul>" (or "...습니다:<br>\n<ul>" under nl2br), where the
+# colon IS at a boundary yet legitimately introduces the list — so skip it when
+# a <ul>/<ol> follows past the intervening closing tags / <br>.
+#
+# ``summarizer._postprocess_summary`` corrects exactly what this matches, and the
+# ``terminal_colon`` dimension counts exactly what this matches, so the two agree
+# by construction. They did not before: the rubric ran a simpler ``[다요죠]:``
+# over the markup-stripped text, where a preserved list colon is followed by a
+# space rather than a tag, so every legitimate list-introducing colon scored the
+# dimension 0 — a defect report for output that had followed the prompt.
+KO_TERMINAL_COLON = re.compile(
+    rf"([{KO_SENTENCE_END_SYLLABLES}]):(?=\s*(?:<|$))"
+    r"(?!\s*(?:(?:</[^>]+>|<br\s*/?>)\s*)*<[uo]l\b)"
+)
+
+# Hangul syllables. Used only to answer "is this Korean prose at all?", which is
+# a script question with a definitive answer, not a language-detection guess.
+_HANGUL = re.compile(r"[가-힣]")
+
+
+def is_korean(text: str, threshold: float = 0.1) -> bool:
+    """Whether ``text`` is Korean prose, by Hangul share of its non-space chars.
+
+    The threshold is deliberately low: a Korean technical summary carries a lot
+    of English (identifiers, model names, units), and measured over the runs in
+    ``inputs/`` the Hangul share of Korean summaries runs 0.45-0.60 while an
+    English summary is 0.00. Anything in between is not a case this rubric can
+    score either way.
+    """
+    dense = [c for c in text if not c.isspace()]
+    if not dense:
+        return False
+    return len(_HANGUL.findall(text)) / len(dense) >= threshold
+
+
 # Formulaic closings the prompt bans by name, because every article ended the
 # same way and it read as boilerplate.
 BANNED_CLOSINGS: tuple[str, ...] = (
@@ -114,11 +173,18 @@ ABSENCE_FILLER: tuple[str, ...] = (
 # inflated the specificity score and produced phantom "📊 repeats a figure"
 # findings from version strings. Tuning a prompt against that would have chased a
 # defect that did not exist.
+#
+# A bare ``p`` used to be listed as a unit (for 퍼센트포인트). Being a single
+# letter with no boundary, it matched the first letter of any word after a
+# number: "2 pods", "3 papers" and "5 people" all counted as measurements — the
+# same over-counting the version-string fix was meant to end. ``%p`` is already
+# covered by ``%``, and 포인트 is spelled out, so nothing is lost by dropping it.
+# Multi-letter units keep a boundary requirement for the same reason.
 _MEASURED = re.compile(
     r"\d[\d,.]*\s*"
-    r"(?:%|퍼센트|배|배속|ms|밀리초|초|분|시간|GB|MB|KB|TB|GiB|MiB|"
-    r"[Bb]ps|Gbps|Mbps|fps|토큰|tokens?|vCPU|GPU|원|달러|USD|건|개|회|"
-    r"포인트|p|x(?=\s|$))"
+    r"(?:%|퍼센트|배속|배|밀리초|ms|초|분|시간|GiB|MiB|GB|MB|KB|TB|"
+    r"Gbps|Mbps|[Bb]ps|fps|토큰|tokens?|vCPU|GPU|원|달러|USD|건|개|회|"
+    r"포인트|x(?=\s|$))"
 )
 
 
@@ -323,6 +389,14 @@ class SummaryQuality:
 
     @property
     def terminal_colon_score(self) -> float:
+        """Whether any Korean sentence still ends on a colon.
+
+        ``_postprocess_summary`` corrects these deterministically before a summary
+        is stored, so on a healthy pipeline this is 1.0 and the dimension is a
+        regression guard: it fires if that corrector stops running, not on the
+        model's raw output (which is not kept). All-or-nothing for that reason —
+        one surviving colon means the correction did not happen at all.
+        """
         return 1.0 if not self.terminal_colons else 0.0
 
     @property
@@ -436,7 +510,9 @@ def evaluate_summary(
         subsection_headers=len(soup.find_all(["h4", "h5", "h6"])),
         absence_filler=sum(text.count(p) for p in ABSENCE_FILLER),
         han_da=tuple(han_da_sentences(text)),
-        terminal_colons=len(re.findall(r"[다요죠]:(?=\s|$)", text)),
+        # Counted on the HTML with the SAME pattern the summarizer corrects with,
+        # so a colon that legitimately introduces a list is not a defect here.
+        terminal_colons=len(KO_TERMINAL_COLON.findall(summary_html or "")),
         repeated_quantities=tuple(repeated),
         quantity_count=len(quantities(text)),
         code_blocks=len(soup.find_all("pre")),

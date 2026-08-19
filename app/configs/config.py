@@ -116,6 +116,23 @@ class Summarization(BaseModelWithDefaults):
     # set it to 2 for a broad digest, where three cards from the same blog in one
     # issue reads like that vendor's release notes rather than a curated digest.
     max_per_source: int | None = Field(default=None, ge=1)
+    # Send the relevance filter the article's visible TEXT rather than its raw
+    # HTML. The rubric scores topic and quality, both of which live in the prose,
+    # while markup measured ~87% of filtering input tokens on a real run — and
+    # filtering is ~74% of Bedrock spend. Set False to restore the raw-HTML
+    # behaviour.
+    #
+    # Both this and the field below were DOCUMENTED here and in the template but
+    # never declared on this model, so pydantic's ignore-extras dropped them and
+    # the YAML value never reached SummarizerSettings. Their defaults happened to
+    # match, so the pipeline behaved as documented while the switches did nothing:
+    # setting either to False changed no behaviour at all.
+    filter_on_visible_text: bool = Field(default=True)
+    # Strip site furniture (scripts, nav, footers) and decorative attributes from
+    # the HTML the summarizer receives. It still gets HTML — code blocks, tables
+    # and image URLs are markup — just not the parts that are not the article.
+    # Measured -37% on summarization input tokens. Set False to send the raw page.
+    summarize_on_cleaned_html: bool = Field(default=True)
     # Extended-thinking budget (tokens) for the filtering/summarization models
     # when *_enable_thinking is on. The model factory's hardcoded 2048 default
     # is too small to meaningfully reason over a full article; expose it so it

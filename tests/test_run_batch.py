@@ -40,16 +40,16 @@ class TestSanitizeParameters:
 
 class TestValidateDate:
     def test_valid_date(self):
-        assert run_batch.validate_date("2026-06-01") is True
+        assert run_batch.is_valid_date("2026-06-01") is True
 
     def test_null_sentinel_is_valid(self):
-        assert run_batch.validate_date("null") is True
+        assert run_batch.is_valid_date("null") is True
 
     def test_empty_is_valid(self):
-        assert run_batch.validate_date("") is True
+        assert run_batch.is_valid_date("") is True
 
     def test_bad_format_invalid(self):
-        assert run_batch.validate_date("06/01/2026") is False
+        assert run_batch.is_valid_date("06/01/2026") is False
 
     def test_garbage_invalid(self):
-        assert run_batch.validate_date("not-a-date") is False
+        assert run_batch.is_valid_date("not-a-date") is False
