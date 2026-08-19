@@ -518,7 +518,7 @@ class Post(BaseModel):
         return cls(
             title=getattr(entry, "title", "No Title").strip(),
             link=link_str,
-            published_date=parse_published_date(getattr(entry, "published", "")),
+            published_date=parse_published_date(entry_date_text(entry)),
             source=cls._determine_source(link_str),
             content=content,
             # ``summary`` is deliberately NOT seeded from the feed's teaser.
@@ -681,6 +681,31 @@ def try_parse_published_date(date_str: str) -> datetime | None:
     return None
 
 
+def entry_date_text(entry: feedparser.FeedParserDict) -> str:
+    """The publication-date text of a feed entry, or "" if it carries none.
+
+    Reads ``published`` first and falls back to ``updated``. Atom makes
+    ``<published>`` OPTIONAL while ``<updated>`` is REQUIRED, and feedparser maps
+    the two to distinct attributes — so a perfectly valid Atom feed that carries
+    only ``<updated>`` has no ``entry.published`` at all. Reading only
+    ``published`` meant every entry of such a feed failed the fail-closed date gate
+    and was dropped, permanently and silently: the source still reported
+    candidates, so it read as a merely quiet blog rather than a broken one (§7's
+    discriminator cannot see this case either).
+
+    None of the configured feeds is shaped that way today — all 19 were checked,
+    and every entry of every one supplies a parseable ``published`` — so this
+    closes a trap on the "add new sources here" path rather than recovering posts
+    already lost.
+
+    ``published`` wins when both exist. ``updated`` is a MODIFICATION time, so
+    preferring it would let an old post edited this week re-enter the weekly
+    window. When ``published`` is absent, ``updated`` is the only date the feed
+    offers, and using it beats dropping the post.
+    """
+    return getattr(entry, "published", "") or getattr(entry, "updated", "")
+
+
 def parse_published_date(date_str: str) -> datetime:
     """Parse a date string, falling back to ``now(UTC)`` when unparseable.
 
@@ -739,9 +764,7 @@ class RssFetcher:
                 for entry in feed.entries:
                     # Fail closed: an entry whose date cannot be parsed is
                     # excluded rather than dated to "now" and let through.
-                    published_date = try_parse_published_date(
-                        getattr(entry, "published", "")
-                    )
+                    published_date = try_parse_published_date(entry_date_text(entry))
                     if published_date is not None and is_date_in_range(
                         published_date, start_date, end_date
                     ):

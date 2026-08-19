@@ -30,7 +30,7 @@ import boto3
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from app.src import LanguageModelId, logger
+from app.src import EnvVars, LanguageModelId, logger
 from app.src.model_factory import BedrockCrossRegionModelHelper
 
 
@@ -48,8 +48,11 @@ def _configured_models(config) -> dict[LanguageModelId, str]:
         ("summarization.filtering_model_id", summarization.filtering_model_id),
         ("summarization.summarization_model_id", summarization.summarization_model_id),
         ("summarization.greeting_model_id", summarization.greeting_model_id),
-        # Mirrors the Summarizer default when fixing_model_id is unset.
-        ("summarization.fixing_model_id", LanguageModelId.CLAUDE_V4_5_HAIKU),
+        # The output-fixing model. NOT a config key — ``Summarization`` has no
+        # ``fixing_model_id`` field, so this mirrors the Summarizer's coded
+        # default. Labelled as such rather than as "summarization.fixing_model_id",
+        # which named a setting nobody can actually set.
+        ("Summarizer default (output-fixing)", LanguageModelId.CLAUDE_V4_5_HAIKU),
     ):
         if model is not None:
             wanted.setdefault(model, []).append(setting)
@@ -72,16 +75,19 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.stage:
-        os.environ["CONFIG_FILE_SUFFIX"] = args.stage
+        os.environ[EnvVars.CONFIG_FILE_SUFFIX.value] = args.stage
 
     from app.configs import Config
 
     config = Config.load()
     project, stage = config.resources.project_name, config.resources.stage
     # The runtime derives the profile name from these env vars; set them here so the
-    # script and the runtime cannot disagree about what a profile is called.
-    os.environ.setdefault("PROJECT_NAME", project)
-    os.environ["STAGE"] = stage
+    # script and the runtime cannot disagree about what a profile is called. Named
+    # through EnvVars rather than as literals for exactly that reason — spelling them
+    # out here would have re-introduced the disagreement this comment claims to
+    # prevent the moment either enum value was renamed.
+    os.environ.setdefault(EnvVars.PROJECT_NAME.value, project)
+    os.environ[EnvVars.STAGE.value] = stage
 
     region = config.resources.bedrock_region_name
     session = boto3.Session(

@@ -13,7 +13,7 @@ import pytest
 from feedparser.exceptions import CharacterEncodingOverride
 
 from app.src import feed_parser
-from app.src.feed_parser import RssFetcher, SourceFetchError
+from app.src.feed_parser import RssFetcher, SourceFetchError, entry_date_text
 
 
 @pytest.fixture
@@ -81,3 +81,55 @@ class TestRssFetcherBozo:
         monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
         fetcher = RssFetcher("https://openai.com/news/rss.xml")
         assert fetcher.fetch(*window) == []
+
+
+class TestAtomEntriesWithoutPublished:
+    """A valid Atom feed can carry only ``<updated>``; every entry used to be lost.
+
+    ``<published>`` is OPTIONAL in Atom while ``<updated>`` is REQUIRED, and
+    feedparser maps them to distinct attributes. Reading only ``published`` meant
+    the fail-closed date gate dropped every entry of such a feed — permanently and
+    invisibly, because the source still reported candidates and so read as a merely
+    quiet blog rather than a broken one.
+    """
+
+    ATOM_UPDATED_ONLY = (
+        '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+        "<title>T</title><entry><title>Only Updated</title>"
+        '<link href="https://updated.example/p"/>'
+        "<updated>2026-08-05T10:00:00Z</updated><id>1</id></entry></feed>"
+    )
+
+    def test_feedparser_really_omits_published(self):
+        """Pin the upstream behaviour this guards against, so the guard cannot be
+        removed on the belief that feedparser normalizes the two."""
+        entry = feedparser.parse(self.ATOM_UPDATED_ONLY).entries[0]
+        assert not hasattr(entry, "published")
+        assert entry.updated == "2026-08-05T10:00:00Z"
+
+    def test_entry_date_text_falls_back_to_updated(self):
+        entry = feedparser.parse(self.ATOM_UPDATED_ONLY).entries[0]
+        assert entry_date_text(entry) == "2026-08-05T10:00:00Z"
+
+    def test_published_wins_when_both_exist(self):
+        """``updated`` is a modification time, so preferring it would let an old
+        post edited this week re-enter the weekly window."""
+        entry = feedparser.FeedParserDict(
+            published="2026-08-01T00:00:00Z", updated="2026-08-07T00:00:00Z"
+        )
+        assert entry_date_text(entry) == "2026-08-01T00:00:00Z"
+
+    def test_no_date_at_all_is_still_empty(self):
+        assert entry_date_text(feedparser.FeedParserDict(title="t")) == ""
+
+    def test_such_a_feed_now_yields_its_post(self, monkeypatch):
+        parsed = feedparser.parse(self.ATOM_UPDATED_ONLY)
+        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: parsed)
+        monkeypatch.setattr(feed_parser, "_make_robust_request", lambda url: None)
+        fetcher = RssFetcher("https://updated.example/atom")
+        posts = fetcher.fetch(
+            datetime(2026, 8, 1, tzinfo=UTC), datetime(2026, 8, 8, tzinfo=UTC)
+        )
+        assert [p.title for p in posts] == ["Only Updated"]
+        # And the Post carries the feed's date, not "now".
+        assert posts[0].published_date.date().isoformat() == "2026-08-05"

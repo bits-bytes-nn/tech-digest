@@ -128,11 +128,14 @@ _HANGUL = re.compile(r"[가-힣]")
 def is_korean(text: str, threshold: float = 0.1) -> bool:
     """Whether ``text`` is Korean prose, by Hangul share of its non-space chars.
 
-    The threshold is deliberately low: a Korean technical summary carries a lot
-    of English (identifiers, model names, units), and measured over the runs in
-    ``inputs/`` the Hangul share of Korean summaries runs 0.45-0.60 while an
-    English summary is 0.00. Anything in between is not a case this rubric can
-    score either way.
+    Measured over the 62 stored summaries in ``inputs/``: the Hangul share runs
+    0.41 to 0.89, median 0.75 (p10 = 0.62). An English summary is 0.00.
+
+    The threshold sits far below that observed minimum on purpose. It only has to
+    answer "is this Korean at all", and the margin covers a summary that is
+    unusually heavy on English identifiers, model names and units — which Korean
+    technical prose legitimately is. Tightening it toward the observed range would
+    buy nothing and could reject a real issue.
     """
     dense = [c for c in text if not c.isspace()]
     if not dense:
