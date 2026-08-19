@@ -42,7 +42,11 @@ from .model_factory import (
     BedrockLanguageModelFactory,
     LanguageModelInfo,
 )
-from .newsletter_renderer import BuildConfiguration, NewsletterBuilder
+from .newsletter_renderer import (
+    GMAIL_CLIP_BYTES,
+    BuildConfiguration,
+    NewsletterBuilder,
+)
 from .summarizer import Summarizer, SummarizerSettings
 from .utils import (
     HTMLTagOutputParser,
@@ -54,6 +58,7 @@ from .utils import (
 )
 
 __all__ = [
+    "GMAIL_CLIP_BYTES",
     "AnthropicBlogScraper",
     "AppConstants",
     "BedrockCrossRegionModelHelper",

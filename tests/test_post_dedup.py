@@ -85,9 +85,17 @@ class TestCrossSourceDedup:
         )
         assert len(collector.collect_posts(start, end)) == 2
 
-    def test_source_health_still_counts_what_the_source_produced(self, date_range):
-        """Dedup must not make a healthy source look empty: post_count reports
-        what the source returned, not what survived deduplication."""
+    def test_dedup_shows_up_as_duplicates_not_as_an_unhealthy_source(self, date_range):
+        """Two facts, reported separately instead of conflated into one number.
+
+        ``status`` answers "did this source work?" — dedup must never make a
+        healthy source look empty or broken, so it stays OK. ``post_count``
+        answers "what did the digest get from it?", which is the number the health
+        line's total and the empty-digest alarm's "Collected" field are about. It
+        used to report the fetch count, so a source whose every post was already
+        collected elsewhere read as "1 posts" while contributing nothing, and the
+        crawl summary overstated how much material the run actually had.
+        """
         start, end = date_range
         dup = _post("Same Title", "https://b.example/2")
         collector = PostCollector(
@@ -99,9 +107,14 @@ class TestCrossSourceDedup:
                 _StubFetcher("https://b.example/feed", [dup]),
             ]
         )
-        collector.collect_posts(start, end)
-        assert all(s.status.value == "ok" for s in collector.report.sources)
-        assert [s.post_count for s in collector.report.sources] == [1, 1]
+        posts = collector.collect_posts(start, end)
+        first, second = collector.report.sources
+        assert first.status.value == "ok" and second.status.value == "ok"
+        assert (first.post_count, first.duplicates) == (1, 0)
+        assert (second.post_count, second.duplicates) == (0, 1)
+        # The total now equals what actually reached the pipeline.
+        assert collector.report.total_posts == len(posts) == 1
+        assert "(1 deduped)" in collector.report.format_alert()
 
 
 class TestSourceMapping:

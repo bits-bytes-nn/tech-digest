@@ -15,6 +15,7 @@ import boto3
 sys.path.append(str(Path(__file__).parent.parent))
 from configs import Config
 from src import (
+    GMAIL_CLIP_BYTES,
     AppConstants,
     BuildConfiguration,
     CrawlReport,
@@ -120,6 +121,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
             bedrock_boto_session,
             language=language,
         )
+        if is_running_in_aws() and topic_arn:
+            _maybe_send_clipped_newsletter_alert(
+                default_boto_session, topic_arn, newsletter_path, len(posts)
+            )
         if config.newsletter.send_emails:
             success, failed, total = _process_newsletter_emails(
                 newsletter_path,
@@ -129,6 +134,15 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                 None if recipients is None else recipients.split(","),
             )
             if is_running_in_aws() and topic_arn:
+                if total == 0:
+                    # Nothing was even attempted. The partial-delivery alert below
+                    # cannot catch this: it keys on failed recipients, and a run
+                    # with no recipients has none. So an unreadable or missing
+                    # recipients file in S3 meant the issue was built, uploaded
+                    # and silently never sent, with the run still returning 200.
+                    _send_no_recipients_alert(
+                        default_boto_session, topic_arn, config, crawl_report
+                    )
                 _maybe_send_partial_delivery_alert(
                     default_boto_session,
                     topic_arn,
@@ -543,6 +557,83 @@ def _maybe_send_empty_digest_alert(
             "Survived filtering": "0",
             "Filtered out": str(len(filtered_out_posts)),
             "Reasons": breakdown,
+        },
+    )
+
+
+def _send_no_recipients_alert(
+    boto_session: boto3.Session,
+    topic_arn: str,
+    config: Config,
+    crawl_report: CrawlReport,
+) -> None:
+    """Alert when a built issue had nobody to send to.
+
+    This is the pipeline's worst silent failure: the crawl worked, the summaries
+    cost real money, the file went to S3 — and every status says success while no
+    reader receives anything. The cause is always outside the code (the
+    per-stage recipients object missing from S3, empty, or holding no address
+    that passes validation), so the alarm names where to look.
+    """
+    _publish_alarm(
+        boto_session,
+        topic_arn,
+        event="No Recipients",
+        status="ALERT",
+        fields={
+            "Delivered": "0/0",
+            "Expected object": (
+                f"s3://{config.resources.s3_bucket_name}/"
+                f"{(config.resources.s3_prefix or '').strip('/')}/"
+                f"{S3Paths.RECIPIENTS.value}/{_generate_recipients_filename(config)}"
+            ),
+            "Crawl health": crawl_report.summary_line(),
+        },
+    )
+
+
+def _maybe_send_clipped_newsletter_alert(
+    boto_session: boto3.Session,
+    topic_arn: str,
+    newsletter_path: Path,
+    article_count: int,
+) -> None:
+    """Alert when the built issue exceeds the mail-client clip threshold.
+
+    The renderer already logs this, but a log line on an unattended weekly job is
+    seen by nobody, and the failure is invisible from the outside: the mail sends
+    fine and simply stops rendering partway, so the last articles are replaced by
+    a "View entire message" link. Measured on real issues, the margin is real but
+    not generous — 2026-06-02 shipped at 101.4% of the limit and was clipped,
+    2026-07-11 at 91.5% — so this is worth paging on rather than trusting.
+    """
+    try:
+        size = newsletter_path.stat().st_size
+    except OSError as e:
+        logger.warning("Could not size the newsletter for the clip check: %s", e)
+        return
+    if size <= GMAIL_CLIP_BYTES:
+        logger.info(
+            "Newsletter is %.1f KB, %.0f%% of the %.0f KB clip limit.",
+            size / 1024,
+            100 * size / GMAIL_CLIP_BYTES,
+            GMAIL_CLIP_BYTES / 1024,
+        )
+        return
+    _publish_alarm(
+        boto_session,
+        topic_arn,
+        event="Newsletter Clipped",
+        status="ALERT",
+        fields={
+            "Size": f"{size / 1024:.1f} KB",
+            "Limit": f"{GMAIL_CLIP_BYTES / 1024:.0f} KB",
+            "Articles": str(article_count),
+            "Effect": (
+                "Mail clients truncate the message; the last articles are hidden "
+                "behind a 'View entire message' link. Lower summarization."
+                "max_posts or shorten the length budget."
+            ),
         },
     )
 

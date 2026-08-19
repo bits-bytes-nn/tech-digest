@@ -377,12 +377,7 @@ class TestFilterInputIsProseNotMarkup:
         assert "<script>" not in sent and "class=" not in sent
         assert len(sent) < len(html)
 
-    def test_summarization_still_receives_full_html(self):
-        """Only the FILTER gets prose; the summarizer needs the markup for code
-        blocks, tables and image URLs."""
-        s = _summarizer(min_score=0.0)
-        html = '<p>Body</p><img src="https://cdn.example.com/x.png">'
-        post = _post("a", content=html)
+    def _captured_summary_input(self, summarizer, post) -> str:
         captured: list[dict] = []
 
         class _Capture(_FakeChain):
@@ -390,9 +385,57 @@ class TestFilterInputIsProseNotMarkup:
                 captured.extend(inputs)
                 return [{"summary": "ok", "tags": [], "urls": []}]
 
-        s.summarizer = _Capture([])
-        s._summarize_posts([post])
-        assert captured[0]["post"] == html
+        summarizer.summarizer = _Capture([])
+        summarizer._summarize_posts([post])
+        return captured[0]["post"]
+
+    def test_summarization_still_receives_html_not_prose(self):
+        """Only the FILTER gets prose. The summarizer needs the markup: code
+        blocks, tables and image URLs are all markup, and the prompt asks for
+        them explicitly."""
+        s = _summarizer(min_score=0.0)
+        html = (
+            '<p>Body</p><img src="https://cdn.example.com/x.png">'
+            "<pre><code>x = 1</code></pre><table><tr><td>1</td></tr></table>"
+        )
+        sent = self._captured_summary_input(s, _post("a", content=html))
+        for fragment in ("<img", "<pre>", "<code>", "<table>", "cdn.example.com/x.png"):
+            assert fragment in sent
+
+    def test_site_furniture_is_stripped_from_summarization_input(self):
+        """Keeping the markup does not mean keeping the whole page. Measured -37%
+        on real input tokens; nav bars and scripts are not the article."""
+        s = _summarizer(min_score=0.0)
+        html = (
+            '<nav><a href="/x">Home</a></nav><script>var a=1;</script>'
+            "<footer>(c) 2026</footer>"
+            '<div class="wrap" data-track="7" style="color:red">'
+            "<p>Real article prose here.</p></div>"
+        )
+        sent = self._captured_summary_input(s, _post("a", content=html))
+        assert "Real article prose here." in sent
+        for gone in ("<nav>", "<script>", "<footer>", "data-track", "style="):
+            assert gone not in sent
+        # class survives: the prompt asks for <pre><code class="highlight">.
+        assert 'class="wrap"' in sent
+
+    def test_lazy_loaded_images_in_noscript_survive(self):
+        """NVIDIA's blog leaves a data: placeholder in the visible markup and puts
+        the real <img src> inside <noscript> — 7 of 15 images on one measured
+        page. Dropping noscript would throw away the figures the summary is
+        supposed to include."""
+        s = _summarizer(min_score=0.0)
+        html = (
+            '<p>Body</p><img src="data:image/svg+xml,placeholder">'
+            '<noscript><img src="https://cdn.example.com/real-figure.png"></noscript>'
+        )
+        sent = self._captured_summary_input(s, _post("a", content=html))
+        assert "cdn.example.com/real-figure.png" in sent
+
+    def test_flag_restores_raw_html_for_summarization(self):
+        s = _summarizer(min_score=0.0, summarize_on_cleaned_html=False)
+        html = "<nav>Home</nav><p>Body</p>"
+        assert self._captured_summary_input(s, _post("a", content=html)) == html
 
     def test_flag_restores_raw_html_for_filtering(self):
         s = _summarizer(min_score=0.0, filter_on_visible_text=False)

@@ -391,3 +391,82 @@ class TestHandlerControlFlow:
         assert result["statusCode"] == 500
         assert len(session.sns.published) == 1
         assert "kaboom" in session.sns.published[0]["Message"]
+
+
+class TestNoRecipientsAlert:
+    """The pipeline's worst silent failure: everything succeeds and nobody gets
+    the issue. It is invisible to the existing alerts — partial-delivery keys on
+    FAILED recipients, and a run with no recipients has none — so a missing or
+    empty recipients object in S3 produced a 200 and no page."""
+
+    def _report(self) -> CrawlReport:
+        return CrawlReport(
+            sources=[
+                SourceHealth(
+                    url="https://x.com/rss",
+                    fetcher="RssFetcher",
+                    status=SourceStatus.OK,
+                    post_count=3,
+                )
+            ]
+        )
+
+    def test_alert_names_the_object_to_go_look_at(self):
+        from configs import Config
+
+        session = _FakeSession()
+        config = Config.load()
+        main._send_no_recipients_alert(session, "arn:topic", config, self._report())
+        assert len(session.sns.published) == 1
+        published = session.sns.published[0]
+        assert "No Recipients" in published["Subject"]
+        assert "ALERT" in published["Subject"]
+        # The cause is always outside the code, so the alarm has to point at it.
+        assert "s3://" in published["Message"]
+        assert "recipients" in published["Message"].lower()
+        assert "0/0" in published["Message"]
+
+    def test_partial_delivery_alert_cannot_cover_this_case(self, failing_report):
+        """Pins the reason a separate alarm is needed rather than reusing that one."""
+        session = _FakeSession()
+        main._maybe_send_partial_delivery_alert(
+            session, "arn:topic", 0, 0, [], failing_report
+        )
+        assert session.sns.published == []
+
+
+class TestClippedNewsletterAlert:
+    """Mail clients truncate an over-large message, so the tail of the issue is
+    replaced by a "View entire message" link. Nothing about the send fails, and
+    the renderer's log line is seen by nobody on a weekly unattended job. A real
+    prod issue (2026-06-02) shipped at 101.4% of the limit."""
+
+    def test_no_alert_under_the_limit(self, tmp_path):
+        from src import GMAIL_CLIP_BYTES
+
+        path = tmp_path / "n.html"
+        path.write_bytes(b"x" * (GMAIL_CLIP_BYTES - 1))
+        session = _FakeSession()
+        main._maybe_send_clipped_newsletter_alert(session, "arn:topic", path, 3)
+        assert session.sns.published == []
+
+    def test_alert_over_the_limit_reports_size_and_remedy(self, tmp_path):
+        from src import GMAIL_CLIP_BYTES
+
+        path = tmp_path / "n.html"
+        path.write_bytes(b"x" * (GMAIL_CLIP_BYTES + 2048))
+        session = _FakeSession()
+        main._maybe_send_clipped_newsletter_alert(session, "arn:topic", path, 5)
+        assert len(session.sns.published) == 1
+        published = session.sns.published[0]
+        assert "Newsletter Clipped" in published["Subject"]
+        assert "max_posts" in published["Message"]
+        assert "5" in published["Message"]
+
+    def test_missing_file_does_not_raise(self, tmp_path):
+        """A size check must never be the thing that fails a successful run."""
+        session = _FakeSession()
+        main._maybe_send_clipped_newsletter_alert(
+            session, "arn:topic", tmp_path / "absent.html", 3
+        )
+        assert session.sns.published == []

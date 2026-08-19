@@ -213,7 +213,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (503 tests, 83% cov)
+pytest                       # fast, offline unit/integration suite (545 tests, 85% cov)
 
 # Output-quality rubric over a generated run — deterministic, no AWS, no cost.
 # Each of the 11 dimensions maps onto one summarization-prompt rule, so a low

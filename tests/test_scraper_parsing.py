@@ -392,3 +392,205 @@ class TestXaiTitleExtraction:
             "html.parser",
         ).find("a")
         assert scraper._extract_title(link) == "Real Title Here"
+
+
+class TestTitleExtractionIsShared:
+    """Title extraction had four implementations that disagreed.
+
+    x.ai preferred the heading inside the card (after emitting concatenated
+    blobs); Meta read the card's full text first and so still had that bug;
+    Anthropic filtered candidates with English content tests that meant nothing
+    on any other site; Qwen kept its own nav-word list. The date walker had
+    already been consolidated for exactly this reason — a fix applied to one copy
+    left the others wrong.
+    """
+
+    def test_no_scraper_defines_its_own(self):
+        from app.src.feed_parser import BasePageScraper
+
+        for cls in (
+            AnthropicBlogScraper,
+            MetaAIBlogScraper,
+            XAIBlogScraper,
+            QwenBlogScraper,
+        ):
+            assert "_extract_title" not in vars(cls), cls.__name__
+            assert "_should_filter_title" not in vars(cls), cls.__name__
+        assert "_extract_title" in vars(BasePageScraper)
+
+    @pytest.mark.parametrize(
+        "cls,url,source",
+        [
+            (
+                AnthropicBlogScraper,
+                "https://www.anthropic.com/engineering",
+                "anthropic",
+            ),
+            (MetaAIBlogScraper, "https://ai.meta.com/blog", "meta"),
+            (XAIBlogScraper, "https://x.ai/news", "xai"),
+        ],
+    )
+    def test_heading_beats_the_whole_card_on_every_scraper(self, cls, url, source):
+        """The bug that was fixed for x.ai only. Meta's cards nest the teaser
+        inside the anchor, so reading the anchor's text produced
+        'ResearchAug 12, 2026Segment Anything 3SAM 3 extends...' as the title."""
+        scraper = cls(page_url=url, source=source)
+        card = BeautifulSoup(
+            '<a href="/blog/x"><div><span>Research</span><span>Aug 12, 2026</span>'
+            "<h3>Segment Anything 3</h3><p>SAM 3 extends promptable segmentation "
+            "to video.</p></div></a>",
+            "html.parser",
+        ).find("a")
+        assert scraper._extract_title(card) == "Segment Anything 3"
+
+    def test_no_credible_candidate_returns_empty_not_a_guess(self):
+        """Fail closed, like the date gate: the caller skips the link rather than
+        shipping a truncated blob as the title."""
+        scraper = XAIBlogScraper(page_url="https://x.ai/news", source="xai")
+        link = BeautifulSoup('<a href="/news/x">Read more</a>', "html.parser").find("a")
+        assert scraper._extract_title(link) == ""
+
+    def test_labelled_element_wins_over_an_over_long_heading(self):
+        scraper = XAIBlogScraper(page_url="https://x.ai/news", source="xai")
+        link = BeautifulSoup(
+            f'<a href="/news/x"><h3>{"x" * 400}</h3>'
+            '<span class="card-title">Short Real Title</span></a>',
+            "html.parser",
+        ).find("a")
+        assert scraper._extract_title(link) == "Short Real Title"
+
+    def test_when_every_candidate_is_over_long_nothing_is_shipped(self):
+        """Previously the last resort truncated to 120 chars and appended "...",
+        so a card with no heading shipped a sentence fragment as its title."""
+        scraper = XAIBlogScraper(page_url="https://x.ai/news", source="xai")
+        link = BeautifulSoup(
+            f'<a href="/news/x"><div>{"word " * 200}</div></a>', "html.parser"
+        ).find("a")
+        assert scraper._extract_title(link) == ""
+
+    def test_aria_label_is_used_when_the_card_has_no_text(self):
+        scraper = MetaAIBlogScraper(page_url="https://ai.meta.com/blog", source="meta")
+        link = BeautifulSoup(
+            '<a href="/blog/x" aria-label="Llama 4 Multimodal Research">'
+            '<img src="/x.png"></a>',
+            "html.parser",
+        ).find("a")
+        assert scraper._extract_title(link) == "Llama 4 Multimodal Research"
+
+
+class TestNavChromeRejection:
+    """One rule replaces four: reject only when NO word names a subject."""
+
+    @pytest.fixture
+    def scraper(self):
+        return QwenBlogScraper(page_url="https://qwenlm.github.io/blog/", source="qwen")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Next Page",
+            "Previous",
+            "Read more",
+            "Continue reading",
+            "Blog Home",
+            "The Latest",
+            "View all posts",
+            "«",
+            "»",
+            "   ",
+            "...",
+        ],
+    )
+    def test_chrome_is_rejected(self, scraper, text):
+        assert scraper.is_nav_text(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # These were DROPPED before: Qwen rejected a title containing any nav
+            # word, so a real post whose title happened to use one vanished.
+            "Next Generation Reasoning Models",
+            "More Efficient Attention",
+            "Page-Level Retrieval for Long Context",
+            "Read the Docs Integration for Qwen",
+            # These were dropped by an even earlier substring version.
+            "Preventing Reward Hacking in RLHF",
+            "Continued Pretraining of Qwen3",
+            "Improving PageRank with LLMs",
+            # Short but real.
+            "GPT-5.6",
+        ],
+    )
+    def test_real_titles_survive(self, scraper, text):
+        assert not scraper.is_nav_text(text)
+
+
+class TestAccessibleNameHandling:
+    """Validated against live HTML, which caught two regressions.
+
+    Both Meta and Qwen have image-only card links whose ONLY signal is the
+    accessible name — and it is written for screen readers, so it carries a
+    call-to-action in front of the title: "Read Reimagining Independence: ...",
+    "post link to Qwen3Guard: ...". Putting the attribute ahead of the link's own
+    text therefore shipped titles with the CTA baked in.
+    """
+
+    @pytest.fixture
+    def scraper(self):
+        return MetaAIBlogScraper(page_url="https://ai.meta.com/blog", source="meta")
+
+    def test_visible_text_wins_over_the_accessible_name(self, scraper):
+        """Meta emits both for the same post; the visible one is the title."""
+        link = BeautifulSoup(
+            '<a href="/blog/x" aria-label="Read Muse Spark 1.1">Muse Spark 1.1</a>',
+            "html.parser",
+        ).find("a")
+        assert scraper._extract_title(link) == "Muse Spark 1.1"
+
+    @pytest.mark.parametrize(
+        "label,expected",
+        [
+            ("Read Reimagining Independence", "Reimagining Independence"),
+            (
+                "post link to Qwen3Guard: Real-time Safety",
+                "Qwen3Guard: Real-time Safety",
+            ),
+            ("Learn more about Muse Video", "Muse Video"),
+        ],
+    )
+    def test_call_to_action_stripped_from_an_image_only_card(
+        self, scraper, label, expected
+    ):
+        link = BeautifulSoup(
+            f'<a href="/blog/x" aria-label="{label}"><img src="/c.png"></a>',
+            "html.parser",
+        ).find("a")
+        assert scraper._extract_title(link) == expected
+
+    def test_a_cta_word_inside_a_title_is_not_touched(self, scraper):
+        """Unlike the content blacklist this replaced, the pattern anchors at the
+        start and requires trailing text, so it cannot eat a real title's words."""
+        assert (
+            scraper._strip_call_to_action("Reading Comprehension in LLMs")
+            == "Reading Comprehension in LLMs"
+        )
+
+    def test_stripped_navigation_is_still_rejected(self, scraper):
+        """ "View all posts" survives the strip as "all posts", which the nav test
+        then catches — the two rules compose rather than overlapping."""
+        link = BeautifulSoup(
+            '<a href="/blog/x" aria-label="View all posts"><img src="/c.png"></a>',
+            "html.parser",
+        ).find("a")
+        assert scraper._extract_title(link) == ""
+
+    def test_known_edge_a_title_that_opens_with_a_cta_loses_that_word(self, scraper):
+        """Documented limitation, not an accident. It needs a title that BEGINS
+        with a CTA word and reaches us only through the accessible name, and it
+        costs one word — against the concatenated blobs this path replaced."""
+        link = BeautifulSoup(
+            '<a href="/blog/x" aria-label="Read the Docs Integration">'
+            '<img src="/c.png"></a>',
+            "html.parser",
+        ).find("a")
+        assert scraper._extract_title(link) == "the Docs Integration"

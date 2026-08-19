@@ -4,6 +4,7 @@ import ipaddress
 import re
 import socket
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -293,14 +294,67 @@ def _visible_text_length(html: str) -> int:
     return len(visible_text(html)) if html else 0
 
 
+# Elements that carry site furniture rather than article content. ``noscript`` is
+# deliberately ABSENT: lazy-loading pages put the real <img src> there and leave a
+# ``data:image/svg+xml`` placeholder in the visible markup, so dropping it would
+# throw away exactly the figures the summary is supposed to include (verified on
+# NVIDIA's blog, where 7 of 15 images live in noscript).
+NON_CONTENT_TAGS: frozenset[str] = frozenset(
+    {"script", "style", "svg", "iframe", "form", "nav", "footer", "template"}
+)
+# Attributes worth keeping. Everything else — class hooks, data-*, inline styles,
+# tracking ids — is markup the model has no use for. ``class`` survives because
+# the summarization prompt asks for ``<pre><code class="highlight">`` blocks.
+CONTENT_ATTRIBUTES: frozenset[str] = frozenset(
+    {"src", "href", "alt", "srcset", "colspan", "rowspan", "class"}
+)
+
+
+def content_html(html: str) -> str:
+    """``html`` with site furniture and decorative attributes removed.
+
+    The summarizer needs HTML, not prose: code blocks, tables and image URLs all
+    live in the markup, which is why the filter's visible-text shortcut cannot be
+    reused here. But most of that markup is not the article — it is navigation,
+    scripts, inline styles and class hooks.
+
+    Measured over one issue's three articles with the Bedrock token counter,
+    dropping it cuts summarization input from 85,947 to 53,954 tokens (-37%) while
+    leaving every ``<pre>``, ``<table>`` and article ``<img>`` in place. Less noise
+    around the article is also one less thing for the model to mistake for
+    content — a related-posts carousel reads a lot like a list of findings.
+    """
+    if not html:
+        return ""
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(list(NON_CONTENT_TAGS)):
+            tag.decompose()
+        for tag in soup.find_all(True):
+            tag.attrs = {
+                key: value
+                for key, value in tag.attrs.items()
+                if key in CONTENT_ATTRIBUTES
+            }
+        return str(soup)
+    except Exception as e:
+        # Never let input shaping cost us the post: fall back to the raw HTML,
+        # which is what every run before this used.
+        logger.warning("Could not clean content HTML, using it as-is: %s", e)
+        return html
+
+
 def _get_following_redirects(
-    session: requests.Session, url: str
+    session: requests.Session, url: str, headers: dict[str, str]
 ) -> requests.Response | None:
     """GET ``url``, following up to ``MAX_REDIRECTS`` redirects manually and
     SSRF-validating every hop's host before connecting. Returns the final
     response, or None if any hop targets a blocked host or the chain is too
     long. Raises RequestException (via session.get) so the caller's retry
     logic still applies to transient errors.
+
+    ``headers`` is passed per-request rather than written onto the session, so
+    each header set in the fallback ladder is sent exactly as declared.
     """
     current = url
     for _ in range(MAX_REDIRECTS + 1):
@@ -310,6 +364,7 @@ def _get_following_redirects(
             return None
         response = session.get(
             current,
+            headers=headers,
             timeout=ScraperConfig.REQUEST_TIMEOUT,
             allow_redirects=False,
             verify=True,
@@ -326,8 +381,19 @@ def _try_request(
     session: requests.Session, url: str, headers: dict[str, str]
 ) -> requests.Response | None:
     """Single GET attempt with one retry for transient errors (timeout / 5xx /
-    429). Returns the response on success, or None if this header set fails."""
-    session.headers.update(headers)
+    429). Returns the response on success, or None if this header set fails.
+
+    ``headers`` is applied per-request. It used to be written onto the shared
+    session with ``session.headers.update``, which made the sets in the fallback
+    ladder cumulative instead of alternative: after the Chrome set (12 headers)
+    failed, the Safari set (5 headers) was merged on top of it, so the retry went
+    out with a macOS Safari ``User-Agent`` alongside Chrome's
+    ``Sec-Ch-Ua: "Google Chrome";v="131"`` and ``Sec-Ch-Ua-Platform: "Windows"``.
+    Safari sends no client hints at all, so that combination cannot occur in a
+    real browser — and an impossible fingerprint is precisely what the anti-bot
+    filters this ladder exists to get past are looking for. Every attempt after
+    the first was therefore *less* likely to succeed than the first.
+    """
     session.max_redirects = MAX_REDIRECTS
     max_attempts = 3
     for attempt in range(max_attempts):
@@ -338,7 +404,7 @@ def _try_request(
             # is re-checked with _is_blocked_host (which now also resolves
             # hostnames), closing the "source redirects to the metadata endpoint"
             # gap for intermediate hops, not just the final landing URL.
-            response = _get_following_redirects(session, url)
+            response = _get_following_redirects(session, url, headers)
             if response is None:
                 return None
             response.raise_for_status()
@@ -676,6 +742,148 @@ class BasePageScraper:
     DATE_PATTERNS: ClassVar[tuple[re.Pattern, ...]] = ()
     # How far up the tree to look before giving up.
     DATE_SEARCH_DEPTH: ClassVar[int] = 5
+    # How far up the tree to look for a heading when the card has none inside.
+    TITLE_ANCESTOR_DEPTH: ClassVar[int] = 3
+    # A candidate longer than this is not a title. Index pages that nest a whole
+    # card inside the <a> concatenate heading, date and teaser into one string;
+    # preferring the heading is the real defense and this is only a backstop, so
+    # the bound is generous — the longest title ever published here is 103 chars.
+    TITLE_MAX_CHARS: ClassVar[int] = 250
+    # Words that make up navigation chrome ("Read more", "Next Page"). Used to
+    # reject a link whose text contains NOTHING BUT these — see ``is_nav_text``.
+    NAV_WORDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "all",
+            "archive",
+            "back",
+            "blog",
+            "continue",
+            "featured",
+            "first",
+            "home",
+            "index",
+            "last",
+            "latest",
+            "learn",
+            "more",
+            "new",
+            "newer",
+            "news",
+            "next",
+            "older",
+            "page",
+            "pages",
+            "post",
+            "posts",
+            "prev",
+            "previous",
+            "read",
+            "reading",
+            "see",
+            "start",
+            "view",
+        }
+    )
+    # Function words: they neither identify chrome nor count as subject matter,
+    # so "The Latest" is still chrome while "Read more About Llama" is not.
+    TITLE_STOPWORDS: ClassVar[frozenset[str]] = frozenset(
+        {"a", "an", "and", "at", "by", "for", "in", "of", "on", "the", "to", "with"}
+    )
+
+    def is_nav_text(self, text: str) -> bool:
+        """True when ``text`` is navigation chrome rather than a post title.
+
+        The rule is "nothing here names a subject": tokenize, then reject only if
+        NO token is substantive (outside ``NAV_WORDS`` and ``TITLE_STOPWORDS``).
+
+        Rejecting on the mere PRESENCE of a nav word — which the Qwen scraper did
+        before this moved to the base class — throws away real posts, because
+        those words also occur in real titles: "Next Generation Reasoning Models",
+        "More Efficient Attention", "Page-Level Retrieval" were all dropped. An
+        earlier version matched substrings rather than words, which additionally
+        lost "Preventing..." (contains "prev") and "PageRank" (contains "page").
+        """
+        lowered = text.replace("\xa0", " ").casefold()
+        # Pagination arrows carry no word characters, so they need their own test.
+        if "«" in lowered or "»" in lowered:
+            return True
+        words = re.findall(r"[^\W\d_]+", lowered, flags=re.UNICODE)
+        if not words:
+            return True
+        return not any(
+            word not in self.NAV_WORDS and word not in self.TITLE_STOPWORDS
+            for word in words
+        )
+
+    def _extract_title(self, link: Tag) -> str:
+        """The post title for an index-page link, or "" if none is credible.
+
+        Returning "" rather than a best guess is deliberate: every caller skips
+        the link, which is the same fail-closed stance the date gate takes.
+
+        The three index scrapers each had their own version of this, and they
+        disagreed on both strategy and thresholds. The x.ai one was fixed to
+        prefer the heading inside the card after it emitted titles like
+        "Grok 4.6Aug 12, 2026Introducing Grok 4.6Aug 12, 2026Introducing..."; the
+        Meta one still read the card's full text first and so still had that bug,
+        and the Anthropic one filtered candidates with English content tests
+        (``startswith("This is")``, ``"blog post" not in ...``) that meant nothing
+        on any other site. One implementation, ordered by how reliably each signal
+        names the post, is both shorter and less wrong.
+        """
+        for candidate in self._title_candidates(link):
+            title = " ".join(candidate.split())
+            if not title or len(title) > self.TITLE_MAX_CHARS:
+                continue
+            if self.is_nav_text(title):
+                continue
+            return title
+        return ""
+
+    def _title_candidates(self, link: Tag) -> Iterator[str]:
+        """Title candidates for ``link``, most trustworthy first."""
+        # A heading inside the card: the site's own markup saying "this is the
+        # title", and the only signal that survives a card with a nested teaser.
+        for heading in link.select("h1, h2, h3, h4, h5, h6"):
+            yield heading.get_text(strip=True)
+        # An element the site labels as the title by class name.
+        for element in link.select(
+            '[class*="title"], [class*="heading"], [class*="headline"]'
+        ):
+            yield element.get_text(strip=True)
+        # The link's own text, before the accessible name — see below for why.
+        yield link.get_text(strip=True)
+        # A heading just outside the link, for markup that puts the <a> inside
+        # the heading's sibling rather than the other way round.
+        parent = link.parent
+        for _ in range(self.TITLE_ANCESTOR_DEPTH):
+            if parent is None:
+                break
+            if heading := parent.select_one("h1, h2, h3, h4, h5, h6"):
+                yield heading.get_text(strip=True)
+            parent = parent.parent
+        # The accessible name, last. It is the only signal an image-only card
+        # link has, but it is written for screen readers and so normally carries a
+        # call-to-action in front of the title, which is why the visible text is
+        # preferred when there is any.
+        for attribute in ("aria-label", "title"):
+            value = link.get(attribute)
+            if isinstance(value, str):
+                yield self._strip_call_to_action(value)
+
+    # Leading call-to-action in an accessible name, e.g. Meta's "Read <title>"
+    # and Qwen's "post link to <title>". Matched only at the START, so unlike a
+    # content blacklist it cannot reject or truncate a real title — "Reading
+    # Comprehension in LLMs" keeps its first word because "reading" is not
+    # followed by more text here, it IS the text.
+    TITLE_CALL_TO_ACTION: ClassVar[re.Pattern] = re.compile(
+        r"^\s*(?:read|view|see|open|go\s+to|learn\s+more\s+about|"
+        r"(?:blog\s+)?post\s+link\s+to)\s+(?=\S)",
+        re.IGNORECASE,
+    )
+
+    def _strip_call_to_action(self, accessible_name: str) -> str:
+        return self.TITLE_CALL_TO_ACTION.sub("", accessible_name, count=1)
 
     def __init__(self, page_url: str, source: SourceType):
         self.page_url = page_url
@@ -843,50 +1051,6 @@ class AnthropicBlogScraper(BasePageScraper):
             logger.error(f"Error processing link: {e}")
             return None
 
-    @staticmethod
-    def _extract_title(link: Tag) -> str:
-        heading_elements = link.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
-        if heading_elements:
-            for heading in heading_elements:
-                text = heading.get_text(strip=True)
-                if 10 <= len(text) <= 120 and not text.endswith("."):
-                    return text
-            return heading_elements[0].get_text(strip=True)
-
-        title_selectors = [
-            '[class*="title"]',
-            '[class*="heading"]',
-            '[class*="headline"]',
-        ]
-
-        for selector in title_selectors:
-            title_elements = link.select(selector)
-            for elem in title_elements:
-                text = elem.get_text(strip=True)
-                if 10 <= len(text) <= 120 and not text.endswith("."):
-                    return text
-
-        full_text = link.get_text(strip=True)
-
-        lines = [line.strip() for line in full_text.split("\n") if line.strip()]
-        for line in lines:
-            if (
-                10 <= len(line) <= 120
-                and not line.endswith(".")
-                and not line.startswith("This is")
-                and not line.startswith("A ")
-                and "blog post" not in line.lower()
-                and "technical report" not in line.lower()
-            ):
-                return line
-
-        if lines and 5 <= len(lines[0]) <= 120:
-            return lines[0]
-
-        return full_text[:120].rsplit(" ", 1)[0] + (
-            "..." if len(full_text) > 120 else ""
-        )
-
 
 class GoogleBlogScraper(GenericPageScraper):
     ITEM_SELECTOR: ClassVar[str] = "a.glue-card"
@@ -947,24 +1111,6 @@ class MetaAIBlogScraper(BasePageScraper):
         re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b"),
         re.compile(r"\b(\d{4}-\d{2}-\d{2})\b"),
     )
-    FILTER_TITLES: ClassVar[set[str]] = {
-        "...",
-        "back",
-        "blog",
-        "continue reading",
-        "featured",
-        "home",
-        "learn more",
-        "more",
-        "news",
-        "next",
-        "prev",
-        "previous",
-        "read more",
-        "see more",
-        "the latest",
-        "view all",
-    }
 
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
         logger.info(
@@ -990,8 +1136,8 @@ class MetaAIBlogScraper(BasePageScraper):
                 seen_urls.add(href)
 
                 title = self._extract_title(link)
-                if not title or self._should_filter_title(title):
-                    logger.debug(f"Meta AI: Filtered out '{title}' (item {i})")
+                if not title:
+                    logger.debug(f"Meta AI: no usable title for link {i}")
                     continue
 
                 date_text = self._find_date_near_element(link)
@@ -1035,43 +1181,6 @@ class MetaAIBlogScraper(BasePageScraper):
         logger.info(f"Meta AI: Found {len(unique_posts)} unique posts in date range")
         return unique_posts
 
-    def _extract_title(self, link: Tag) -> str:
-        title = link.get_text(strip=True)
-
-        if not title or len(title) < 3 or title in self.FILTER_TITLES:
-            aria_label = link.get("aria-label", "")
-            if aria_label and isinstance(aria_label, str) and "Read " in aria_label:
-                title = aria_label.replace("Read ", "").strip()
-            else:
-                parent = link.parent
-                for _ in range(3):
-                    if parent:
-                        title_elem = parent.select_one(
-                            'h1, h2, h3, h4, h5, h6, .title, [class*="title"]'
-                        )
-                        if title_elem:
-                            title = title_elem.get_text(strip=True)
-                            break
-                        parent = parent.parent
-                    else:
-                        break
-
-        return title
-
-    def _should_filter_title(self, title: str) -> bool:
-        if not title:
-            return True
-
-        title_lower = title.lower().strip()
-
-        if len(title_lower) < 5:
-            return True
-
-        if title_lower in self.FILTER_TITLES:
-            return True
-
-        return title_lower.replace(".", "").replace(" ", "") == ""
-
 
 class QwenBlogScraper(GenericPageScraper):
     ITEM_SELECTOR: ClassVar[str] = "a[href*='/blog/']"
@@ -1089,31 +1198,12 @@ class QwenBlogScraper(GenericPageScraper):
         if href.endswith("/blog/") or href == "/blog" or "/page/" in href:
             return None
 
-        title = item.get_text(strip=True)
-        if not title or len(title) < 5:
-            parent = item.parent
-            for _ in range(3):
-                if parent and (heading := parent.select_one("h1, h2, h3, h4, h5, h6")):
-                    title = heading.get_text(strip=True)
-                    break
-                parent = parent.parent if parent else None
-
-        if not title or len(title) < 5:
+        # Shared extractor: heading first, then labelled elements, then the
+        # link's own text — and it applies the shared nav-chrome test, so the
+        # per-scraper nav word list this used to carry is gone.
+        title = self._extract_title(item)
+        if not title:
             return None
-
-        title_lower = title.lower().replace("\xa0", " ").strip()
-        # Pagination arrows are non-word chars, so a plain substring test is
-        # correct for them.
-        if "«" in title_lower or "»" in title_lower:
-            return None
-        # Match navigation WORDS as whole tokens, not substrings: a substring
-        # test dropped legitimate titles like "Preventing..." (contains "prev"),
-        # "Continued Pretraining" ("continue"), "PageRank" ("page").
-        nav_words = {"continue", "more", "next", "page", "prev", "previous"}
-        title_words = set(re.findall(r"[a-z]+", title_lower))
-        if title_words & nav_words:
-            return None
-
         title = title.replace("| Qwen", "").replace("- Qwen", "").strip()
 
         page_text = str(item.parent) if item.parent else ""
@@ -1195,40 +1285,6 @@ class XAIBlogScraper(BasePageScraper):
 
         return posts
 
-    @staticmethod
-    def _extract_title(link: Tag) -> str:
-        """The post title from an x.ai news card.
-
-        The heading INSIDE the card is preferred. Reading the card's full text
-        first — as this did, only falling back to a heading when that text was
-        under 5 characters, which never happened — concatenated everything in the
-        card into the title:
-
-            'Grok 4.6Aug 12, 2026Introducing Grok 4.6Aug 12, 2026Introducing
-             Grok 4.6Grok 4.6 builds on Grok 4.5 with a particular focus on...'
-
-        Every card on the live page carries a real heading ('Grok 4.6 in GitHub
-        Copilot'), so preferring it fixes the title outright. The full-text path
-        stays as the fallback for cards that have no heading.
-        """
-        heading = link.select_one("h1, h2, h3, h4, h5, h6")
-        if heading and (title := heading.get_text(strip=True)):
-            return title
-
-        title = link.get_text(strip=True)
-        if not title or len(title) < 5:
-            parent = link.parent
-            for _ in range(3):
-                if parent:
-                    if heading := parent.select_one("h1, h2, h3, h4, h5, h6"):
-                        title = heading.get_text(strip=True)
-                        break
-                    parent = parent.parent
-                else:
-                    break
-
-        return title
-
 
 class ScraperRegistry:
     _SCRAPER_MAPPING: ClassVar[dict[str, tuple[type[BasePageScraper], SourceType]]] = {
@@ -1273,7 +1329,10 @@ class SourceHealth:
     url: str
     fetcher: str
     status: SourceStatus
+    #: Posts this source contributed to the digest, after cross-source dedup.
     post_count: int = 0
+    #: Posts it returned that a previous source had already provided.
+    duplicates: int = 0
     error: str | None = None
 
 
@@ -1320,7 +1379,11 @@ class CrawlReport:
             lines.extend(f"  - {s.url} [{s.fetcher}]" for s in self.empty)
             lines.append("")
         lines.append("Healthy sources:")
-        lines.extend(f"  - {s.url}: {s.post_count} posts" for s in self.ok)
+        lines.extend(
+            f"  - {s.url}: {s.post_count} posts"
+            + (f" ({s.duplicates} deduped)" if s.duplicates else "")
+            for s in self.ok
+        )
         return "\n".join(lines)
 
 
@@ -1362,6 +1425,7 @@ class PostCollector:
             fetcher_name = type(fetcher).__name__
             try:
                 fetched = fetcher.fetch(start_date, end_date)
+                contributed = 0
                 for post in fetched:
                     if post.link in seen_links:
                         continue
@@ -1378,6 +1442,7 @@ class PostCollector:
                         )
                         continue
                     all_posts.append(post)
+                    contributed += 1
                     seen_links.add(post.link)
                     if title_key:
                         seen_titles.add(title_key)
@@ -1387,11 +1452,26 @@ class PostCollector:
                         url=url,
                         fetcher=fetcher_name,
                         status=status,
-                        post_count=len(fetched),
+                        # Posts this source CONTRIBUTED, not posts it returned.
+                        # Reporting the fetch count let a source whose every post
+                        # was a syndicated duplicate of an earlier one appear as
+                        # "3 posts" while adding nothing to the digest, so the
+                        # health line overstated how much material the crawl
+                        # actually had. ``duplicates`` keeps the difference
+                        # visible instead of hiding it.
+                        post_count=contributed,
+                        duplicates=len(fetched) - contributed,
                     )
                 )
                 if not fetched:
                     logger.warning("Source produced no posts in range: '%s'", url)
+                elif not contributed:
+                    logger.warning(
+                        "Source '%s' returned %d post(s), all already collected "
+                        "from an earlier source.",
+                        url,
+                        len(fetched),
+                    )
             except Exception as e:
                 logger.error("Fetcher '%s' failed for '%s': %s", fetcher_name, url, e)
                 self.report.sources.append(

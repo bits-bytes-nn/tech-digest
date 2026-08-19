@@ -55,9 +55,15 @@ class _FakeSession:
         self._outcomes = list(outcomes)
         self.headers = {}
         self.calls = 0
+        # Headers as actually sent, per request: the session's own dict plus the
+        # per-request overrides, which is what requests would put on the wire.
+        self.sent_headers: list[dict] = []
 
     def get(self, url, **kwargs):
         self.calls += 1
+        merged = dict(self.headers)
+        merged.update(kwargs.get("headers") or {})
+        self.sent_headers.append(merged)
         outcome = self._outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
@@ -205,3 +211,52 @@ class TestSSRFGuard:
         session = _FakeSession([_FakeResponse(200, url="https://example.com/post")])
         _patch_session(monkeypatch, session)
         assert _make_robust_request("https://example.com") is not None
+
+
+class TestHeaderSetsAreAlternativesNotAccumulated:
+    """Each header set in the fallback ladder must be sent exactly as declared.
+
+    They used to be written onto the shared session with ``headers.update``, which
+    made them cumulative: once the Chrome set (12 headers) failed, the Safari set
+    (5 headers) was merged on top, so the retry went out with a macOS Safari
+    ``User-Agent`` next to Chrome's ``Sec-Ch-Ua`` and ``Sec-Ch-Ua-Platform:
+    "Windows"``. Safari sends no client hints, so no real browser produces that
+    combination — and an impossible fingerprint is what the anti-bot filters this
+    ladder exists to defeat look for. Every attempt after the first was therefore
+    *less* likely to work than the first.
+    """
+
+    def _all_attempts(self, monkeypatch):
+        blocked = [
+            _FakeResponse(403)
+            for _ in feed_parser.ScraperConfig.REQUEST_HEADERS_OPTIONS
+        ]
+        session = _FakeSession(blocked)
+        _patch_session(monkeypatch, session)
+        assert _make_robust_request("https://example.com") is None
+        return session.sent_headers
+
+    def test_every_set_is_sent_verbatim(self, monkeypatch):
+        sent = self._all_attempts(monkeypatch)
+        declared = feed_parser.ScraperConfig.REQUEST_HEADERS_OPTIONS
+        assert len(sent) == len(declared)
+        for actual, expected in zip(sent, declared, strict=True):
+            assert actual == expected
+
+    def test_client_hints_do_not_leak_onto_the_safari_set(self, monkeypatch):
+        sent = self._all_attempts(monkeypatch)
+        safari = next(h for h in sent if "Safari/605" in h.get("User-Agent", ""))
+        assert "Sec-Ch-Ua" not in safari
+        assert "Sec-Ch-Ua-Platform" not in safari
+        assert "Sec-Fetch-User" not in safari
+
+    def test_the_session_itself_is_never_mutated(self, monkeypatch):
+        """Per-request headers, so nothing carries over between attempts."""
+        blocked = [
+            _FakeResponse(403)
+            for _ in feed_parser.ScraperConfig.REQUEST_HEADERS_OPTIONS
+        ]
+        session = _FakeSession(blocked)
+        _patch_session(monkeypatch, session)
+        _make_robust_request("https://example.com")
+        assert session.headers == {}

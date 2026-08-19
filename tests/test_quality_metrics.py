@@ -288,3 +288,43 @@ class TestRubricMatchesThePrompt:
         from app.src.prompts import SummarizationPrompt
 
         assert phrase in SummarizationPrompt._human_prompt_template[Language.KO]
+
+
+class TestSpecificitySaturationIsReachable:
+    """A target no real output can hit is not a tuning signal.
+
+    The saturation point was 8.0 quantities per 1,000 characters, which exactly
+    one of the 62 published summaries ever reached — so ``weakest()`` named
+    specificity every round regardless of what changed, and steering the prompt by
+    it meant asking for more figures indefinitely. That also fights
+    ``distinctiveness``, which penalises figures repeated across sections.
+    """
+
+    def _summary_with(self, quantity_count: int, chars: int) -> str:
+        filler = "가" * max(chars - 12 * quantity_count, 0)
+        figures = " ".join(f"{i + 1}0GB" for i in range(quantity_count))
+        return _summary(f"{figures} {filler}")
+
+    def test_todays_output_density_can_reach_full_marks(self):
+        """The tuned prompt produces 5.1-5.8 per 1,000 chars, so the target has to
+        sit within reach of that, not at twice it."""
+        from app.src.quality_metrics import SPECIFICITY_SATURATION
+
+        assert SPECIFICITY_SATURATION <= 6.0
+
+    def test_at_the_saturation_point_the_density_term_is_full(self):
+        from app.src.quality_metrics import SPECIFICITY_SATURATION
+
+        # Two sections of the same body, so the visible length is ~2x the body.
+        per_section = 1000
+        count = int(SPECIFICITY_SATURATION * 2 * per_section / 1000)
+        html = self._summary_with(count, per_section)
+        result = evaluate_summary("a", html)
+        density = 1000 * result.quantity_count / result.length
+        assert density >= SPECIFICITY_SATURATION
+        # 0.7 of the score is density; the rest needs code/tables, which this
+        # synthetic summary has none of.
+        assert result.specificity_score == pytest.approx(0.7, abs=0.01)
+
+    def test_a_summary_of_vibes_still_scores_near_zero(self):
+        assert evaluate_summary("a", _summary("가" * 2000)).specificity_score == 0.0

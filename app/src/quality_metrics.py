@@ -50,6 +50,34 @@ KO_LENGTH_BAND: tuple[int, int] = (4000, 6000)
 # characters, so anything above 40 is legitimately short rather than empty.
 KO_LEDE_BAND: tuple[int, int] = (40, 100)
 
+# Measured quantities per 1,000 visible characters at which ``specificity``
+# saturates. Derived from the 62 summaries in ``inputs/``, not chosen: their
+# density runs median 1.5, p90 4.3, best three 6.5 / 7.8 / 8.5, and the current
+# tuned prompt produces 5.1-5.8.
+#
+# It was 8.0 before, which exactly ONE of the 62 ever reached. A target that 98%
+# of real output cannot hit is not a tuning signal — ``weakest()`` named
+# specificity every round, drowning out dimensions that were actually fixable,
+# and steering the prompt toward cramming in more figures. That also fights
+# ``distinctiveness``, which penalises a figure repeated across sections: pushing
+# one up pushed the other down, which is what happened when the 📊 section started
+# re-stating numbers from 📌.
+#
+# 6.0 keeps the dimension discriminating (the median still scores ~0.2) while
+# making full marks reachable — the gap from current output is one or two more
+# carried figures rather than twenty.
+#
+# The deeper limit is that density is bounded by the SOURCE: an article reporting
+# five numbers cannot yield thirty, so no fixed target is right for every article.
+# Two alternatives were measured and rejected. Recall of the source's quantities
+# saturates (median 1.00 once numerals are compared language-neutrally) and
+# unfairly penalises number-dense sources — one article reports 107 figures, and
+# carrying all of them would be worse writing, not better. Counting summary
+# figures ABSENT from the source looked like a hallucination check, but
+# ``visible_text`` strips code blocks, so figures legitimately taken from a config
+# snippet count as unsourced.
+SPECIFICITY_SATURATION: float = 6.0
+
 # The five section markers the Korean prompt asks for, in order.
 SECTION_MARKERS: tuple[str, ...] = ("📌", "🔄", "🛠️", "📊", "🔮")
 
@@ -309,13 +337,16 @@ class SummaryQuality:
         """Measured quantities plus code/table evidence, per 1,000 characters.
 
         A technical write-up of this length that names no numbers is a summary of
-        vibes. 8 quantities per 1,000 chars saturates the score.
+        vibes. See ``SPECIFICITY_SATURATION`` for where the target comes from.
         """
         if not self.length:
             return 0.0
         density = 1000 * self.quantity_count / self.length
         evidence = min(1.0, 0.5 * (self.code_blocks + self.tables))
-        return min(1.0, 0.7 * min(1.0, density / 8.0) + 0.3 * evidence)
+        return min(
+            1.0,
+            0.7 * min(1.0, density / SPECIFICITY_SATURATION) + 0.3 * evidence,
+        )
 
     @property
     def boilerplate_score(self) -> float:

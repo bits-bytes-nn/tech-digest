@@ -165,3 +165,43 @@ class TestNoCachePathUnchanged:
         assert isinstance(msgs[0].content, str)
         # Full rubric still present (just not split out).
         assert "EVALUATION PROCESS" in msgs[1].content
+
+
+class TestCachingIsOnlyEnabledWhenItCanHit:
+    """Writing a cache entry costs 1.25x the input rate, so caching a prefix no
+    request will ever read is a pure surcharge.
+
+    Measured across 24 real summarization calls: ``cache_read=0`` on every one,
+    with a ``cache_write`` on every one. Both causes are structural. An entry
+    exists only once a response completes, so every call in a concurrent wave
+    starts cold — and with ``max_posts`` (3) at or below ``max_concurrency`` (10)
+    the whole batch IS one wave. The digest is also weekly, far past the entry
+    lifetime, so nothing carries to the next run.
+    """
+
+    def _summarizer(self, **overrides):
+        from app.src.constants import LanguageModelId
+        from app.src.summarizer import Summarizer, SummarizerSettings
+
+        base = {
+            "filtering_model_id": LanguageModelId.CLAUDE_V5_SONNET,
+            "summarization_model_id": LanguageModelId.CLAUDE_V5_SONNET,
+            "max_concurrency": 10,
+        }
+        instance = Summarizer.__new__(Summarizer)
+        instance.settings = SummarizerSettings.model_validate(base | overrides)
+        return instance
+
+    def test_batch_that_fits_one_wave_disables_caching(self):
+        assert not self._summarizer(max_posts=3)._cache_can_hit()
+
+    def test_batch_at_exactly_the_concurrency_limit_still_cannot_hit(self):
+        assert not self._summarizer(max_posts=10)._cache_can_hit()
+
+    def test_batch_larger_than_one_wave_enables_caching(self):
+        assert self._summarizer(max_posts=11)._cache_can_hit()
+
+    def test_uncapped_digest_enables_caching(self):
+        """No cap means the batch is however many posts survived filtering —
+        routinely more than one wave."""
+        assert self._summarizer(max_posts=None)._cache_can_hit()
