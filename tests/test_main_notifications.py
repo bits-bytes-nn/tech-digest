@@ -102,6 +102,71 @@ class TestCrawlHealthAlert:
         assert len(failing_report.failed) == 1
         assert len(failing_report.ok) == 1
 
+    def _empty(self, url: str, candidates: int | None) -> CrawlReport:
+        return CrawlReport(
+            sources=[
+                SourceHealth(
+                    url=url,
+                    fetcher="RssFetcher",
+                    status=SourceStatus.EMPTY,
+                    candidates=candidates,
+                ),
+                SourceHealth(
+                    url="https://openai.com/news/rss.xml",
+                    fetcher="RssFetcher",
+                    status=SourceStatus.OK,
+                    post_count=4,
+                    candidates=9,
+                ),
+            ]
+        )
+
+    def test_a_source_offering_nothing_alerts_even_though_it_did_not_fail(self):
+        """The whole point of the candidate count.
+
+        This source fetched successfully, so it is not FAILED, and it produced no
+        posts, so it used to be one more line among the ~12 EMPTY sources a normal
+        run has. Nothing paged, and a moved feed could sit there for weeks.
+        """
+        session = _FakeSession()
+        main._send_crawl_health_alert(
+            session, "arn:topic", PROJECT, self._empty("https://moved/rss", 0), []
+        )
+        assert len(session.sns.published) == 1
+        msg = session.sns.published[0]["Message"]
+        assert "Sources offering nothing: 1" in msg
+        assert "https://moved/rss" in msg
+
+    def test_a_quiet_source_does_not_alert(self):
+        """A blog that published nothing must never page, or the alarm fires on the
+        ~12 normally-empty sources and becomes noise nobody reads — the same failure
+        expected_flaky_urls exists to prevent."""
+        session = _FakeSession()
+        main._send_crawl_health_alert(
+            session, "arn:topic", PROJECT, self._empty("https://quiet/rss", 14), []
+        )
+        assert session.sns.published == []
+
+    def test_an_unknown_count_does_not_alert(self):
+        session = _FakeSession()
+        main._send_crawl_health_alert(
+            session, "arn:topic", PROJECT, self._empty("https://unknown/rss", None), []
+        )
+        assert session.sns.published == []
+
+    def test_expected_flaky_suppresses_the_offering_nothing_trigger_too(self):
+        """x.ai is blocked from AWS egress IPs every week; whether that shows up as
+        FAILED or as zero candidates, it must not page."""
+        session = _FakeSession()
+        main._send_crawl_health_alert(
+            session,
+            "arn:topic",
+            PROJECT,
+            self._empty("https://x.ai/news", 0),
+            ["x.ai/news"],
+        )
+        assert session.sns.published == []
+
 
 class TestPartialDeliveryAlert:
     def test_alert_on_partial_failure_includes_crawl_summary(self, failing_report):

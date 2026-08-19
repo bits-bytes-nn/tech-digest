@@ -693,6 +693,9 @@ def parse_published_date(date_str: str) -> datetime:
 
 class PostFetcher(Protocol):
     source_url: str
+    #: Items this fetcher last offered BEFORE date filtering. Set by ``fetch``; see
+    #: ``SourceHealth.candidates`` for why the collector records it.
+    candidates: int | None
 
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]: ...
 
@@ -701,9 +704,13 @@ class RssFetcher:
     def __init__(self, rss_url: str):
         self.rss_url = rss_url
         self.source_url = rss_url
+        self.candidates: int | None = None
 
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
         logger.info(f"Fetching posts from RSS feed: '{self.rss_url}'")
+        # Reset first: a stale count from a previous call would describe the wrong
+        # fetch if this collector is reused.
+        self.candidates = None
         posts = []
         try:
             with force_ipv4():
@@ -723,6 +730,11 @@ class RssFetcher:
                     # malformed XML) — surface it so the source is marked FAILED.
                     if not is_encoding_error and not feed.entries:
                         raise SourceFetchError(f"Feed parse error: {bozo_exc}")
+
+                # Entries the feed offered, before the date window. A feed that
+                # parses cleanly but carries none at all has moved or broken; a
+                # quiet blog still lists its back catalogue.
+                self.candidates = len(feed.entries)
 
                 for entry in feed.entries:
                     # Fail closed: an entry whose date cannot be parsed is
@@ -899,6 +911,7 @@ class BasePageScraper:
     def __init__(self, page_url: str):
         self.page_url = page_url
         self.source_url = page_url
+        self.candidates: int | None = None
 
     @property
     def link_pattern(self) -> re.Pattern:
@@ -978,7 +991,11 @@ class GenericPageScraper(BasePageScraper):
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
         soup = self._fetch_page()
         posts = []
-        for item in soup.select(self.ITEM_SELECTOR):
+        items = soup.select(self.ITEM_SELECTOR)
+        # Zero matches means the selector no longer finds this site's cards, which
+        # is indistinguishable from "no posts this week" without this count.
+        self.candidates = len(items)
+        for item in items:
             try:
                 if not (entry_data := self._parse_item(item)):
                     continue
@@ -1015,7 +1032,10 @@ class AnthropicBlogScraper(BasePageScraper):
         posts = []
         seen_urls = set()
 
-        for link in soup.find_all("a", href=self.link_pattern):
+        links = soup.find_all("a", href=self.link_pattern)
+        self.candidates = len(links)
+
+        for link in links:
             post = self._extract_post_from_link(link, start_date, end_date)
             if post and post.link not in seen_urls:
                 posts.append(post)
@@ -1134,6 +1154,9 @@ class MetaAIBlogScraper(BasePageScraper):
         # passes to express one rule.
         seen_urls: set[str] = set()
         blog_links = soup.find_all("a", href=self.link_pattern)
+        # Already logged; now also reported, so a selector that stops matching
+        # shows up in the crawl-health alert rather than only in the run log.
+        self.candidates = len(blog_links)
         logger.info(f"Meta AI: Found {len(blog_links)} potential blog links")
 
         for i, link in enumerate(blog_links):
@@ -1246,6 +1269,7 @@ class XAIBlogScraper(BasePageScraper):
         seen_urls = set()
 
         news_links = soup.find_all("a", href=self.link_pattern)
+        self.candidates = len(news_links)
 
         for link in news_links:
             try:
@@ -1335,6 +1359,19 @@ class SourceHealth:
     post_count: int = 0
     #: Posts it returned that a previous source had already provided.
     duplicates: int = 0
+    #: Items the source offered BEFORE the date-window filter — feed entries for
+    #: a feed, index-page links matching the scraper's LINK_PATTERN for a scraper.
+    #:
+    #: This is what separates the two reasons a source can be EMPTY, which the
+    #: report used to render identically: a blog that published nothing this week
+    #: offers its back catalogue and the window filters it out, while a moved feed
+    #: or a scraper whose selector no longer matches offers NOTHING to filter. One
+    #: is normal and one needs a person. Both showed up as one indistinguishable
+    #: line among the ~12 empty sources of a typical run, so a broken crawler could
+    #: sit there for weeks.
+    #:
+    #: ``None`` means the fetcher did not report a count — unknown, NOT zero.
+    candidates: int | None = None
     error: str | None = None
 
 
@@ -1357,14 +1394,46 @@ class CrawlReport:
         return [s for s in self.sources if s.status is SourceStatus.OK]
 
     @property
+    def likely_broken(self) -> list[SourceHealth]:
+        """EMPTY sources that offered NOTHING for the date window to filter.
+
+        A feed that moved, or a scraper whose selector stopped matching: the fetch
+        itself succeeded, so the source is not FAILED, but there was no material at
+        any date. Distinct from a blog that was simply quiet, which offers its back
+        catalogue and has the window filter it out.
+
+        Deliberately NOT a fourth ``SourceStatus``. "Fetched fine, produced no
+        posts in range" is an accurate status and stays one; what is new is the
+        evidence that separates the two reasons for it, so the inference lives here
+        instead of being baked into a state every caller has to handle.
+
+        ``candidates is None`` (a fetcher that reports no count) is excluded —
+        unknown is not zero, and guessing here would page on the unknown case.
+        """
+        return [s for s in self.empty if s.candidates == 0]
+
+    @property
     def total_posts(self) -> int:
         return sum(s.post_count for s in self.sources)
 
     def summary_line(self) -> str:
+        broken = len(self.likely_broken)
+        empty = f"{len(self.empty)} empty"
+        if broken:
+            empty += f" ({broken} with nothing to filter)"
         return (
-            f"{len(self.ok)} ok, {len(self.empty)} empty, "
+            f"{len(self.ok)} ok, {empty}, "
             f"{len(self.failed)} failed ({self.total_posts} posts)"
         )
+
+    @staticmethod
+    def _empty_reason(source: SourceHealth) -> str:
+        """Why this source produced nothing, in the reader's terms."""
+        if source.candidates is None:
+            return "no count reported"
+        if source.candidates == 0:
+            return "offered 0 items — LIKELY BROKEN (moved feed or stale selector)"
+        return f"offered {source.candidates} item(s), none in the date window"
 
     def format_alert(self) -> str:
         """Human-readable health report for SNS/email notification."""
@@ -1377,8 +1446,11 @@ class CrawlReport:
             )
             lines.append("")
         if self.empty:
-            lines.append("Empty sources (no posts in window — may be stale):")
-            lines.extend(f"  - {s.url} [{s.fetcher}]" for s in self.empty)
+            lines.append("Empty sources (no posts in window):")
+            lines.extend(
+                f"  - {s.url} [{s.fetcher}]: {self._empty_reason(s)}"
+                for s in self.empty
+            )
             lines.append("")
         lines.append("Healthy sources:")
         lines.extend(
@@ -1454,6 +1526,10 @@ class PostCollector:
                         url=url,
                         fetcher=fetcher_name,
                         status=status,
+                        # Read defensively, as ``source_url`` is: a fetcher that
+                        # reports nothing yields None, which the report reads as
+                        # "unknown" rather than "zero".
+                        candidates=getattr(fetcher, "candidates", None),
                         # Posts this source CONTRIBUTED, not posts it returned.
                         # Reporting the fetch count let a source whose every post
                         # was a syndicated duplicate of an earlier one appear as

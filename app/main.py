@@ -29,6 +29,7 @@ from src import (
     Post,
     PostCollector,
     S3Paths,
+    SourceHealth,
     SSMParams,
     Summarizer,
     SummarizerSettings,
@@ -96,7 +97,11 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         )
         _log_run_summary(crawl_report, posts, filtered_out_posts, language)
         topic_arn = os.environ.get(EnvVars.TOPIC_ARN.value)
-        if is_running_in_aws() and topic_arn and crawl_report.failed:
+        if (
+            is_running_in_aws()
+            and topic_arn
+            and (crawl_report.failed or crawl_report.likely_broken)
+        ):
             _send_crawl_health_alert(
                 default_boto_session,
                 topic_arn,
@@ -298,6 +303,10 @@ def _log_run_summary(
         "language": language.value,
         "sources_ok": len(crawl_report.ok),
         "sources_empty": len(crawl_report.empty),
+        # Empty AND offering nothing to filter — a moved feed or a stale selector,
+        # as opposed to a blog that was quiet. Charting this separately is the
+        # point: the empty count is ~12 every week and says nothing.
+        "sources_likely_broken": len(crawl_report.likely_broken),
         "sources_failed": len(crawl_report.failed),
         "posts_collected": crawl_report.total_posts,
         "posts_filtered_out": len(filtered_out_posts),
@@ -838,41 +847,64 @@ def _send_crawl_health_alert(
     crawl_report: CrawlReport,
     expected_flaky: list[str],
 ) -> None:
-    """Notify when a crawl source failed, so a broken source is noticed promptly
-    instead of silently dropping out of the digest.
+    """Notify when a crawl source failed, or produced nothing to filter.
 
-    Sources listed in ``scraping.expected_flaky_urls`` are excluded from the
-    trigger (they still appear in the report body). Some sources — notably x.ai
-    and occasionally ai.meta.com — reject AWS datacenter IPs every single week,
-    which fired this alert on every run. An alarm that always fires is an alarm
-    nobody reads, so a *newly* broken source has to be distinguishable from a
-    known-broken one.
+    Two triggers, and the second one is the point. A FAILED source is loud — the
+    fetch itself errored. A source that fetched fine and offered ZERO items is just
+    as broken (a moved feed, a scraper whose selector stopped matching) but used to
+    render as one more line among the ~12 EMPTY sources a normal run has, where
+    nobody would pick it out for weeks. ``CrawlReport.likely_broken`` separates it
+    from a blog that was merely quiet, using evidence from the same run rather than
+    cross-run state.
+
+    A quiet blog never triggers this: it offers its back catalogue and the date
+    window filters it out, so its candidate count is non-zero. That matters more
+    than the coverage — an alarm that fires on the 12 normally-empty sources is an
+    alarm nobody reads, which is the same failure ``expected_flaky_urls`` exists to
+    prevent.
+
+    Sources listed in ``scraping.expected_flaky_urls`` are excluded from BOTH
+    triggers (they still appear in the report body). x.ai and occasionally
+    ai.meta.com reject AWS datacenter IPs every single week, and an alarm that
+    always fires hides the one that means something.
     """
-    unexpected = [
-        s
-        for s in crawl_report.failed
-        if not any(pattern and pattern in s.url for pattern in expected_flaky)
-    ]
-    if not unexpected:
-        if crawl_report.failed:
+
+    def unexpected(sources: list[SourceHealth]) -> list[SourceHealth]:
+        return [
+            s
+            for s in sources
+            if not any(pattern and pattern in s.url for pattern in expected_flaky)
+        ]
+
+    failed = unexpected(crawl_report.failed)
+    broken = unexpected(crawl_report.likely_broken)
+    if not failed and not broken:
+        suppressed = crawl_report.failed + crawl_report.likely_broken
+        if suppressed:
             logger.info(
-                "All %d failing source(s) are configured as expected-flaky; "
-                "no crawl-health alert sent. Failing: %s",
-                len(crawl_report.failed),
-                [s.url for s in crawl_report.failed],
+                "All %d unhealthy source(s) are configured as expected-flaky; "
+                "no crawl-health alert sent. Suppressed: %s",
+                len(suppressed),
+                [s.url for s in suppressed],
             )
         return
+    fields = {
+        "Unexpected failures": str(len(failed)),
+        # Named for what it is rather than "empty": the operator's next action is
+        # to check the feed URL or the scraper's selector, not to wait a week.
+        "Sources offering nothing": str(len(broken)),
+        "Summary": crawl_report.summary_line(),
+        "Detail": crawl_report.format_alert(),
+    }
+    if broken:
+        fields["Check these"] = ", ".join(s.url for s in broken)
     _publish_alarm(
         boto_session,
         topic_arn,
         project=project,
         event="Crawl Health",
         status="ALERT",
-        fields={
-            "Unexpected failures": str(len(unexpected)),
-            "Summary": crawl_report.summary_line(),
-            "Detail": crawl_report.format_alert(),
-        },
+        fields=fields,
     )
 
 
