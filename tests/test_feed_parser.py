@@ -21,6 +21,7 @@ from app.src.feed_parser import (
     is_date_in_range,
     parse_published_date,
     try_parse_published_date,
+    visible_text,
 )
 
 
@@ -338,3 +339,78 @@ class TestRegisteredScrapersResolveToAMappedSource:
             if Post._determine_source(f"https://{url}/some-post") == "unknown"
         }
         assert not unmapped, f"scraper URLs resolving to 'unknown': {unmapped}"
+
+
+class TestContentContainerSelection:
+    """``_scrape_full_content`` must pick the container that HOLDS the prose.
+
+    It used to return the first matching selector without looking inside it, which
+    made the ``<body>`` fallback unreachable whenever any selector matched. Measured
+    on Hugging Face's blog, where ``<article>`` is a near-empty wrapper: 82 visible
+    characters returned against 21,669 on the page. Those posts then died at the
+    content-sufficiency gate, so a healthy source contributed nothing.
+    """
+
+    def _scrape(self, monkeypatch, html: str) -> str:
+        from app.src import feed_parser as fp
+
+        class _Response:
+            text = html
+
+        monkeypatch.setattr(fp, "_make_robust_request", lambda url: _Response())
+        return fp.Post._scrape_full_content("https://x.example/post")
+
+    # An <article> that is a wrapper around a heading, with the prose elsewhere.
+    HF_SHAPE = (
+        "<html><body><article><h1>Title</h1></article>"
+        "<div class='prose'>" + ("실제 본문입니다. " * 200) + "</div></body></html>"
+    )
+    # An <article> that really is the article, inside ordinary page chrome.
+    NORMAL_SHAPE = (
+        "<html><body><nav>Home About Blog</nav>"
+        "<article>" + ("The real article text. " * 200) + "</article>"
+        "<footer>(c) 2026</footer></body></html>"
+    )
+
+    def test_a_degenerate_first_match_is_not_used(self, monkeypatch):
+        out = self._scrape(monkeypatch, self.HF_SHAPE)
+        assert "실제 본문입니다" in visible_text(out)
+        assert len(visible_text(out)) > 1000
+
+    def test_a_real_article_container_is_still_preferred_over_body(self, monkeypatch):
+        """The narrower container excludes nav/footer chrome, which is why it is
+        preferred at all — so a healthy page must not fall back to <body>."""
+        out = self._scrape(monkeypatch, self.NORMAL_SHAPE)
+        text = visible_text(out)
+        assert "The real article text." in text
+        assert "Home About Blog" not in text
+        assert "(c) 2026" not in text
+
+    def test_body_is_used_when_no_selector_matches(self, monkeypatch):
+        out = self._scrape(
+            monkeypatch,
+            "<html><body><section>"
+            + ("plain text " * 200)
+            + "</section></body></html>",
+        )
+        assert "plain text" in visible_text(out)
+
+    def test_the_richest_match_wins_across_selectors(self, monkeypatch):
+        """Several selectors can match; the choice is by content, not by list
+        order, so an earlier-listed but emptier container loses."""
+        out = self._scrape(
+            monkeypatch,
+            "<html><body><article>tiny</article>"
+            "<div class='content'>" + ("the actual body " * 200) + "</div>"
+            "</body></html>",
+        )
+        assert "the actual body" in visible_text(out)
+
+    def test_a_page_with_no_body_yields_empty(self, monkeypatch):
+        assert self._scrape(monkeypatch, "<div>fragment</div>") != "  "
+
+    def test_fetch_failure_yields_empty(self, monkeypatch):
+        from app.src import feed_parser as fp
+
+        monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
+        assert fp.Post._scrape_full_content("https://x.example/post") == ""

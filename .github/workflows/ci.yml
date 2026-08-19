@@ -56,7 +56,7 @@ jobs:
         run: mypy .
 
       - name: Run tests
-        # --cov-fail-under is a ratchet, not a target: coverage is at 85.7%, so a
+        # --cov-fail-under is a ratchet, not a target: coverage is at 86.0%, so a
         # change that removes test coverage from a covered path fails here rather
         # than being noticed months later. Raise the floor when it rises — it sat
         # at 82 against 84.7% actual, which is nearly three points of slack the

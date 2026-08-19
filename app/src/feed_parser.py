@@ -180,6 +180,9 @@ class ScraperConfig:
         "div.blog-content",
         "div.article-content",
     ]
+    # Share of a page's visible text a CONTENT_SELECTORS match must hold before it
+    # is preferred over the whole <body>. See ``Post._scrape_full_content``.
+    CONTENT_CONTAINER_MIN_SHARE: ClassVar[float] = 0.5
     DATE_FORMATS: ClassVar[tuple[str, ...]] = (
         "%a, %d %b %Y %H:%M:%S GMT",
         "%a, %d %b %Y %H:%M:%S %z",
@@ -564,14 +567,45 @@ class Post(BaseModel):
 
     @staticmethod
     def _scrape_full_content(url: str) -> str:
+        """The article's HTML from its own page, or "" if it cannot be fetched.
+
+        Picks the candidate container that actually HOLDS the prose, rather than
+        the first selector that happens to match. The old version returned
+        ``select_one(selector)`` for the earliest matching selector without looking
+        inside it, which made the ``<body>`` fallback unreachable whenever any
+        selector matched — even an empty one.
+
+        Measured on Hugging Face's blog, where ``<article>`` is a near-empty
+        wrapper: it returned 82 visible characters while the same page carried
+        21,669 (and 93 against 64,950 on another post). Those posts then died at
+        the content-sufficiency gate, so a healthy source silently contributed
+        nothing — 21 of 26 collected posts were dropped that way in one run.
+        """
         if not url or not (response := _make_robust_request(url)):
             return ""
         try:
             soup = BeautifulSoup(response.text, "html.parser")
+            body = soup.find("body")
+            # get_text on the parsed element, not visible_text on its string: the
+            # latter would re-parse every candidate.
+            body_length = len(body.get_text(separator=" ", strip=True)) if body else 0
+            best: Tag | None = None
+            best_length = 0
             for selector in ScraperConfig.CONTENT_SELECTORS:
-                if content_element := soup.select_one(selector):
-                    return str(content_element)
-            return str(soup.find("body") or "")
+                for element in soup.select(selector):
+                    length = len(element.get_text(separator=" ", strip=True))
+                    if length > best_length:
+                        best, best_length = element, length
+            # A narrower container is preferable when it keeps the article, because
+            # it excludes nav/footer chrome. It is only worth trusting if it holds
+            # most of the page's prose: the HF wrapper held 0.4%, while a site whose
+            # <article> really is the article holds 60-90%. Half is nowhere near
+            # either case, so the cut needs no tuning to separate them.
+            if best is not None and best_length >= body_length * (
+                ScraperConfig.CONTENT_CONTAINER_MIN_SHARE
+            ):
+                return str(best)
+            return str(body or "")
         except Exception as e:
             logger.error(f"Error parsing content for '{url}': {e}")
             return ""
@@ -1584,4 +1618,15 @@ class PostCollector:
                     )
                 )
         logger.info("Crawl health: %s", self.report.summary_line())
+        if self.report.likely_broken:
+            # Named here, not only in the SNS alert. The alert carries the URLs but
+            # is suppressed for expected-flaky sources and depends on a live SNS
+            # subscription, so without this the run log knew the COUNT and not which
+            # sources — which is exactly the question the first real run raised.
+            logger.warning(
+                "%d source(s) offered nothing for the date window to filter — a "
+                "moved feed or a stale selector rather than a quiet blog: %s",
+                len(self.report.likely_broken),
+                [s.url for s in self.report.likely_broken],
+            )
         return sorted(all_posts, key=lambda p: p.published_date, reverse=True)
