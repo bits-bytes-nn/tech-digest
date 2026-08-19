@@ -23,14 +23,14 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
 
 - **AI-powered curation**. Claude (via Amazon Bedrock) scores each post for
   relevance and writes a structured, multi-section summary.
-- **Multi-source aggregation**. pulls from ~20 tech blogs via RSS and resilient
+- **Multi-source aggregation**. pulls from \~20 tech blogs via RSS and resilient
   HTML scraping (AWS, Google, Meta, OpenAI, Anthropic, NVIDIA, and more), with
   SSRF-guarded requests and per-source health tracking.
 - **Content quality gate**. drops posts whose visible text is too thin to
   summarize *before* they reach the LLM, so the digest never ships empty write-ups.
 - **Skimmable cards**. every article leads with a one-sentence takeaway and a
   reading-time estimate, and the highest-scoring piece leads the issue.
-- **Clip-budget aware**. mail clients truncate a message over ~100 KB. The
+- **Clip-budget aware**. mail clients truncate a message over \~100 KB. The
   summary length budget and the template's markup weight are both tuned to stay
   under it, and the build warns if an issue would be cut.
 - **Crawl-health monitoring**. tracks every source's fetch status and raises an
