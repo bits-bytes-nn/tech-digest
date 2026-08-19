@@ -231,6 +231,11 @@ python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
 # A/B a prompt edit on identical input: re-summarize a past run's stored articles
 # with the current prompt and diff the rubric. COSTS MONEY (one call per article).
 python scripts/eval_summary_quality.py --regenerate 2026-08-19
+
+# Verify the docs still match the code — the last step of a change. Checks the
+# numeric claims (test count, coverage, pinned dependency count, suppressed
+# sources) against what actually produces them, and exits non-zero on a mismatch.
+python scripts/check_docs_current.py
 ```
 
 These same checks run in CI on every push and pull request

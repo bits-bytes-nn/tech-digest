@@ -228,6 +228,11 @@ python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
 # 프롬프트 수정을 같은 입력으로 A/B: 과거 실행에 저장된 기사를 현재 프롬프트로 다시
 # 요약해 루빅스를 비교합니다. 비용이 발생합니다(기사당 호출 1회).
 python scripts/eval_summary_quality.py --regenerate 2026-08-19
+
+# 문서가 코드와 여전히 맞는지 검증 — 변경의 마지막 단계입니다. 수치 주장(테스트 수,
+# 커버리지, 고정 의존성 개수, 억제된 소스)을 그것을 만드는 산출물과 대조하고,
+# 어긋나면 non-zero로 끝납니다.
+python scripts/check_docs_current.py
 ```
 
 이 검사들은 모든 푸시와 풀 리퀘스트에서 CI로도 똑같이 실행됩니다
