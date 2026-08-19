@@ -17,23 +17,21 @@ from app.src.model_factory import (
 
 class TestModelInfoRegistry:
     def test_every_model_id_has_info(self):
-        """Every enum member that is meant to be usable has a LanguageModelInfo."""
-        missing = [
-            m
-            for m in LanguageModelId
-            if m not in _LANGUAGE_MODEL_INFO
-            # legacy models intentionally without info are acceptable, but the
-            # current/default models must be present.
-            and m
-            in {
-                LanguageModelId.CLAUDE_V4_6_SONNET,
-                LanguageModelId.CLAUDE_V4_5_HAIKU,
-                LanguageModelId.CLAUDE_V4_6_OPUS,
-                LanguageModelId.CLAUDE_V5_SONNET,
-                LanguageModelId.CLAUDE_V5_OPUS,
-            }
-        ]
-        assert not missing, f"Default models missing info: {missing}"
+        """EVERY enum member must have a LanguageModelInfo.
+
+        This used to exempt "legacy models intentionally without info", checking
+        only the current defaults. That exemption hid two members (Claude 3 Sonnet
+        and Claude 3 Opus) with no registry entry at all — naming either one in
+        config raised "Unsupported model ID" from the Summarizer/Greeter
+        constructor, at runtime, on a weekly unattended job. The enum is the set
+        of choices a config may make, so anything listed in it has to be
+        buildable; a retired model belongs deleted, not listed-but-broken.
+        """
+        missing = [m for m in LanguageModelId if m not in _LANGUAGE_MODEL_INFO]
+        assert not missing, (
+            f"Model ids with no LanguageModelInfo: {missing}. Either add a "
+            f"registry entry or remove the enum member — config can select it."
+        )
 
     def test_info_fields_sane(self):
         for model_id, info in _LANGUAGE_MODEL_INFO.items():

@@ -14,7 +14,10 @@ dependencies = [
     "boto3>=1.35.81",
     "feedparser>=6.0.8",
     "jinja2>=3.1.3",
-    "langchain>=1.2.4",
+    # NOTE: the `langchain` meta-package is deliberately absent. Nothing imports
+    # it (only langchain-core, langchain-aws and langchain-classic are used), and
+    # it drags in the whole langgraph tree — dead weight in an image that has to
+    # fit Lambda's 250 MB unzipped limit.
     "langchain-aws>=1.2.2",
     "langchain-classic>=1.0.1",
     "langchain-core>=0.3.77",

@@ -4,7 +4,6 @@ Bedrock model construction used to live here too, which made this the largest
 module in the project; it now lives in ``model_factory``.
 """
 
-import asyncio
 import functools
 import math
 import re
@@ -309,21 +308,15 @@ def get_date_range(
 
 
 def measure_execution_time(func: Callable) -> Callable:
-    @functools.wraps(func)
-    async def async_wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = await func(*args, **kwargs)
-        execution_time = time.time() - start_time
-        logger.info(
-            "'%s' execution time: %.2fs (%.2fmin)",
-            func.__name__,
-            execution_time,
-            execution_time / 60,
-        )
-        return result
+    """Log how long a synchronous call took.
+
+    There is no async variant: the pipeline is synchronous throughout (LangChain
+    `.batch()` fans out with threads, not a loop), so the coroutine branch this
+    decorator used to carry was never constructed on any code path.
+    """
 
     @functools.wraps(func)
-    def sync_wrapper(*args, **kwargs):
+    def wrapper(*args, **kwargs):
         start_time = time.time()
         result = func(*args, **kwargs)
         execution_time = time.time() - start_time
@@ -335,7 +328,4 @@ def measure_execution_time(func: Callable) -> Callable:
         )
         return result
 
-    if asyncio.iscoroutinefunction(func):
-        return async_wrapper
-    else:
-        return sync_wrapper
+    return wrapper

@@ -142,9 +142,9 @@ tech-digest/
 │   │   ├── main_contents.html   # 공유 아티클 카드 매크로
 │   │   ├── template.html        # 뉴스레터 셸
 │   │   └── article.html         # 독립 글 셸 (같은 카드·스타일 재사용)
-│   ├── assets/                  # 런타임 로고 + 수신자 파일
+│   ├── assets/                  # 로고 원본 (런타임 로고는 CDN에서 받습니다)
 │   ├── requirements.txt         # 호환 범위 (사람이 편집)
-│   └── requirements.lock        # 실제 설치 버전 71개 `==` 고정 (생성물)
+│   └── requirements.lock        # 실제 설치 버전 65개 `==` 고정 (생성물)
 ├── scripts/
 │   ├── deploy_infra.py          # AWS CDK 스택 (Lambda/Batch + IAM + 스케줄)
 │   ├── put_inference_profiles.py # 비용 귀속용 애플리케이션 추론 프로파일
@@ -257,7 +257,13 @@ tech-digest/
   (**Opus 5**, Sonnet 5, Opus 4.6/4.7/4.8, Sonnet 4.6, Haiku 4.5)과 레거시 모델이
   함께 들어 있으며, 현재 활성 기본값은 Sonnet 5(필터·요약)와 Haiku 4.5(인사말)입니다.
   새 모델을 추가할 때는 여기와 `model_factory.py`의 `_LANGUAGE_MODEL_INFO` **양쪽에**
-  함께 넣어야 합니다. Claude 5 세대(Opus 5 / Sonnet 5)는 요청 계약이 달라
+  함께 넣어야 합니다. **이 enum의 모든 멤버는 `_LANGUAGE_MODEL_INFO`에 항목이 있어야
+  하고, 테스트가 그걸 검사합니다.** 전에는 "레거시 모델은 정보가 없어도 된다"는
+  예외를 두고 현재 기본값만 확인했는데, 그 예외 아래에 항목이 아예 없는 멤버 두 개
+  (Claude 3 Sonnet·Opus)가 숨어 있었습니다. 설정에서 그중 하나를 고르면 `Summarizer`
+  생성 시점에 `Unsupported model ID`로 죽습니다 — 주 1회 무인 실행에서, 런타임에.
+  enum은 설정이 고를 수 있는 선택지의 집합이므로 여기 적힌 것은 만들 수 있어야 하고,
+  퇴역한 모델은 목록에 남겨 두는 대신 **지우는** 것이 맞습니다(그래서 지웠습니다). Claude 5 세대(Opus 5 / Sonnet 5)는 요청 계약이 달라
   `supports_sampling_params=False` + `uses_adaptive_thinking=True`가 **반드시**
   필요하며(§8), 이를 빠뜨리면 모든 호출이 거부되면서도 실행은 정상 종료해 이메일만
   조용히 누락됩니다. 그래서 이 계약을 테스트로 고정해 두었습니다. 사고 깊이는
@@ -735,8 +741,11 @@ OR로 묶은 **하나의 플래그**를 헬퍼들에 내려보냅니다. 이 인
 
 ### 기타 헬퍼
 정규식 기반의 `validate_email(s)` / `validate_emails(list)`, 선택적 종료일과
-조회 기간으로 날짜 윈도우를 계산하는 `get_date_range`, sync/async 양쪽을 재는
-타이밍 데코레이터 `measure_execution_time`.
+조회 기간으로 날짜 윈도우를 계산하는 `get_date_range`, 실행 시간을 재는 타이밍
+데코레이터 `measure_execution_time`. 데코레이터는 **동기 함수만** 감쌉니다.
+파이프라인 전체가 동기이고(LangChain `.batch()`는 이벤트 루프가 아니라 스레드로
+펼칩니다) 사용처도 `Summarizer.process_posts` 하나뿐이라, 예전에 함께 들고 있던
+코루틴 분기는 어떤 경로에서도 만들어지지 않았습니다.
 
 ---
 
@@ -1588,7 +1597,7 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
   `cdk deploy`가 CI가 검증한 적 없는 langchain·pydantic 릴리스를 실어 나를 수 있었고,
   같은 커밋을 두 번 배포하면 서로 다른 코드가 나갈 수 있었습니다. 고정되지 않은
   마지막 레이어였습니다. 이제 `requirements.txt`는 "호환되는 범위"를 선언하고
-  `requirements.lock`은 "실제로 설치되는 버전"(전이 의존성까지 71개, 전부 `==`)을
+  `requirements.lock`은 "실제로 설치되는 버전"(전이 의존성까지 65개, 전부 `==`)을
   고정하며, 두 Dockerfile 모두 **락에서** 설치합니다.
   락은 개발 머신이 아니라 실제 타깃 플랫폼(cp312/linux-amd64) 컨테이너 안에서
   해석합니다(휠이 그 플랫폼 기준으로 선택되므로). 재생성 명령은 락 파일 헤더에 있습니다.
@@ -1601,6 +1610,22 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
   락에 있는지(빠지면 이미지에 설치되지 않음) ③ 락 버전이 선언된 최소 버전을 만족하는지
   ④ 두 Dockerfile이 범위가 아니라 락에서 설치하고 락을 COPY하는지 ⑤ 베이스가 digest로
   고정됐는지를 검사합니다. 어느 하나가 어긋나도 조용히 지나가기 때문입니다.
+- **쓰지 않는 의존성은 이미지에 그대로 실립니다.** `langchain` 메타패키지가
+  요구사항에 들어 있었지만 코드는 `langchain-core`·`langchain-aws`·
+  `langchain-classic`만 import합니다. `main.py`/`run_batch.py`까지 포함해 앱 전체를
+  import한 뒤 `sys.modules`를 확인해 `langchain`·`langgraph` 모듈이 **하나도** 없는
+  것을 확인하고 지웠습니다. 메타패키지 하나가 langgraph 트리(`langgraph`,
+  `-checkpoint`, `-prebuilt`, `-sdk`)와 `ormsgpack`을 함께 끌고 와서, 락이 71개에서
+  65개로 줄었습니다. Lambda 이미지는 압축 해제 기준 250 MB 제한이 있으므로 이건
+  정리가 아니라 여유입니다. 락은 여기서도 도구 역할을 합니다 — 요구사항에서만 빼고
+  락을 재생성하지 않으면 이미지는 계속 설치하기 때문에, 지웠다는 착각만 남습니다.
+  (재생성하면서 `websockets`가 15.0.1 → 17.0.1로 함께 올랐습니다. selenium의 전이
+  의존성이고, 락을 다시 풀 때 최신으로 해석되는 정상 동작입니다.)
+- **빌드 컨텍스트에서 뺄 것.** 두 이미지 자산은 컨텍스트를 `app/`으로 잡으므로
+  루트의 `.dockerignore`는 **적용되지 않습니다**(Docker는 `app/.dockerignore`를
+  찾고, CDK는 자기 `exclude` 목록을 씁니다). 그래서 수신자 목록 제외 규칙을
+  `deploy_infra.IMAGE_ASSET_EXCLUDES`에 함께 넣었고, 두 자산이 이 목록을 공유합니다.
+  수신자는 런타임에 항상 S3에서 받으므로 로컬 사본이 이미지에 들어갈 이유가 없습니다.
 
 ---
 
@@ -1609,7 +1634,7 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
 도구 설정은 `pyproject.toml` 한 곳에 모아 두었습니다. pytest(`unit`/`integration`/
 `live` 마커, importlib 임포트 모드), ruff(린트와 포맷), mypy가 전부 여기서 나옵니다.
 
-`tests/`는 559개 테스트에 커버리지 84.5%이고, 네트워크를 타지 않아 몇 초면 끝납니다.
+`tests/`는 559개 테스트에 커버리지 84.7%이고, 네트워크를 타지 않아 몇 초면 끝납니다.
 `conftest.py`가 `sys.path`를 정리하고 공용 픽스처를 제공합니다.
 
 ### 무엇을 왜 테스트하는가
@@ -1800,7 +1825,7 @@ synth하려고 `CDK_SYNTH_DUMMY_AZS=1`을, 시크릿 쓰기 경로를 건너뛰�
   헛되게 내지는 않지만, 절감 자체는 작습니다.
 - **저빈도 소스**(예: `eugeneyan.com`)는 ACTIVE이긴 하나 게시 주기가 낮아 자주
   `EMPTY`로 나타날 수 있습니다. 제거 대상이 아니라 관찰 대상입니다.
-- **커버리지.** 전체 84.5%입니다. `feed_parser`의 사이트별 스크레이퍼 내부 휴리스틱과
+- **커버리지.** 전체 84.7%입니다. `feed_parser`의 사이트별 스크레이퍼 내부 휴리스틱과
   `newsletter_renderer`의 Selenium 캡처 경로는 라이브 의존성이 커서 단위 테스트가
   여전히 얕습니다.
 - **필터링 점수가 재현되지 않습니다(실측).** 루빅스는 "같은 콘텐츠는 매번 같은 점수를
@@ -1836,6 +1861,20 @@ synth하려고 `CDK_SYNTH_DUMMY_AZS=1`을, 시크릿 쓰기 경로를 건너뛰�
   컨테이너에 넣으면 잘못 지울 수 있습니다. 그래서 `<pre>`·`<table>`·`<img>` 보존을
   테스트로 고정했고, `summarize_on_cleaned_html: False`로 원본 HTML로 되돌릴 수 있게
   두었습니다.
+- **이미지 변환 경로는 배포된 두 스테이지에서 모두 꺼져 있습니다.** `convert_to_images`가
+  dev·prod 모두 `False`인데, Batch 이미지는 이 경로를 위해 `google-chrome-stable`과
+  `xvfb`, 폰트를 설치하고 런타임 요구도 2 vCPU / 2 GiB로 올려 둡니다(브라우저 없는
+  Lambda 경로는 512 MiB입니다). 켜면 바로 쓸 수 있는 기능이니 죽은 코드는 아니지만,
+  **한 번도 켜지 않은 기능의 값을 매주 지불하고 있는 것**은 사실입니다. 계속 쓰지 않을
+  거라면 `HtmlToImageConverter`와 selenium·pillow·webdriver-manager, Chrome 설치
+  레이어를 함께 빼는 것이 이미지 크기와 Batch 단가 양쪽에 가장 큰 절감입니다. 기능을
+  지우는 판단이라 정리 작업으로 처리하지 않고 남겨 둡니다.
+- **`app/assets/`의 파일은 코드가 읽지 않습니다.** 로고 PNG 22개는 뉴스레터가 CDN
+  (`cdn.jsdelivr.net`)에서 받으므로 앱이 참조하지 않고, CDN 목록과도 어긋납니다
+  (`pytorch`·`deepmind`가 로컬에만 있고 `anthropic`은 CDN에만 있습니다). 수신자 파일도
+  `main.py`가 `ROOT_DIR / assets`에 쓰는데 `ROOT_DIR`은 로컬에서 **저장소 루트**여서
+  `app/assets/recipients-*.txt`는 읽히지 않는 잔재입니다. CDN 원본일 수 있어 지우지
+  않았습니다. 대신 무시 규칙이 실제로 쓰이는 경로를 가리키도록 고쳤습니다(§19).
 
 ---
 

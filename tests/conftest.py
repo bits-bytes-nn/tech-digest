@@ -20,12 +20,6 @@ if str(REPO_ROOT) not in sys.path:
 
 
 @pytest.fixture
-def utc_now() -> datetime:
-    """A fixed, timezone-aware reference instant for deterministic tests."""
-    return datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
-
-
-@pytest.fixture
 def date_range() -> tuple[datetime, datetime]:
     """A one-week window ending 2026-06-01 (inclusive of full end day)."""
     end = datetime(2026, 6, 1, 23, 59, 59, tzinfo=UTC)

@@ -66,7 +66,7 @@ class Greeter(RetryableBase):
         long greeting is a cosmetic flaw and must never fail the digest.
         """
         draft = self._generate(context)
-        return self._enforce_length(draft, context)
+        return self._enforce_length(draft)
 
     @RetryableBase._retry("greeting")
     def _generate(self, context: str | None = None) -> str:
@@ -84,7 +84,7 @@ class Greeter(RetryableBase):
             }
         )
 
-    def _enforce_length(self, draft: str, context: str | None) -> str:
+    def _enforce_length(self, draft: str) -> str:
         low, high = self.length_range
         measured = measure_greeting(draft, self.language)
         if low <= measured <= high:

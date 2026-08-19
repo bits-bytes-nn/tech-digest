@@ -208,6 +208,11 @@ cython_debug/
 .idea/
 .run/
 .virtual_documents
+# Downloaded recipient lists (real email addresses). main.py writes them under
+# `ROOT_DIR / assets`, and ROOT_DIR is the REPO ROOT locally — so the previous
+# `app/assets/` rule guarded a path nothing writes, leaving the file that does
+# get written untracked but not ignored. Both spellings are covered now.
+assets/recipients-*.txt
 app/assets/recipients-*.txt
 cdk.context.json
 cdk.out/

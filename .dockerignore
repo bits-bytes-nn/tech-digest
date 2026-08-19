@@ -207,6 +207,11 @@ cython_debug/
 .idea/
 .run/
 .virtual_documents
+# See .gitignore: the written path is `<root>/assets`, not `app/assets`. Note
+# that neither rule reaches the container images anyway — both are built with
+# `app/` as the context (see deploy_infra), so Docker looks for an
+# `app/.dockerignore` and CDK passes its own `exclude` list instead.
+assets/recipients-*.txt
 app/assets/recipients-*.txt
 cdk.context.json
 cdk.out/

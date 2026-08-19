@@ -210,7 +210,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(559개 테스트, 커버리지 84.5%)
+pytest                       # 빠른 오프라인 단위/통합 스위트(559개 테스트, 커버리지 84.7%)
 
 # 생성된 실행 결과에 대한 출력 품질 루빅스. 채점은 결정적이고 오프라인이며 무료입니다.
 # --regenerate만 예외로 실제 Bedrock을 호출합니다.

@@ -58,6 +58,23 @@ sys.path.append(str(Path(__file__).parent.parent))
 from app.configs import Config
 from app.src import AppConstants, EnvVars, SSMParams, get_account_id, logger
 
+# Paths kept out of the image build context, shared by both image assets so they
+# cannot drift apart. Patterns are relative to the context directory (``app/``).
+#
+# The root `.dockerignore` does NOT apply to these builds — the context is `app/`,
+# so Docker would look for `app/.dockerignore`, and CDK passes this list instead.
+# That is why the recipients pattern has to be repeated here: `assets/` holds the
+# downloaded recipient list (real email addresses) on a developer machine, and
+# `COPY . ./` in Dockerfile-batch would otherwise bake it into the image. The app
+# always reads recipients from S3 at runtime, so nothing needs the local copy.
+IMAGE_ASSET_EXCLUDES: list[str] = [
+    "cdk.out",
+    "__pycache__",
+    "*.pyc",
+    ".git",
+    "assets/recipients-*.txt",
+]
+
 
 class NewsletterStack(Stack):
     # Runtime logs are for debugging the last few runs, not an archive. Left
@@ -510,7 +527,7 @@ class NewsletterStack(Stack):
                 directory=str(Path(__file__).parent.parent / "app"),
                 file="Dockerfile-lambda",
                 platform=Platform.LINUX_AMD64,
-                exclude=["cdk.out", "__pycache__", "*.pyc", ".git"],
+                exclude=IMAGE_ASSET_EXCLUDES,
             ),
             description="Lambda function to send newsletter",
             environment=environment,
@@ -594,7 +611,7 @@ class NewsletterStack(Stack):
             directory=str(Path(__file__).parent.parent / "app"),
             file="Dockerfile-batch",
             platform=Platform.LINUX_AMD64,
-            exclude=["cdk.out", "__pycache__", "*.pyc", ".git"],
+            exclude=IMAGE_ASSET_EXCLUDES,
             build_args={"DOCKER_BUILDKIT": "1"},
         )
 
