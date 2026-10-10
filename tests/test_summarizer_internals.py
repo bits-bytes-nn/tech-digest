@@ -557,6 +557,36 @@ class TestUnusableSummariesDoNotShip:
         assert reason.startswith("Summarization failed")
         assert post.summary == ""
 
+    def test_markup_does_not_count_toward_the_floor(self):
+        # A short refusal padded with markup is still a short refusal.
+        padding = "<span></span>" * 400
+        s = _summarizer()
+        s.summarizer = _FakeChain(
+            [
+                {
+                    "summary": f"<p>{padding}요약할 수 없습니다.</p>",
+                    "tags": [],
+                    "urls": [],
+                }
+            ]
+        )
+        assert s._summarize_posts([_post("a")]) == []
+
+    def test_english_floor_applies_to_english_runs(self):
+        from app.src.constants import Language
+
+        s = _summarizer(language=Language.EN)
+        short = "<p>" + "A short English answer. " * 20 + "</p>"
+        long = "<p>" + "A genuinely long English summary sentence here. " * 70 + "</p>"
+        s.summarizer = _FakeChain(
+            [
+                {"summary": short, "tags": [], "urls": []},
+                {"summary": long, "tags": [], "urls": []},
+            ]
+        )
+        kept = s._summarize_posts([_post("short"), _post("long")])
+        assert [p.title for p in kept] == ["long"]
+
     def test_a_real_summary_ships(self):
         s = _summarizer()
         post = _post("a")
@@ -598,3 +628,86 @@ class TestOneLinerKeepsAngleBrackets:
         assert "List<String>" in out.one_liner
         assert "Stream<T>" in out.one_liner
         assert out.tags[0] == "C&C++"
+
+
+class TestSanitizerAllowList:
+    """The summary is rendered with | safe, so this loop is a trust boundary."""
+
+    @pytest.mark.parametrize(
+        ("html", "forbidden"),
+        [
+            ('<iframe src="https://evil.example"></iframe>', "<iframe"),
+            ('<form action="https://phish.example"><input name="pw"></form>', "<form"),
+            ('<svg onload="alert(1)"><circle/></svg>', "onload"),
+            ('<object data="https://evil.example/x.swf"></object>', "<object"),
+            ('<base href="https://evil.example/">', "<base"),
+            (
+                '<meta http-equiv="refresh" content="0;url=https://evil.example">',
+                "<meta",
+            ),
+            ('<p onclick="steal()">text</p>', "onclick"),
+            ('<a href="javascript:alert(1)">x</a>', "javascript:"),
+            ('<img src="javascript:alert(1)">', "javascript:"),
+            ('<img src="data:text/html;base64,PHNjcmlwdD4=">', "data:"),
+            ("<script>alert(1)</script>", "alert(1)"),
+        ],
+    )
+    def test_active_content_is_removed(self, html, forbidden):
+        from app.src.summarizer import _sanitize_html
+
+        assert forbidden not in _sanitize_html(html)
+
+    def test_allowed_content_survives(self):
+        from app.src.summarizer import _sanitize_html
+
+        html = '<p>See <a href="https://ok.example">this</a> and <strong>that</strong>.</p>'
+        assert _sanitize_html(html) == html
+
+
+class TestFailedSummariesAreReplaced:
+    """A failed summary used to leave the issue a card short even when other
+    posts had passed the filter — and it was usually the top-ranked one."""
+
+    class _Chain:
+        def __init__(self, failing: set[str]):
+            self.failing = failing
+            self.calls: list[str] = []
+
+        def batch(self, inputs, config=None, return_exceptions=False):
+            out = []
+            for item in inputs:
+                title = item["post"].split("|")[0]
+                self.calls.append(title)
+                out.append(
+                    None
+                    if title in self.failing
+                    else {"summary": BODY, "tags": [], "urls": []}
+                )
+            return out
+
+        def invoke(self, single):
+            raise AssertionError("not used")
+
+    @staticmethod
+    def _ranked(n: int) -> list:
+        posts = [_post(f"p{i}", content=f"p{i}|" + "본문 " * 400) for i in range(n)]
+        for i, post in enumerate(posts):
+            post.score = 0.9 - 0.05 * i
+        return posts
+
+    def test_the_next_ranked_post_fills_the_slot(self, monkeypatch):
+        s = _summarizer(max_posts=3, summarize_on_cleaned_html=False)
+        s.summarizer = self._Chain(failing={"p0"})
+        monkeypatch.setattr(s, "_finalize_summary", lambda post, html: html)
+        kept = s._summarize_lineup(self._ranked(6))
+        assert [p.title for p in kept] == ["p1", "p2", "p3"]
+        # Only the replacement was summarized in the second round.
+        assert s.summarizer.calls == ["p0", "p1", "p2", "p3"]
+
+    def test_backfill_is_bounded_when_summaries_keep_failing(self, monkeypatch):
+        s = _summarizer(max_posts=2, summarize_on_cleaned_html=False)
+        s.summarizer = self._Chain(failing={f"p{i}" for i in range(10)})
+        monkeypatch.setattr(s, "_finalize_summary", lambda post, html: html)
+        assert s._summarize_lineup(self._ranked(10)) == []
+        # The first line-up plus MAX_BACKFILL_ROUNDS refills of two posts each.
+        assert len(s.summarizer.calls) == 2 * (1 + s.MAX_BACKFILL_ROUNDS)

@@ -162,7 +162,9 @@ newsletter:
 ### 인프라 배포
 
 ```bash
-python scripts/deploy_infra.py
+# deploy_infra.py는 CDK 앱이라 합성만 합니다. 배포는 `cdk deploy`로 합니다.
+CONFIG_FILE_SUFFIX=dev cdk deploy NewsletterDevStack --profile <aws-profile>
+CONFIG_FILE_SUFFIX=prod cdk deploy NewsletterProdStack --profile <aws-profile>
 python scripts/put_inference_profiles.py --stage dev   # 계정/스테이지마다 한 번
 ```
 
@@ -223,7 +225,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(910개 테스트, 커버리지 88.4%)
+pytest                       # 빠른 오프라인 단위/통합 스위트(938개 테스트, 커버리지 88.6%)
 
 # 생성된 실행 결과에 대한 출력 품질 루빅스. 채점은 결정적이고 오프라인이며 무료입니다.
 # --regenerate만 예외로 실제 Bedrock을 호출합니다.

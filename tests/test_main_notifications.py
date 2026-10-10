@@ -486,6 +486,50 @@ class TestHandlerControlFlow:
         assert len(session.sns.published) == 1
         assert "Empty Digest" in session.sns.published[0]["Subject"]
 
+    def test_a_likely_broken_source_alone_raises_the_crawl_health_alert(
+        self, monkeypatch
+    ):
+        # No source FAILED; one fetched fine but offered nothing (candidates == 0).
+        # That is the "dead vs quiet" signal, and the handler must page on it.
+        self._patch_common(monkeypatch)
+
+        class _Cfg:
+            class resources:
+                project_name = PROJECT
+                profile_name = None
+                default_region_name = "ap-northeast-2"
+                bedrock_region_name = "us-west-2"
+
+            class scraping:
+                expected_flaky_urls = ()
+
+        monkeypatch.setattr(main.Config, "load", staticmethod(lambda: _Cfg()))
+        monkeypatch.setattr(main, "is_running_in_aws", lambda: True)
+        monkeypatch.setenv(main.EnvVars.TOPIC_ARN.value, "arn:topic")
+        session = _FakeSession()
+        monkeypatch.setattr(main, "DEFAULT_BOTO_SESSION", session)
+        monkeypatch.setattr(main, "BEDROCK_BOTO_SESSION", session)
+        monkeypatch.setattr(main, "_setup_aws_env", lambda *a, **k: None)
+        report = CrawlReport(
+            sources=[
+                SourceHealth(
+                    url="https://moved.example/feed",
+                    fetcher="RssFetcher",
+                    status=SourceStatus.EMPTY,
+                    candidates=0,
+                )
+            ]
+        )
+        monkeypatch.setattr(
+            main,
+            "_fetch_and_filter_posts",
+            lambda *a, **k: ([], "2026-07-11", [], report),
+        )
+        main.handler({}, None)
+        assert [m["Subject"] for m in session.sns.published] == [
+            f"[{PROJECT}] Crawl Health — ALERT"
+        ]
+
     def test_exception_publishes_failure_notification(self, monkeypatch):
         # On AWS with a topic configured, an unhandled error must surface via SNS
         # (the "failures always surface" design promise), not just return 500.
@@ -706,6 +750,27 @@ class TestDuplicateSendGuard:
         )
         assert outcome.failed == ["bad@example.com"]
         assert writes[-1]["delivered"] == ["ok@example.com"]
+
+    def test_a_failure_before_a_success_is_not_carried_into_the_ledger(
+        self, monkeypatch, tmp_path
+    ):
+        # Failure first: the write that follows the later success must not list
+        # the reader who never got the issue, or the retry skips them for good.
+        self._patch_recipients(monkeypatch, ["bad@example.com", "ok@example.com"])
+        outcome, _sent, writes = self._run(
+            monkeypatch, tmp_path, ledger=None, send_results=[False, True]
+        )
+        assert outcome.failed == ["bad@example.com"]
+        assert writes[-1]["delivered"] == ["ok@example.com"]
+
+    def test_ledger_entries_are_compared_case_insensitively(
+        self, monkeypatch, tmp_path
+    ):
+        self._patch_recipients(monkeypatch, ["reader@example.com"])
+        _outcome, sent, _ = self._run(
+            monkeypatch, tmp_path, ledger={"delivered": ["READER@Example.com"]}
+        )
+        assert sent == []
 
     def test_comparison_is_case_insensitive(self, monkeypatch, tmp_path):
         self._patch_recipients(monkeypatch, ["Reader@Example.COM"])

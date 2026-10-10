@@ -244,3 +244,53 @@ class TestArchiveKeys:
             [], "2026-10-10", self._Cfg(), None, None, archive_suffix=suffix
         )
         assert prefixes == expected
+
+
+class TestModelFailureAlert:
+    class _SNS:
+        def __init__(self):
+            self.published: list[dict] = []
+
+        def publish(self, **kwargs):
+            self.published.append(kwargs)
+
+    class _Session:
+        def __init__(self, sns):
+            self.sns = sns
+
+        def client(self, name):
+            return self.sns
+
+    def _post(self, title):
+        from src.feed_parser import Post
+
+        return Post(
+            title=title, link=f"https://x.example/{title}", published_date="2026-10-09"
+        )
+
+    def test_a_shipped_issue_with_failed_calls_alerts(self):
+        sns = self._SNS()
+        main._maybe_send_model_failure_alert(
+            self._Session(sns),
+            "arn:topic",
+            "tech-digest",
+            [self._post("kept")],
+            [
+                (self._post("lost"), "Summarization failed (no model response)."),
+                (self._post("low"), "Off topic."),
+            ],
+        )
+        [message] = sns.published
+        assert "Model Failures" in message["Subject"]
+        assert "lost" in message["Message"] and "low" not in message["Message"]
+
+    def test_verdicts_alone_do_not_alert(self):
+        sns = self._SNS()
+        main._maybe_send_model_failure_alert(
+            self._Session(sns),
+            "arn:topic",
+            "tech-digest",
+            [self._post("kept")],
+            [(self._post("low"), "Off topic.")],
+        )
+        assert sns.published == []

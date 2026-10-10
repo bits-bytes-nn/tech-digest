@@ -166,7 +166,9 @@ newsletter:
 ### Deploy infrastructure
 
 ```bash
-python scripts/deploy_infra.py
+# deploy_infra.py is the CDK app; it only synthesizes. `cdk deploy` deploys it.
+CONFIG_FILE_SUFFIX=dev cdk deploy NewsletterDevStack --profile <aws-profile>
+CONFIG_FILE_SUFFIX=prod cdk deploy NewsletterProdStack --profile <aws-profile>
 python scripts/put_inference_profiles.py --stage dev   # once per account/stage
 ```
 
@@ -228,7 +230,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (910 tests, 88.4% cov)
+pytest                       # fast, offline unit/integration suite (938 tests, 88.6% cov)
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline
 # and free; --regenerate is the exception and makes real Bedrock calls.

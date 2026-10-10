@@ -564,16 +564,51 @@ class Summarizer:
         # Rank and apply max_posts BEFORE summarizing, so we only pay to
         # summarize the posts that will actually ship (summarization is the
         # expensive LLM step).
-        posts_to_process = self._select_for_digest(posts_to_process)
-        summarized_posts = self._summarize_posts(posts_to_process)
-        dropped = len(posts_to_process) - len(summarized_posts)
-        if dropped:
+        return self._summarize_lineup(posts_to_process)
+
+    # How many times a failed summary may be replaced by the next-ranked post.
+    # Bounded so a systematic failure (a rejected request shape) costs a few
+    # extra calls, not one per eligible post.
+    MAX_BACKFILL_ROUNDS: ClassVar[int] = 2
+
+    def _summarize_lineup(self, eligible: list[Post]) -> list[Post]:
+        """Summarize the issue's line-up, replacing posts whose summary failed.
+
+        Selection happens BEFORE summarizing so only shipped posts are paid for.
+        But a post whose summary then failed simply vanished: the issue went out
+        a card short even when other posts had passed the filter, and the post
+        lost was usually the top-ranked one. Each round re-selects from the
+        eligible posts minus the failures — so the per-source cap still holds —
+        and summarizes only the posts not yet done.
+        """
+        pool = list(eligible)
+        done: dict[str, Post] = {}
+        lineup = self._select_for_digest(pool)
+        for round_number in range(self.MAX_BACKFILL_ROUNDS + 1):
+            pending = [p for p in lineup if p.link not in done]
+            if not pending:
+                break
+            for post in self._summarize_posts(pending):
+                done[post.link] = post
+            failed = {p.link for p in pending if p.link not in done}
+            if not failed:
+                break
+            pool = [p for p in pool if p.link not in failed]
+            if round_number == self.MAX_BACKFILL_ROUNDS:
+                logger.warning(
+                    "%d summary failure(s) left after %d backfill round(s); "
+                    "the issue ships short.",
+                    len(failed),
+                    self.MAX_BACKFILL_ROUNDS,
+                )
+                break
+            lineup = self._select_for_digest(pool)
             logger.warning(
-                "%d/%d posts had no usable summary and were dropped.",
-                dropped,
-                len(posts_to_process),
+                "%d summary failure(s); refilling the line-up from the next-ranked "
+                "eligible posts.",
+                len(failed),
             )
-        return summarized_posts
+        return [p for p in lineup if p.link in done]
 
     def _select_for_digest(self, posts: list[Post]) -> list[Post]:
         """Rank by relevance and pick the issue's line-up.

@@ -138,6 +138,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                 )
             logger.info("No posts to process. Exiting gracefully.")
             return {"statusCode": 200, "body": "No posts found to process."}
+        if is_running_in_aws() and topic_arn:
+            _maybe_send_model_failure_alert(
+                default_boto_session,
+                topic_arn,
+                config.resources.project_name,
+                posts,
+                filtered_out_posts,
+            )
         newsletter_path = _process_posts_and_create_newsletter(
             posts,
             date_suffix,
@@ -702,9 +710,9 @@ def _send_emails_to_recipients(
     """Send the issue to each recipient, skipping any the ledger already covers.
 
     The ledger makes the send loop idempotent PER RECIPIENT, which is the unit the
-    harm is measured in. Both retry paths in this pipeline (the Batch job
-    definition's ``retry_attempts=2`` and the EventBridge target's) re-run
-    ``main.py`` from the start, so a job that died anywhere after the first send —
+    harm is measured in. The Batch job definition's ``retry_attempts=2`` (two
+    attempts, one retry) re-runs ``main.py`` from the start, so a job that died
+    anywhere after the first send —
     a Spot reclaim being the likeliest cause now that Spot is the preferred compute
     environment — used to deliver the whole issue a second time.
 
@@ -816,6 +824,50 @@ def _maybe_send_partial_delivery_alert(
         event="Newsletter Delivery",
         status="ALERT",
         fields=fields,
+    )
+
+
+# filtered_out reasons that mean a model call failed, as opposed to a verdict.
+MODEL_FAILURE_REASONS: Final[tuple[str, ...]] = (
+    "Filtering failed",
+    "Filter response unparseable",
+    "Summarization failed",
+    "Summary validation failed",
+)
+
+
+def _maybe_send_model_failure_alert(
+    boto_session: boto3.Session,
+    topic_arn: str,
+    project: str,
+    posts: list[Post],
+    filtered_out_posts: list[tuple[Post, str]],
+) -> None:
+    """Alert when an issue ships while some posts were lost to failed model calls.
+
+    The empty-digest alert only fires when NOTHING survives, so a run that lost
+    the top post to a failed summary, or a third of the filter calls to errors,
+    sent a thinner issue with exit code 0 and nothing but a log line. Failed
+    summaries are backfilled from the next-ranked posts; this says it happened.
+    """
+    failures = [
+        (post, reason)
+        for post, reason in filtered_out_posts
+        if reason.startswith(MODEL_FAILURE_REASONS)
+    ]
+    if not failures:
+        return
+    _publish_alarm(
+        boto_session,
+        topic_arn,
+        project=project,
+        event="Model Failures",
+        status="WARN",
+        fields={
+            "In digest": str(len(posts)),
+            "Failed calls": str(len(failures)),
+            "Posts": "\n".join(f"  - {p.title}: {r}" for p, r in failures[:10]),
+        },
     )
 
 

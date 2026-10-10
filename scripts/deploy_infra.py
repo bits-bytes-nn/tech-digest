@@ -631,9 +631,11 @@ class NewsletterStack(Stack):
         # and the Spot environment was never once scheduled onto. It existed, was
         # deployed, and saved nothing.
         #
-        # On-demand stays as order 2, which is what makes Spot-first safe: if Spot
-        # capacity is unavailable the job stays RUNNABLE and Batch places it there
-        # instead. TRADE-OFF: a Spot reclaim mid-run is now the likelier way for a
+        # On-demand stays as order 2. Batch tries compute environments in ascending
+        # order; its docs do not promise that a Spot capacity shortage falls
+        # through to the next one. If it does not, the queue's RUNNABLE time
+        # limit cancels the job after 2 hours and the FAILED rule alerts, so the
+        # failure is loud rather than silent. TRADE-OFF: a Spot reclaim mid-run is now the likelier way for a
         # run to be retried, and the job definition's `retry_attempts=2` re-runs
         # main.py from the start. The delivery ledger (design.md §16) keeps that
         # from re-sending to anyone already served; what a retry still costs is
@@ -825,7 +827,7 @@ def main() -> None:
         )
 
         logger.info(
-            "Deploying infrastructure for '%s' in '%s' stage",
+            "Synthesizing infrastructure for '%s' in '%s' stage",
             config.resources.project_name,
             config.resources.stage,
         )
