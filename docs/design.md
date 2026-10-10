@@ -223,8 +223,9 @@ tech-digest/
   배포된 두 스테이지는 Sonnet 5.5 / Sonnet 5.5 / Haiku 5.5를 씁니다.
 - `filtering_enable_thinking` / `summarization_enable_thinking`(기본 False): 해당
   단계에서 확장 사고(extended thinking)를 켭니다.
-- `filtering_thinking_budget_tokens`(기본 4096) / `summarization_thinking_budget_tokens`
-  (기본 8192): 예산형 사고 모델(Claude 4.x 이하)에만 쓰입니다.
+- `filtering_thinking_budget_tokens` / `summarization_thinking_budget_tokens`(기본 비움 =
+  팩토리 기본 4096): 예산형 사고 모델(Claude 4.x 이하)에만 쓰입니다. 적응형 사고 모델에
+  값을 직접 넣으면 무시된다는 경고만 남기므로, 배포된 두 스테이지는 이 키를 두지 않습니다.
 - `thinking_effort`(기본 비움): 적응형 사고 모델과 GPT 모델의 사고 깊이
   (`low`·`medium`·`high`·`xhigh`·`max`). 비우면 모델 기본값입니다(§8).
 - `summarization_max_tokens`(선택): 요약 출력 토큰 상한. 비우면 모델 최대치입니다.
@@ -335,7 +336,10 @@ tech-digest/
   `ITEM_SELECTOR`를 정하고 카드 하나를 엔트리로 바꾸는 `_parse_item`만 구현합니다.
   날짜는 `_parse_date`로 읽는데, 이 메서드가 날짜를 읽은 카드 수를 세어 `candidates`로
   보고합니다(§7).
-- 서브클래스는 지금 `LinkedInBlogScraper` 하나입니다(LinkedIn 엔지니어링 블로그).
+- 서브클래스는 지금 `LinkedInBlogScraper` 하나입니다(LinkedIn 엔지니어링 블로그, dev
+  소스). 인덱스는 긴 제목을 "..."로 자르고 전체 제목은 글 페이지에만 있어서, 기간 안에 든
+  글 중 제목이 잘린 것만 글 페이지의 `og:title`로 채웁니다. 페이지를 못 받으면 인덱스
+  제목을 그대로 씁니다. AWS 송신 IP에서도 인덱스와 글 페이지 모두 받아집니다.
 
 **사이트가 RSS를 내놓으면 스크레이퍼를 두지 않습니다.** 스크레이퍼는 사이트가 마크업을
 바꿀 때마다 깨지고, AWS 송신 IP를 막는 사이트에서는 아무것도 가져오지 못합니다. 피드는
@@ -1466,6 +1470,10 @@ Batch 잡 정의의 재시도(`BATCH_ATTEMPTS` 2, 즉 재시도 1회)는 `main.p
   상황(중간에 죽은 경우)에 원장이 없습니다.
 - **실패한 발송은 기록하지 않습니다.** 기록하면 재시도가 못 받은 독자를 건너뜁니다.
 - **비교는 소문자로.** 이메일 주소는 실질적으로 대소문자를 구분하지 않습니다.
+- **SES 수신 거부 목록의 주소는 건너뜁니다.** SES는 영구 반송이나 수신 거부 신고가 난
+  주소를 계정 수신 거부 목록에 올리고, 이후 그 주소로 보낸 메일은 조용히 버립니다. 그래서
+  발송 전에 목록을 한 번 읽어 해당 수신자를 건너뛰고(`DeliveryOutcome.suppressed`), 수신자
+  파일에서 지우라는 WARNING을 남깁니다. 목록을 못 읽으면 아무도 건너뛰지 않습니다.
 - **같은 실행 안의 중복도 막습니다.** 원장은 루프 전에 한 번만 읽으므로 한 실행 안의
   반복은 잡지 못합니다. 그래서 수신자 목록을 만들 때 대소문자를 무시하고 중복을 지웁니다.
 - **fail open**: 원장이 없거나 읽을 수 없거나 형태가 깨졌으면 빈 집합으로 보고
@@ -1526,8 +1534,9 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
     필요하고, 그 판정에는 `s3:prefix` 조건이 적용되지 않습니다. `s3_bucket_name`이나
     `s3_prefix`가 비어 있으면 S3를 `*`로 범위 지정하는 대신 스택이 **fail-closed**로
     실패합니다.
-  - SES: **설정된 발신자로 제한된**(`ses:FromAddress` 조건) `ses:SendRawEmail` 하나.
-    앱이 호출하는 유일한 API입니다.
+  - SES: **설정된 발신자로 제한된**(`ses:FromAddress` 조건) `ses:SendRawEmail`과, 수신
+    거부 목록을 읽는 `ses:ListSuppressedDestinations`(리소스 수준 권한이 없는 읽기 전용
+    작업).
   - SNS: 이 스택 토픽으로의 publish.
   - SSM/KMS: 이 프로젝트 파라미터 경로의 SSM 읽기와, SecureString 복호화를 위한
     `kms:Decrypt`(`kms:ViaService=ssm`으로 제한).
