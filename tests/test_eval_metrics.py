@@ -1,4 +1,4 @@
-"""Tests for the offline filtering-score eval metrics (determinism, grid
+"""Tests for the offline filtering-score eval metrics (determinism, anchor
 adherence, band alignment). These validate the analysis the live eval relies on."""
 
 from __future__ import annotations
@@ -9,22 +9,25 @@ from app.src.eval_metrics import (
     ArticleScoreStats,
     band_of_score,
     build_report,
-    is_on_grid,
+    is_anchor,
 )
 
 
-class TestIsOnGrid:
-    def test_exact_anchors_on_grid(self):
-        for s in (0.0, 0.05, 0.35, 0.7, 0.8, 0.85, 1.0):
-            assert is_on_grid(s), s
+class TestIsAnchor:
+    def test_every_anchor_is_one(self):
+        from app.src.eval_metrics import ANCHOR_BANDS
 
-    def test_off_grid_value(self):
-        assert not is_on_grid(0.83)
-        assert not is_on_grid(0.67)
+        for s in ANCHOR_BANDS:
+            assert is_anchor(s), s
+
+    @pytest.mark.parametrize("score", [0.83, 0.67, 0.65, 0.55, 0.0, 1.0])
+    def test_a_grid_value_off_the_anchors_is_not(self, score):
+        """The rubric no longer allows a ±0.05 step, so 0.65 is a defect."""
+        assert not is_anchor(score)
 
     def test_out_of_range(self):
-        assert not is_on_grid(-0.1)
-        assert not is_on_grid(1.5)
+        assert not is_anchor(-0.1)
+        assert not is_anchor(1.5)
 
 
 class TestBandOfScore:
@@ -35,45 +38,44 @@ class TestBandOfScore:
         assert band_of_score(0.35) == "weak"
         assert band_of_score(0.10) == "reject"
 
-    def test_every_rubric_anchor_lands_in_its_named_band(self):
-        """The band cutoffs and the rubric's anchor labels are two views of one
-        scale; when they were maintained separately they drifted (0.60 is "Good"
-        in the rubric but the cutoffs called it "strong"), which reported a
-        correctly-scored article as a band mismatch."""
+    @pytest.mark.parametrize("criteria", ["all", "amazon"])
+    def test_the_prompt_states_exactly_these_anchors(self, criteria):
+        """The rubric text and ``ANCHOR_BANDS`` are one scale written twice."""
+        import re
+
+        from app.src.constants import FilteringCriteria
         from app.src.eval_metrics import ANCHOR_BANDS
+        from app.src.prompts import FilteringPrompt
 
-        mismatched = {
-            anchor: (band_of_score(anchor), expected)
-            for anchor, expected in ANCHOR_BANDS.items()
-            if band_of_score(anchor) != expected
-        }
-        assert not mismatched, f"anchor -> band drift: {mismatched}"
+        template = FilteringPrompt._human_prompt_template[FilteringCriteria(criteria)]
+        stated = {float(m) for m in re.findall(r"- \*\*(\d\.\d\d)\*\* —", template)}
+        assert stated == set(ANCHOR_BANDS)
 
-    def test_one_step_adjustment_never_skips_a_band(self):
-        """The rubric permits a single +-0.05 step off an anchor.
+    @pytest.mark.parametrize("criteria", ["all", "amazon"])
+    def test_included_topic_anchors_outrank_every_other_anchor(self, criteria):
+        """ "Included topics take priority" has to be true of the numbers, not
+        only of the wording: the lowest included-topic anchor must beat the
+        highest anchor for other content."""
+        import re
 
-        Such a step can land exactly midway between two anchors (0.65 is both
-        0.60+0.05 and 0.70-0.05), and a cutoff has to fall somewhere, so the
-        adjusted score may legitimately read as either neighbour's band. What
-        must NOT happen is landing two bands away — that would mean the cutoffs
-        are placed on the anchors themselves rather than between them.
-        """
-        from app.src.eval_metrics import ANCHOR_BANDS
+        from app.src.constants import FilteringCriteria
+        from app.src.prompts import FilteringPrompt
 
-        anchors = sorted(ANCHOR_BANDS)
-        for i, anchor in enumerate(anchors):
-            neighbours = {ANCHOR_BANDS[anchor]}
-            if i > 0:
-                neighbours.add(ANCHOR_BANDS[anchors[i - 1]])
-            if i < len(anchors) - 1:
-                neighbours.add(ANCHOR_BANDS[anchors[i + 1]])
-            for adjusted in (round(anchor - 0.05, 2), round(anchor + 0.05, 2)):
-                if not 0.0 <= adjusted <= 1.0:
-                    continue
-                assert band_of_score(adjusted) in neighbours, (
-                    f"{anchor} adjusted to {adjusted} -> "
-                    f"{band_of_score(adjusted)}, not in {neighbours}"
-                )
+        template = FilteringPrompt._human_prompt_template[FilteringCriteria(criteria)]
+        included, other = template.split("**OTHER ", 1)
+        included = included.split("**INCLUDED-TOPIC CONTENT**", 1)[1]
+        anchors = re.compile(r"- \*\*(\d\.\d\d)\*\* —")
+        assert min(map(float, anchors.findall(included))) > max(
+            map(float, anchors.findall(other))
+        )
+
+    def test_excluded_topics_override_included_ones(self):
+        """Without a stated precedence the same article flipped between 0.85
+        (included topic) and 0.05 (excluded topic) on identical input."""
+        from app.src.prompts import FilteringPrompt
+
+        for template in FilteringPrompt._human_prompt_template.values():
+            assert "An excluded topic overrides an included one" in template
 
     def test_spread_and_band_stability_reported(self):
         """Reproducibility is measured as band stability plus bounded spread,
@@ -120,7 +122,7 @@ class TestArticleScoreStats:
         assert s.is_deterministic
         assert s.spread == 0.0
         assert s.stdev == 0.0
-        assert s.all_on_grid
+        assert s.all_on_anchor
         assert s.band_matches
 
     def test_non_deterministic_spread(self):
@@ -136,22 +138,22 @@ class TestArticleScoreStats:
 
     def test_off_grid_detected(self):
         s = ArticleScoreStats("a", "strong", [0.67, 0.70])
-        assert not s.all_on_grid
+        assert not s.all_on_anchor
 
 
 class TestBuildReport:
     def test_aggregate_rates(self):
         results = {
-            "a": [0.85, 0.85],  # deterministic, on-grid, band high (matches)
-            "b": [0.70, 0.65],  # non-det, on-grid, mean 0.675 -> strong (matches)
+            "a": [0.85, 0.85],  # deterministic, on-anchor, band high (matches)
+            "b": [0.70, 0.60],  # non-det, on-anchor, mean 0.65 -> moderate
             "c": [0.83, 0.83],  # deterministic but OFF grid, band high
         }
-        expected = {"a": "high", "b": "strong", "c": "high"}
+        expected = {"a": "high", "b": "moderate", "c": "high"}
         report = build_report(results, expected)
         # a and c are deterministic; b is not -> 2/3.
         assert abs(report.determinism_rate - 2 / 3) < 1e-9
-        # a and b on grid; c not -> 2/3.
-        assert abs(report.grid_rate - 2 / 3) < 1e-9
+        # a and b on an anchor; c not -> 2/3.
+        assert abs(report.anchor_rate - 2 / 3) < 1e-9
         # all three bands match their expected -> 1.0.
         assert report.band_match_rate == 1.0
 

@@ -66,12 +66,15 @@ class TestFilteringCacheSplit:
         assert "EVALUATION PROCESS" in sys_text
         assert "EVALUATION PROCESS" not in human.content
 
-    def test_system_prefix_is_large_enough_to_cache(self):
+    @pytest.mark.parametrize("criteria", list(FilteringCriteria))
+    def test_system_prefix_is_large_enough_to_cache(self, criteria):
         system, _ = _split_messages(
-            FilteringPrompt.for_criteria(FilteringCriteria.ALL), **self._fmt()
+            FilteringPrompt.for_criteria(criteria), **self._fmt()
         )
-        # Bedrock requires ~1024 tokens minimum; ~4 chars/token heuristic.
-        assert len(system.content[0]["text"]) > 4000
+        # Bedrock caches nothing below 1,024 tokens. The rubric tokenizes at about
+        # 2.8 chars/token (dev filter calls on 2026-10-11 read back 1,415 cached
+        # tokens for a ~4,000-char prefix), so 3,200 chars keeps ~10% of margin.
+        assert len(system.content[0]["text"]) > 3200
 
 
 class TestSummarizationCacheSplit:

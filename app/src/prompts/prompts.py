@@ -173,7 +173,9 @@ REJECT if content contains:
 - Hardware reviews or basic platform tutorials
 
 **EXCEPTION:** If content SUBSTANTIALLY covers any included topic (not just mentions), AUTO-ACCEPT and proceed to
-scoring.
+scoring — unless its primary subject is an excluded topic. An excluded topic overrides an included one: a
+model or service built for an excluded field scores 0.05 even when it also matches an included topic.
+If unsure whether an included topic is the PRIMARY focus, score the content as other content.
 
 **INCLUDED TOPIC MATCHING CRITERIA (STRICT):**
 - Topic must be a PRIMARY focus of the content (>30% of content)
@@ -192,19 +194,20 @@ ACCEPT if content has:
 
 **STEP 2: QUALITY SCORING — pick ONE anchor score**
 
-Choose the SINGLE anchor score (multiples of 0.05) whose description best matches the
+Choose the SINGLE anchor score below whose description best matches the
 content. Do NOT add or subtract fractional modifiers — pick the closest anchor and commit.
 This keeps scoring reproducible: the same content must receive the same score every time.
 
 **INCLUDED-TOPIC CONTENT** (content SUBSTANTIALLY covers an included topic — >30% as a
-PRIMARY focus, not a passing mention). Included topics take priority; score in the top band:
-- **0.85** — Exceptional: expert-level depth, novel insight, or multiple included topics covered substantially.
-- **0.80** — Strong: solid technical depth and clear insight on the included topic.
-- **0.75** — Adequate: meets the substantial-coverage bar but with basic depth, or some promotional mixing.
+PRIMARY focus, not a passing mention). Included topics take priority, so these anchors sit
+ABOVE every anchor for other content:
+- **0.95** — The included topic IS the post's subject (e.g. the release or launch itself), with technical substance.
+- **0.90** — The included topic is the primary focus, covered in depth, though the post is not the release itself.
+- **0.85** — Meets the substantial-coverage bar with basic depth, or with noticeable promotional mixing.
 
 **OTHER ML CONTENT** (no included topic as primary focus). Pick the band, then the anchor:
-- **0.85** — Groundbreaking: novel theory with rigorous proofs, or a landmark algorithmic/empirical result.
-- **0.80** — Excellent: strong novel contribution or a deep, battle-tested practical guide.
+- **0.80** — Groundbreaking: novel theory with rigorous proofs, or a landmark algorithmic/empirical result.
+- **0.75** — Excellent: strong novel contribution or a deep, battle-tested practical guide.
 - **0.70** — Strong: solid empirical study or well-validated improvement with clear insight.
 - **0.60** — Good: competent work with some novelty or a useful, well-structured guide.
 - **0.50** — Moderate: limited novelty, decent execution, or educational with some new perspective.
@@ -212,22 +215,15 @@ PRIMARY focus, not a passing mention). Included topics take priority; score in t
 - **0.15** — Poor: pure implementation or promotional content with negligible research value.
 - **0.05** — Not ML: off-topic, marketing, or an excluded topic.
 
-**ADJUSTMENT RULES (at most one step, ±0.05):**
-- Move DOWN one 0.05 step if: the article is noticeably unclear/disorganized, OR contains
-  meaningful promotional content, OR is borderline between this band and the one below.
-- Move UP one 0.05 step only if: exceptionally clear AND reproducible AND addresses an
-  important real-world problem — and only within the same band's top.
-- Never move more than one 0.05 step from the chosen anchor.
-
-**UNCERTAINTY:** When torn between two anchors, always choose the LOWER one.
+**UNCERTAINTY:** When torn between two anchors, always choose the LOWER one. Promotional
+mixing or poor organisation is a reason to choose the lower anchor, never to adjust a score.
 
 ---
 
 **OUTPUT FORMAT:**
 <reason>[Explain concisely: (1) Topic validation — does the content SUBSTANTIALLY cover (>30%
-primary focus) an included topic? If so, name it. (2) Which anchor score you chose and why.
-(3) Any one-step adjustment and its reason.]</reason>
-<score>[The chosen anchor, optionally ±0.05; two decimals, e.g., 0.80, 0.70, 0.15]</score>""",
+primary focus) an included topic? If so, name it. (2) Which anchor score you chose and why.]</reason>
+<score>[The chosen anchor exactly, two decimals, e.g. 0.90, 0.70, 0.15]</score>""",
         FilteringCriteria.AMAZON: """Evaluate this content for ML technical quality with focus on Amazon/AWS ML
 implementations.
 
@@ -254,7 +250,10 @@ REJECT if content contains:
 - Basic tutorials without technical depth
 
 **EXCEPTION:** If content SUBSTANTIALLY covers any included topic with AWS context (>30% as primary focus), AUTO-ACCEPT
-and proceed to scoring.
+and proceed to scoring — unless its primary subject is an excluded topic.
+An excluded topic overrides an included one: a model or service built for an excluded field scores 0.05 even
+when it also matches an included topic.
+If unsure whether an included topic is the PRIMARY focus, score the content as other content.
 
 **INCLUDED TOPIC MATCHING CRITERIA (STRICT):**
 - Topic must be a PRIMARY focus with AWS/Amazon context (>30% of content)
@@ -273,19 +272,20 @@ ACCEPT if content has:
 
 **STEP 2: QUALITY SCORING — pick ONE anchor score**
 
-Choose the SINGLE anchor score (multiples of 0.05) whose description best matches the
+Choose the SINGLE anchor score below whose description best matches the
 content. Do NOT add or subtract fractional modifiers — pick the closest anchor and commit.
 This keeps scoring reproducible: the same content must receive the same score every time.
 
 **INCLUDED-TOPIC CONTENT** (content SUBSTANTIALLY covers an included topic with Amazon/AWS
-context — >30% as a PRIMARY focus, not a passing mention). Score in the top band:
-- **0.85** — Exceptional AWS coverage: expert depth, novel insight, or multiple included topics.
-- **0.80** — Strong AWS coverage: solid technical depth and clear insight.
-- **0.75** — Adequate AWS coverage: meets the substantial bar but basic depth, or some promotional mixing.
+context — >30% as a PRIMARY focus, not a passing mention). These anchors sit ABOVE every
+anchor for other content:
+- **0.95** — The included topic IS the post's subject (e.g. the AWS launch announcement itself), with technical substance.
+- **0.90** — The included topic is the primary focus, covered in depth, though the post is not the launch itself.
+- **0.85** — Meets the substantial-coverage bar with basic depth, or with noticeable promotional mixing.
 
 **OTHER AWS ML CONTENT** (no included topic as primary focus). Pick the band, then the anchor:
-- **0.85** — Groundbreaking AWS ML architecture/algorithmic innovation, or landmark result.
-- **0.80** — Excellent: strong novel AWS ML contribution or a deep, battle-tested AWS guide.
+- **0.80** — Groundbreaking AWS ML architecture/algorithmic innovation, or landmark result.
+- **0.75** — Excellent: strong novel AWS ML contribution or a deep, battle-tested AWS guide.
 - **0.70** — Strong: solid AWS ML study/implementation with clear technical depth.
 - **0.60** — Good: competent AWS ML work or a useful, well-structured AWS guide.
 - **0.50** — Moderate: moderate AWS ML depth, or educational with some insight.
@@ -293,22 +293,16 @@ context — >30% as a PRIMARY focus, not a passing mention). Score in the top ba
 - **0.15** — Poor: marketing disguised as AWS technical content, or minimal AWS ML focus.
 - **0.05** — Not relevant: non-AWS vendor content, off-topic, or an excluded topic.
 
-**ADJUSTMENT RULES (at most one step, ±0.05):**
-- Move DOWN one 0.05 step if: noticeably unclear/disorganized, OR meaningful promotional/
-  non-AWS-vendor content, OR borderline between this band and the one below.
-- Move UP one 0.05 step only if: exceptionally clear AND reproducible AND addresses an
-  important real-world AWS ML problem — and only within the same band's top.
-- Never move more than one 0.05 step from the chosen anchor.
-
-**UNCERTAINTY:** When torn between two anchors, always choose the LOWER one.
+**UNCERTAINTY:** When torn between two anchors, always choose the LOWER one. Promotional
+mixing or poor organisation is a reason to choose the lower anchor, never to adjust a score.
 
 ---
 
 **OUTPUT FORMAT:**
 <reason>[Explain concisely: (1) Topic validation — does the content SUBSTANTIALLY cover (>30%
 primary focus) an included topic with AWS context? If so, name it. (2) Which anchor score you
-chose and why. (3) Any one-step adjustment and its reason.]</reason>
-<score>[The chosen anchor, optionally ±0.05; two decimals, e.g., 0.80, 0.70, 0.15]</score>""",
+chose and why.]</reason>
+<score>[The chosen anchor exactly, two decimals, e.g. 0.90, 0.70, 0.15]</score>""",
     }
 
     @classmethod
@@ -497,16 +491,18 @@ explanations that make complex technical concepts accessible without sacrificing
      parameter, a measured number or a design tradeoff to hit a word count
    - When you must cut, cut RESTATEMENT: anything already said in another section,
      scene-setting, and generic framing. Never cut technical specifics
-   - Do not scale length to the source article. A 20,000-word paper and a
-     2,000-word post get the SAME budget; a longer source means being more
-     selective about WHICH details, not writing more
+   - Do not scale length UP with the source. A 20,000-word paper gets the same
+     budget as a 3,000-word post; a longer source means being more selective about
+     WHICH details, not writing more. A short source may yield a shorter summary:
+     never pad with guesses, restatement or commentary to reach the budget
 
 4. **Section Distinctiveness**
    - Each section must carry NEW information. Never restate figures, sentences, or conclusions
      already given in an earlier section
    - The 📊 Results section is where the article's headline results are stated, ONCE. 📌 and 🛠️
-     name the mechanism and refer to its effect in words; the figure ("5x faster", "30% cost
-     reduction") appears in 📊 only. Do not add business implications, ratios you computed, or
+     name the mechanism and describe its effect in words; the figure ("5x faster", "30% cost
+     reduction") appears in 📊 only. Do not point to another section ("see the results below");
+     just describe the effect. Do not add business implications, ratios you computed, or
      forecasts the article does not state
    - The 🔮 Future section is NOT a place to re-state limitations already listed in 🛠️. Cover the
      roadmap, expansion directions, and opportunities the article explicitly mentions. If there is
@@ -550,7 +546,7 @@ source material provides sufficient substantive content:
 
 <h3>📌 Why This Matters</h3>
 Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is
-noteworthy, and who should care. Write as a flowing narrative without subsections. Be concise while covering essential
+noteworthy. Be concise while covering essential
 points. Open and close with the specific reason THIS article matters (the problem it solves, what is new). Do NOT end
 with a formulaic audience call-out like "a noteworthy read for developers and architects" — when every article ends the
 same way, it reads as boilerplate.
@@ -560,30 +556,31 @@ Describe the system design and workflow clearly. Cover main components, their in
 Include relevant images, each WRAPPED IN A FIGURE WITH A CAPTION so it is never dropped into the card without
 context: <figure><img src="full_url" alt="descriptive text"><figcaption>One short sentence saying what the reader
 should take from this image</figcaption></figure> (complete URLs only: https://example.com/image.jpg; the caption must
-add information, not repeat the alt text). Write as a cohesive narrative without subsection headers. Avoid redundancy
+add information, not repeat the alt text). Avoid redundancy
 with the technical deep dive section.
 
 <h3>🛠️ Technical Deep Dive</h3>
 Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 
 with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
 scalability considerations, edge cases, and known limitations. Use <pre><code class="highlight"> for code blocks. Write 
-as a cohesive narrative without subsection labels. Be detailed but avoid repeating information already covered in other 
+as a cohesive narrative. Be detailed but avoid repeating information already covered in other 
 sections.
 
 <h3>📊 Results and Impact</h3>
-Present the measured outcomes the article reports, including cost figures when it gives them. Write as a flowing
-narrative without subsections. Focus only on results explicitly stated in the article.
+Present the measured outcomes the article reports, including cost figures when it gives them. Write it as prose, a table, or both.
+Focus only on results explicitly stated in the article.
 
 <h3>🔮 Future Directions</h3>
-Discuss future directions, integration possibilities, and limitations explicitly mentioned in the article. Write as a 
-cohesive narrative without subsection headers. Be concise and avoid speculation.
+Discuss future directions and integration possibilities explicitly mentioned in the article. Be concise and
+avoid speculation.
 
 **FORMATTING REQUIREMENTS:**
 - Use HTML tags exclusively (no markdown)
 - Apply <strong> for critical technical concepts
 - Use <em> for technical terms requiring emphasis
 - Format comparisons and data in HTML tables when appropriate
-- Maintain clear heading hierarchy
+- No sub-headings (h4-h6) inside a section; a bold run-in label at the start of a paragraph is fine
+- Inline code goes in <code>, never Markdown backticks; write math as plain text or Unicode (QKᵀ), never LaTeX
 - Ensure all code uses <pre><code class="highlight"> blocks
 - Make technical explanations accessible but accurate
 - Use one name per concept throughout; do not alternate between synonyms for the same component
@@ -640,9 +637,10 @@ Korean:
      트레이드오프를 **절대 희생하지 마세요**
    - 줄여야 한다면 **중복 서술**을 자르세요: 다른 섹션에서 이미 말한 것, 배경 깔기,
      일반론. 기술적 구체성은 자르지 마세요
-   - 원문 길이에 비례해 늘리지는 마세요. 2만 단어 논문과 2천 단어 포스트의 예산은
-     **같습니다**. 원문이 길다는 건 더 많이 쓰라는 게 아니라 **어떤** 디테일을 고를지
-     더 신중하라는 뜻입니다
+   - 원문이 길다고 늘리지는 마세요. 2만 단어 논문도 3천 단어 포스트와 예산이 **같습니다**.
+     원문이 길다는 건 더 많이 쓰라는 게 아니라 **어떤** 디테일을 고를지 더 신중하라는
+     뜻입니다. 원문이 짧으면 요약도 짧아도 됩니다. 분량을 채우려고 추측·반복·논평을
+     덧붙이지 마세요
 
 4. **일관된 문체 (Consistent Register)**
    - 모든 섹션의 모든 문장을 **정중한 합니다체**로 통일하세요 (예: "제안합니다", "달성했습니다",
@@ -655,7 +653,8 @@ Korean:
    - 각 섹션은 **새로운 정보**를 담아야 합니다. 앞 섹션에서 이미 말한 수치·문장·결론을 뒤 섹션에서
      그대로 반복하지 마세요
    - 원문의 대표 성과 수치(예: "5배 향상", "30% 절감")는 **📊에서 한 번만** 제시합니다. 📌·🛠️에서는
-     메커니즘을 설명하고 그 효과는 말로만 가리키세요. 원문에 없는 비즈니스 함의, 직접 계산한 비율,
+     메커니즘을 설명하고 그 효과는 말로만 서술하세요. "결과는 아래 📊에 정리했습니다"처럼 다른
+     섹션을 가리키지 말고 효과 자체를 쓰세요. 원문에 없는 비즈니스 함의, 직접 계산한 비율,
      전망은 덧붙이지 마세요
    - 🔮 향후 섹션은 🛠️에서 이미 열거한 한계점을 뒤집어 재서술하는 곳이 아닙니다. 원문이 명시한
      **로드맵·확장 방향·기회**를 다루세요. 새로 덧붙일 forward-looking 내용이 없으면 이 섹션을 생략하세요
@@ -710,7 +709,7 @@ source material provides sufficient substantive content:
 
 <h3>📌 왜 이 아티클에 주목해야 하나요?</h3>
 Explain the significance and relevance of this content. Focus on the problem being addressed, why the approach is
-noteworthy, and who should care. Write as a flowing narrative without subsections. Be concise while covering essential
+noteworthy. Be concise while covering essential
 points. 이 아티클만의 구체적인 이유(해결하는 문제, 새로운 점)로 시작하고 끝맺으세요. "~개발자와 아키텍트에게
 주목할 만한 참고 자료입니다" 같은 정형화된 대상·권유 문구로 마무리하지 마세요 — 매주 여러 아티클이 똑같은 문구로
 끝나면 독자에게 상투적으로 읽힙니다.
@@ -720,29 +719,30 @@ Describe the system design and workflow clearly. Cover main components, their in
 관련 이미지는 문맥 없이 놓이지 않도록 **캡션과 함께 figure로 감싸서** 넣으세요:
 <figure><img src="full_url" alt="descriptive text"><figcaption>이 이미지에서 독자가 얻어야 할 것을 한 문장으로</figcaption></figure>
 (완전한 URL만 사용: https://example.com/image.jpg. 캡션은 alt 텍스트를 반복하지 말고 정보를 더해야 합니다.)
-Write as a cohesive narrative without subsection headers. Avoid redundancy with the technical deep dive section.
+Avoid redundancy with the technical deep dive section.
 
 <h3>🛠️ 기술적 심층 분석</h3>
 Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 
 with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
 scalability considerations, edge cases, and known limitations. Use <pre><code class="highlight"> for code blocks. Write 
-as a cohesive narrative without subsection labels. Be detailed but avoid repeating information already covered in other 
+as a cohesive narrative. Be detailed but avoid repeating information already covered in other 
 sections.
 
 <h3>📊 주요 성과</h3>
-Present the measured outcomes the article reports, including cost figures when it gives them. Write as a flowing
-narrative without subsections. Focus only on results explicitly stated in the article.
+Present the measured outcomes the article reports, including cost figures when it gives them. Write it as prose, a table, or both.
+Focus only on results explicitly stated in the article.
 
 <h3>🔮 향후 발전 가능성과 기회</h3>
-Discuss future directions, integration possibilities, and limitations explicitly mentioned in the article. Write as a 
-cohesive narrative without subsection headers. Be concise and avoid speculation.
+Discuss future directions and integration possibilities explicitly mentioned in the article. Be concise and
+avoid speculation.
 
 **FORMATTING REQUIREMENTS:**
 - Use HTML tags exclusively (no markdown)
 - Apply <strong> for critical technical concepts
 - Use <em> for technical terms requiring emphasis
 - Format comparisons and data in HTML tables when appropriate
-- Maintain clear heading hierarchy
+- No sub-headings (h4-h6) inside a section; a bold run-in label at the start of a paragraph is fine
+- Inline code goes in <code>, never Markdown backticks; write math as plain text or Unicode (QKᵀ), never LaTeX
 - Ensure all code uses <pre><code class="highlight"> blocks
 - Make technical explanations accessible but accurate
 - Write content in Korean, translating technical terms when possible
@@ -769,7 +769,7 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 <one_liner>[한국어 **한 문장**, 공백 포함 **40~100자** — 카드에서 두 줄을 넘지 않는 길이입니다.
 쓴 뒤 글자 수를 직접 세고, 100자를 넘으면 줄이세요. 다이제스트를 훑는 독자가 이 카드를 읽을지 판단할 근거가 되도록, 이 아티클이
 확립한 가장 구체적인 사실 — 메커니즘 + 측정된 효과 — 을 쓰세요. 예: "prefill과 decode를 별도 GPU 풀로 분리해
-동시성이 높을 때 토큰당 지연을 22~66% 줄였습니다". 합니다체를 유지하되, 칭찬 형용사·"이 글은 ~를 다룹니다" 같은
+동시성이 높을 때 토큰당 지연을 22~66% 줄였습니다." 합니다체를 유지하되, 칭찬 형용사·"이 글은 ~를 다룹니다" 같은
 메타 서술·제목 반복은 금지. 평문만(HTML·마크다운 금지)]</one_liner>
 <tags>[5-7 specific technical topics in Title Case, comma-separated - focus on distinctive technologies, methodologies,
 or architectural patterns explicitly mentioned in the article - avoid generic terms like "Machine Learning" or "AI"

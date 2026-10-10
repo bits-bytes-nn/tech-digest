@@ -50,7 +50,10 @@ summarization:
   summarization_enable_thinking: False
   greeting_model_id: anthropic.claude-haiku-5-5
   max_concurrency: 5
-  min_score: 0.8
+  # Rubric anchors: included-topic content 0.95/0.90/0.85; other content
+  # 0.80 Groundbreaking, 0.75 Excellent, 0.70 Strong, 0.60 Good, ... 0.05.
+  # 0.75 keeps every included-topic post plus Excellent-or-better other content.
+  min_score: 0.75
   # Keep max_posts modest: mail clients truncate a message over ~100 KB, and each
   # article card costs roughly 12-16 KB. The build logs the rendered size and
   # warns when an issue would be clipped.

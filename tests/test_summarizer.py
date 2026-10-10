@@ -236,6 +236,27 @@ class TestImageCaptions:
         assert "<figure>" in out.summary
         assert "Prefill and decode run on separate pools." in out.summary
 
+    def test_an_image_the_parser_resolved_is_kept(self):
+        """The source may carry a relative src that only ``Post.images`` holds
+        in its absolute form; that is still the article's own image."""
+        from app.src.summarizer import _strip_unsourced_images
+
+        url = "https://blog.example.com/img/arch.png"
+        cleaned, dropped = _strip_unsourced_images(
+            f'<p>Body</p><img src="{url}">',
+            source_html='<p>Body</p><img src="/img/arch.png">',
+            known_images=[url],
+        )
+        assert dropped == [] and url in cleaned
+
+    def test_an_image_without_a_src_is_dropped(self):
+        from app.src.summarizer import _strip_unsourced_images
+
+        cleaned, dropped = _strip_unsourced_images(
+            "<p>Body</p><img alt='x'>", source_html="<p>Body</p>", known_images=[]
+        )
+        assert dropped == ["(no src)"] and "<img" not in cleaned
+
     def test_unsourced_image_is_dropped_but_its_caption_context_remains(self):
         """The provenance guard removes the <img>; the surrounding figure/caption
         must not take the rest of the summary down with it."""

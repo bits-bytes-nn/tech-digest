@@ -444,3 +444,32 @@ class TestIsKorean:
         from app.src.quality_metrics import is_korean
 
         assert not is_korean("   ")
+
+
+class TestRepeatsAndCallouts:
+    def test_an_audience_call_out_closing_the_lede_section_is_caught(self):
+        html = (
+            "<h3>📌 왜</h3><p>지연을 줄이는 방법을 다룹니다. 추론 비용을 고민하는 실무자가 "
+            "참고할 수 있습니다.</p><h3>🛠️ 심층</h3><p>본문입니다.</p>"
+        )
+        assert evaluate_summary("a", html).boilerplate_score == 0.0
+
+    def test_a_lede_section_ending_on_the_finding_passes(self):
+        html = (
+            "<h3>📌 왜</h3><p>프리필과 디코드를 나눠 지연을 22% 줄였습니다.</p>"
+            "<h3>🛠️ 심층</h3><p>본문입니다.</p>"
+        )
+        assert evaluate_summary("a", html).boilerplate_score == 1.0
+
+    def test_a_table_value_repeated_in_prose_counts_as_a_repeat(self):
+        html = (
+            "<h3>🛠️ 심층</h3><p>학습 데이터는 22,000개입니다.</p>"
+            "<table><tr><td>문제 수</td><td>22,000</td></tr></table>"
+        )
+        assert "table 22000" in evaluate_summary("a", html).repeated_quantities
+
+    def test_specificity_is_reported_but_not_averaged(self):
+        from app.src.quality_metrics import SummaryQuality
+
+        assert "specificity" in SummaryQuality.DIMENSIONS
+        assert "specificity" not in SummaryQuality.TUNED

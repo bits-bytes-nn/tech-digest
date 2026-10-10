@@ -2,7 +2,7 @@
 
 Used by ``scripts/eval_filtering.py`` to quantify, against a labeled eval set:
   - **determinism**: does the same article get the same score across repeats?
-  - **grid adherence**: do scores land on the intended 0.05 anchor grid?
+  - **anchor adherence**: is every score one of the rubric's anchors?
   - **band alignment**: does the score fall in the expected quality band?
 
 Kept free of boto3/LangChain so the analysis is unit-testable offline.
@@ -13,24 +13,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from statistics import mean, pstdev
 
-# The discrete anchor grid the tuned filtering rubric is meant to emit
-# (see app/src/prompts/prompts.py). A one-step ±0.05 adjustment is allowed,
-# so any 0.05 multiple in [0, 1] is "on grid".
-GRID_STEP = 0.05
-
-
-def is_on_grid(score: float, tol: float = 0.001) -> bool:
-    """Whether a score sits on the 0.05 grid (within floating tolerance)."""
-    if score < 0.0 or score > 1.0:
-        return False
-    nearest = round(score / GRID_STEP) * GRID_STEP
-    return abs(score - nearest) <= tol
-
-
 # Band label for each anchor the filtering rubric can emit, taken from the
 # rubric's OWN wording (see app/src/prompts/prompts.py):
 #
-#   0.85 Groundbreaking / 0.80 Excellent / 0.75 Adequate-included -> high
+#   0.95-0.85 included topic / 0.80 Groundbreaking / 0.75 Excellent -> high
 #   0.70 Strong                                                   -> strong
 #   0.60 Good / 0.50 Moderate                                     -> moderate
 #   0.35 Weak                                                     -> weak
@@ -40,6 +26,8 @@ def is_on_grid(score: float, tol: float = 0.001) -> bool:
 # nearest anchor, with no second table of cutoffs to drift from it.
 # ``test_eval_metrics`` pins every anchor to the band its rubric label names.
 ANCHOR_BANDS: dict[float, str] = {
+    0.95: "high",
+    0.90: "high",
     0.85: "high",
     0.80: "high",
     0.75: "high",
@@ -50,6 +38,15 @@ ANCHOR_BANDS: dict[float, str] = {
     0.15: "reject",
     0.05: "reject",
 }
+
+
+def is_anchor(score: float, tol: float = 0.001) -> bool:
+    """Whether a score is one of the rubric's anchors (within float tolerance).
+
+    The rubric allows no adjustment off an anchor, so 0.65 is as much a defect
+    as 0.83 even though both sit on a 0.05 grid.
+    """
+    return any(abs(score - anchor) <= tol for anchor in ANCHOR_BANDS)
 
 
 def band_of_score(score: float) -> str:
@@ -94,8 +91,8 @@ class ArticleScoreStats:
         return self.spread == 0.0
 
     @property
-    def all_on_grid(self) -> bool:
-        return all(is_on_grid(s) for s in self.scores)
+    def all_on_anchor(self) -> bool:
+        return all(is_anchor(s) for s in self.scores)
 
     @property
     def band_matches(self) -> bool:
@@ -113,8 +110,8 @@ class EvalReport:
         return self._rate(lambda s: s.is_deterministic)
 
     @property
-    def grid_rate(self) -> float:
-        return self._rate(lambda s: s.all_on_grid)
+    def anchor_rate(self) -> float:
+        return self._rate(lambda s: s.all_on_anchor)
 
     @property
     def band_match_rate(self) -> float:
@@ -157,20 +154,20 @@ class EvalReport:
     def format_table(self) -> str:
         lines = [
             f"{'article':<28} {'expect':<9} {'mean':>5} {'σ':>5} "
-            f"{'spread':>6} {'grid':>5} {'band✓':>6}",
+            f"{'spread':>6} {'anchr':>5} {'band✓':>6}",
             "-" * 70,
         ]
         for s in self.stats:
             lines.append(
                 f"{s.article_id:<28} {s.expected_band:<9} {s.mean_score:>5.2f} "
                 f"{s.stdev:>5.2f} {s.spread:>6.2f} "
-                f"{'yes' if s.all_on_grid else 'NO':>5} "
+                f"{'yes' if s.all_on_anchor else 'NO':>5} "
                 f"{'yes' if s.band_matches else 'NO':>6}"
             )
         lines.append("-" * 70)
         lines.append(
             f"determinism={self.determinism_rate:.0%}  "
-            f"on-grid={self.grid_rate:.0%}  "
+            f"on-anchor={self.anchor_rate:.0%}  "
             f"band-match={self.band_match_rate:.0%}  "
             f"band-stable={self.band_stability_rate:.0%}  "
             f"max spread={self.max_spread:.2f}  "
