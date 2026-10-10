@@ -40,7 +40,10 @@ class TestValidateDate:
     def test_unparseable_falls_back_to_today(self):
         from datetime import UTC, datetime
 
-        assert normalize_date("garbage") == datetime.now(UTC).strftime("%Y-%m-%d")
+        # Read the clock on both sides, so a run straddling midnight still passes.
+        before = datetime.now(UTC).strftime("%Y-%m-%d")
+        result = normalize_date("garbage")
+        assert result in {before, datetime.now(UTC).strftime("%Y-%m-%d")}
 
 
 class TestArticleModel:

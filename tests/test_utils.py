@@ -102,9 +102,13 @@ class TestGetDateRange:
         assert start == datetime(2026, 5, 25, tzinfo=UTC)
 
     def test_none_end_date_is_midnight_today_utc(self):
+        def midnight() -> datetime:
+            return datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Read the clock on both sides, so a run straddling midnight still passes.
+        before = midnight()
         start, end = get_date_range(None, days_back=3)
-        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-        assert end == today
+        assert end in {before, midnight()}
         assert (end - start).days == 3
 
     def test_consecutive_weekly_runs_abut(self):

@@ -118,10 +118,11 @@ class TestLinkedInTruncatedTitles:
         monkeypatch.setattr(scraper, "_fetch_page", lambda: soup)
         return scraper
 
+    @pytest.mark.parametrize("marker", ["...", "\u2026"])
     def test_a_truncated_title_is_completed_from_the_post_page(
-        self, monkeypatch, window
+        self, monkeypatch, window, marker
     ):
-        scraper = self._scraper(monkeypatch, "Inside the data context la...")
+        scraper = self._scraper(monkeypatch, f"Inside the data context la{marker}")
         page = (
             '<html><head><meta property="og:title" '
             'content="Inside the data context layer: trustworthy context">'
