@@ -96,12 +96,12 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **S3**. 설정, 수신자 목록, 생성된 뉴스레터, 글 HTML을 보관합니다.
 - **SSM Parameter Store**. LangChain API 키와 Batch 큐/정의 이름을 저장합니다.
 - **SES**로 뉴스레터를 전달하고, **SNS**로 실행·헬스 알림을 보냅니다.
-- **Bedrock(us-west-2)**. Claude Sonnet 5(필터 + 요약), Claude Haiku 4.5(인사말).
-  `LanguageModelId` 카탈로그의 모델은 스테이지별로 골라 쓸 수 있고 **Claude
-  Opus 5**(`anthropic.claude-opus-5`), **Claude Opus 5.5 / Sonnet 5.5 / Haiku
-  5.5**(`anthropic.claude-opus-5-5`, `anthropic.claude-sonnet-5-5`,
-  `anthropic.claude-haiku-5-5`), **Claude Fable 5.1**(`anthropic.claude-fable-5-1`)도
-  포함됩니다. Fable 5.1은 계정의 Bedrock 데이터 보존 모드를 `aws_review`로 바꾸기
+- **Bedrock(us-west-2)**. Claude Sonnet 5.5(필터 + 요약), Claude Haiku 5.5(인사말,
+  출력 복구). `LanguageModelId` 카탈로그의 모델은 스테이지별로 골라 쓸 수 있고 **Claude
+  Opus 5.5 / Opus 5 / Sonnet 5**, **Claude Fable 5.1**(`anthropic.claude-fable-5-1`),
+  **OpenAI GPT-6** 모델(`openai.gpt-6.1-sol`, `openai.gpt-6-sol`, `openai.gpt-6-luna`,
+  `openai.gpt-6-astra`)도 포함됩니다. GPT 모델은 Converse로 호출하고, Claude의
+  thinking 필드 대신 `reasoning.effort`로 추론 깊이를 조절합니다. Fable 5.1은 계정의 Bedrock 데이터 보존 모드를 `aws_review`로 바꾸기
   전에는 모든 요청을 거부합니다. Claude 5 모델은 따로 끄지 않으면 사고하므로
   `*_enable_thinking: False`는 모델마다 다른 끄기 값을 보냅니다. Opus 5.5와 Fable
   5.1은 끌 방법이 없어 `thinking_effort`만으로 깊이를 조절합니다.
@@ -223,7 +223,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(822개 테스트, 커버리지 87.5%)
+pytest                       # 빠른 오프라인 단위/통합 스위트(883개 테스트, 커버리지 87.6%)
 
 # 생성된 실행 결과에 대한 출력 품질 루빅스. 채점은 결정적이고 오프라인이며 무료입니다.
 # --regenerate만 예외로 실제 Bedrock을 호출합니다.

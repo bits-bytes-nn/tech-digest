@@ -188,9 +188,9 @@ class Config(BaseModelWithDefaults):
     summarization: Summarization = Field(
         default_factory=lambda: Summarization(
             filtering_criteria=FilteringCriteria.ALL,
-            filtering_model_id=LanguageModelId.CLAUDE_V5_SONNET,
-            summarization_model_id=LanguageModelId.CLAUDE_V5_SONNET,
-            greeting_model_id=LanguageModelId.CLAUDE_V4_5_HAIKU,
+            filtering_model_id=LanguageModelId.CLAUDE_V5_5_SONNET,
+            summarization_model_id=LanguageModelId.CLAUDE_V5_5_SONNET,
+            greeting_model_id=LanguageModelId.CLAUDE_V5_5_HAIKU,
         )
     )
     newsletter: Newsletter = Field(default_factory=Newsletter)

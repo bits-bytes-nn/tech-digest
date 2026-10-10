@@ -30,7 +30,7 @@ import boto3
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from app.src import EnvVars, LanguageModelId, logger
+from app.src import EnvVars, LanguageModelId, SummarizerSettings, logger
 from app.src.model_factory import BedrockCrossRegionModelHelper
 
 
@@ -49,10 +49,13 @@ def _configured_models(config) -> dict[LanguageModelId, str]:
         ("summarization.summarization_model_id", summarization.summarization_model_id),
         ("summarization.greeting_model_id", summarization.greeting_model_id),
         # The output-fixing model. NOT a config key — ``Summarization`` has no
-        # ``fixing_model_id`` field, so this mirrors the Summarizer's coded
-        # default. Labelled as such rather than as "summarization.fixing_model_id",
-        # which named a setting nobody can actually set.
-        ("Summarizer default (output-fixing)", LanguageModelId.CLAUDE_V4_5_HAIKU),
+        # ``fixing_model_id`` field, so this reads the Summarizer's own default.
+        # Labelled as such rather than as "summarization.fixing_model_id", which
+        # named a setting nobody can actually set.
+        (
+            "Summarizer default (output-fixing)",
+            SummarizerSettings.model_fields["fixing_model_id"].default,
+        ),
     ):
         if model is not None:
             wanted.setdefault(model, []).append(setting)

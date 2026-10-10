@@ -60,7 +60,11 @@ def _band_anchor_score(band: str) -> float:
 
 
 def _score_live(
-    data: dict, repeats: int, stage: str, profile: str | None = None
+    data: dict,
+    repeats: int,
+    stage: str,
+    profile: str | None = None,
+    model: str | None = None,
 ) -> dict[str, list[float]]:
     """Build the real filter chain and score each article ``repeats`` times.
 
@@ -88,6 +92,7 @@ def _score_live(
         SummarizerSettings.model_validate(
             config.summarization.model_dump()
             | {"filtering_criteria": FilteringCriteria(data.get("criteria", "all"))}
+            | ({"filtering_model_id": model} if model else {})
         ),
     )
     included = ", ".join(data.get("included_topics", []))
@@ -124,6 +129,12 @@ def main() -> int:
         help="Make real Bedrock calls (COST). Omit for a no-cost dry run.",
     )
     parser.add_argument("--repeats", type=int, default=3, help="Scorings per article.")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Filtering model id to score with instead of the stage config's "
+        "(e.g. openai.gpt-6-luna), for comparing candidates on the same set.",
+    )
     parser.add_argument(
         "--stage", default="dev", help="Config stage (CONFIG_FILE_SUFFIX)."
     )
@@ -173,7 +184,7 @@ def main() -> int:
         len(data["articles"]),
         args.repeats,
     )
-    results = _score_live(data, args.repeats, args.stage, args.profile)
+    results = _score_live(data, args.repeats, args.stage, args.profile, args.model)
     report = build_report(results, expected)
     print(report.format_table())
 

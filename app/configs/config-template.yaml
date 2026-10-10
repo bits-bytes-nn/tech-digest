@@ -64,11 +64,11 @@ summarization:
   filtering_criteria: all
   included_topics: # list of included topics
   excluded_topics: # list of excluded topics
-  filtering_model_id: anthropic.claude-sonnet-5
+  filtering_model_id: anthropic.claude-sonnet-5-5
   filtering_enable_thinking: False
-  summarization_model_id: anthropic.claude-sonnet-5
+  summarization_model_id: anthropic.claude-sonnet-5-5
   summarization_enable_thinking: False
-  greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
+  greeting_model_id: anthropic.claude-haiku-5-5
   max_concurrency: 5
   min_score: 0.8
   # Keep max_posts modest: mail clients truncate a message over ~100 KB, and each

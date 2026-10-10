@@ -1,5 +1,5 @@
 import re
-from html import escape
+from html import escape, unescape
 from typing import Any, ClassVar
 
 import boto3
@@ -233,16 +233,22 @@ def _strip_unsourced_images(
     our own parser extracted from the post (``Post.images``, already resolved to
     absolute URLs) or appear verbatim in the post HTML the model was given.
 
+    The source is compared with its HTML entities decoded as well as raw: a
+    ``srcset`` carries ``...png?w=1200&amp;q=90``, the model correctly writes the
+    URL with a plain ``&``, and a raw-only comparison dropped images the article
+    really contains (three in one OpenAI post).
+
     Returns ``(cleaned_html, dropped_srcs)``.
     """
     if "<img" not in summary_html.lower():
         return summary_html, []
     allowed = set(known_images)
+    decoded_source = unescape(source_html)
     soup = BeautifulSoup(summary_html, "html.parser")
     dropped: list[str] = []
     for img in list(soup.find_all("img")):
         src = str(img.get("src") or "").strip()
-        if src and (src in allowed or src in source_html):
+        if src and (src in allowed or src in source_html or src in decoded_source):
             continue
         dropped.append(src or "(no src)")
         img.decompose()
@@ -260,10 +266,11 @@ def _unsourced_urls(urls: list[str], source_html: str) -> list[str]:
     silently shipping links the article never contained.
     """
     unsourced = []
+    decoded_source = unescape(source_html)
     for anchor in urls:
         href = BeautifulSoup(anchor, "html.parser").find("a")
         url = str(href.get("href", "")) if href else ""
-        if url and url not in source_html:
+        if url and url not in source_html and url not in decoded_source:
             unsourced.append(url)
     return unsourced
 
@@ -336,7 +343,9 @@ class SummarizerSettings(BaseModel):
 
     filtering_model_id: LanguageModelId
     summarization_model_id: LanguageModelId
-    fixing_model_id: LanguageModelId | None = None
+    # The output-repair model. Not a config key; scripts/put_inference_profiles.py
+    # reads this default so the profile it provisions matches the model used.
+    fixing_model_id: LanguageModelId = LanguageModelId.CLAUDE_V5_5_HAIKU
     filtering_criteria: FilteringCriteria = FilteringCriteria.ALL
     filtering_enable_thinking: bool = False
     summarization_enable_thinking: bool = False
@@ -473,7 +482,7 @@ class Summarizer:
     def _create_summarizer(
         self,
         model_id: LanguageModelId,
-        fixing_model_id: LanguageModelId | None,
+        fixing_model_id: LanguageModelId,
         use_thinking: bool = False,
         thinking_budget_tokens: int | None = None,
         max_tokens: int | None = None,
@@ -481,7 +490,6 @@ class Summarizer:
         model_info = self.llm_factory.get_model_info(model_id)
         if not model_info:
             raise ValueError(f"Invalid model ID: '{model_id}'")
-        fixing_model_id = fixing_model_id or LanguageModelId.CLAUDE_V4_5_HAIKU
         fixing_llm = self.llm_factory.get_model(
             model_id=LanguageModelId(fixing_model_id),
             temperature=0.0,

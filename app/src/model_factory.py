@@ -103,7 +103,18 @@ class LanguageModelInfo(BaseModel):
     # thinking.type="disabled", Sonnet 5.5 rejects that and takes "between_tools"
     # instead, and Opus 5.5 and Fable 5.1 have no off switch at all (None) — for
     # those, output_config.effort is the only depth control left.
-    thinking_off_type: Literal["disabled", "between_tools"] | None = None
+    #
+    # On the OpenAI dialect the off switch is a reasoning effort rather than a
+    # thinking type; "none" turns reasoning off where the model accepts it.
+    thinking_off_type: Literal["disabled", "between_tools", "none"] | None = None
+    # Which request shape carries thinking and depth. Anthropic models take
+    # ``thinking`` + ``output_config.effort``; OpenAI models on Bedrock take
+    # ``reasoning.effort`` and reject the Anthropic fields.
+    request_dialect: Literal["anthropic", "openai"] = "anthropic"
+    # The GPT models reject ``stopSequences`` outright ("This model doesn't
+    # support the stopSequences field"), so the legacy "\n\nHuman:" stop is
+    # only sent where it is accepted.
+    supports_stop_sequences: bool = True
 
 
 _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
@@ -263,6 +274,52 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
         thinks_when_omitted=True,
+    ),
+    # OpenAI GPT-6 generation, through Converse. Measured against Bedrock on
+    # 2026-10-10 (us-west-2): every one rejects temperature, stopSequences and a
+    # Converse cachePoint (the last with AccessDenied, so prompt caching must stay
+    # off — Bedrock still applies its implicit cache). Depth is
+    # ``reasoning.effort`` low|medium|high|xhigh|max; "none" turns reasoning off
+    # on GPT-6 Sol and Luna but is rejected by GPT-6.1 Sol and Astra, which always
+    # reason. Each model reasons at "medium" by default. Output is capped at 64K
+    # like every other entry, because these calls are not streamed.
+    LanguageModelId.GPT_6_1_SOL: LanguageModelInfo(
+        context_window_size=1000000,
+        max_output_tokens=64000,
+        supports_thinking=True,
+        supports_sampling_params=False,
+        thinks_when_omitted=True,
+        request_dialect="openai",
+        supports_stop_sequences=False,
+    ),
+    LanguageModelId.GPT_6_SOL: LanguageModelInfo(
+        context_window_size=1050000,
+        max_output_tokens=64000,
+        supports_thinking=True,
+        supports_sampling_params=False,
+        thinks_when_omitted=True,
+        thinking_off_type="none",
+        request_dialect="openai",
+        supports_stop_sequences=False,
+    ),
+    LanguageModelId.GPT_6_LUNA: LanguageModelInfo(
+        context_window_size=1050000,
+        max_output_tokens=64000,
+        supports_thinking=True,
+        supports_sampling_params=False,
+        thinks_when_omitted=True,
+        thinking_off_type="none",
+        request_dialect="openai",
+        supports_stop_sequences=False,
+    ),
+    LanguageModelId.GPT_6_ASTRA: LanguageModelInfo(
+        context_window_size=1050000,
+        max_output_tokens=64000,
+        supports_thinking=True,
+        supports_sampling_params=False,
+        thinks_when_omitted=True,
+        request_dialect="openai",
+        supports_stop_sequences=False,
     ),
     # NOTE: add new models here
 }
@@ -485,8 +542,13 @@ class BedrockLanguageModelFactory:
         # ChatBedrock path when it does not.
         is_cross_region = resolved_model_id != model_id.value
         enable_thinking = kwargs.get("enable_thinking", False)
-        use_converse = is_cross_region or (
-            enable_thinking and model_info.supports_thinking
+        # The OpenAI models are only built for Converse here: ChatBedrock's
+        # InvokeModel path speaks each provider's native body, which this factory
+        # does not construct for OpenAI.
+        use_converse = (
+            is_cross_region
+            or (enable_thinking and model_info.supports_thinking)
+            or model_info.request_dialect == "openai"
         )
         model_config = self._build_model_config(
             model_info, resolved_model_id, use_converse, model_id=model_id, **kwargs
@@ -573,9 +635,11 @@ class BedrockLanguageModelFactory:
             and self.boto_session.profile_name != "default"
         ):
             config["credentials_profile_name"] = self.boto_session.profile_name
-        common_params = {
-            "stop_sequences": ["\n\nHuman:"],
-        }
+        common_params = (
+            {"stop_sequences": ["\n\nHuman:"]}
+            if model_info.supports_stop_sequences
+            else {}
+        )
         if use_converse:
             config.update(common_params)
         else:
@@ -598,7 +662,9 @@ class BedrockLanguageModelFactory:
         # flag only Claude 3.5 Haiku set — a model this project does not use. Three
         # helpers and a constant existed to configure something no run could reach.
         enable_think = kwargs.get("enable_thinking", False)
-        if self._should_enable_thinking(enable_think, model_info):
+        if model_info.request_dialect == "openai":
+            self._apply_openai_reasoning(config, model_info, **kwargs)
+        elif self._should_enable_thinking(enable_think, model_info):
             if model_info.uses_adaptive_thinking:
                 self._apply_adaptive_thinking(config, use_converse, **kwargs)
             else:
@@ -631,6 +697,23 @@ class BedrockLanguageModelFactory:
             logger.debug(
                 "Applied effort='%s' to a model that cannot stop thinking", effort
             )
+
+    @staticmethod
+    def _apply_openai_reasoning(
+        config: dict[str, Any], model_info: LanguageModelInfo, **kwargs: Any
+    ) -> None:
+        # OpenAI's knob is a single reasoning effort. Thinking on: the configured
+        # effort, or the model default (medium) when unset. Thinking off: "none"
+        # where the model has it; otherwise the model reasons regardless, and the
+        # configured effort is the only depth control left.
+        effort = kwargs.get("effort")
+        if not kwargs.get("enable_thinking") and model_info.thinking_off_type:
+            effort = model_info.thinking_off_type
+        if effort:
+            config.setdefault("additional_model_request_fields", {})["reasoning"] = {
+                "effort": effort
+            }
+            logger.debug("Applied reasoning effort='%s'", effort)
 
     def _apply_adaptive_thinking(
         self, config: dict[str, Any], use_converse: bool, **kwargs: Any

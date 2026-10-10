@@ -228,6 +228,23 @@ class TestSummarizePosts:
         s._summarize_posts([post])
         assert "lazy.png" in post.summary
 
+    def test_image_whose_query_is_entity_encoded_in_the_source_is_kept(self):
+        # A srcset in the article HTML carries "?w=1200&amp;q=90"; the model
+        # writes the decoded "&". That is the same image, and it used to be
+        # dropped as "not in the source".
+        url = "https://images.example.net/a/Saved.png?w=1200&q=90&fm=webp"
+        s = _summarizer()
+        post = _post(
+            "a",
+            content=f'<img srcset="{url.replace("&", "&amp;")} 1200w">',
+        )
+        post.images = []
+        s.summarizer = _FakeChain(
+            [{"summary": f'<img src="{url}">body', "tags": [], "urls": []}]
+        )
+        s._summarize_posts([post])
+        assert "Saved.png" in post.summary
+
 
 class TestProcessPostsCapBeforeSummarize:
     """max_posts must be applied BEFORE summarization so we don't pay to

@@ -756,3 +756,96 @@ class TestThinkingOff:
         assert "top_k" not in fields
         expected = {"type": "adaptive"} if enable_thinking else THINKING_OFF[model_id]
         assert fields.get("thinking") == expected
+
+
+GPT_6 = [
+    LanguageModelId.GPT_6_1_SOL,
+    LanguageModelId.GPT_6_SOL,
+    LanguageModelId.GPT_6_LUNA,
+    LanguageModelId.GPT_6_ASTRA,
+]
+# Measured 2026-10-10: GPT-6 Sol and Luna accept reasoning.effort "none";
+# GPT-6.1 Sol and Astra reject it and always reason.
+GPT_CAN_STOP_REASONING = {LanguageModelId.GPT_6_SOL, LanguageModelId.GPT_6_LUNA}
+
+
+class TestOpenAIDialect:
+    """GPT models on Bedrock reject temperature, stopSequences, a Converse
+    cachePoint and every Anthropic thinking field; depth is reasoning.effort."""
+
+    @pytest.mark.parametrize("model_id", GPT_6)
+    @pytest.mark.parametrize("prefix", ["", "global."])
+    @pytest.mark.parametrize("enable_thinking", [False, True])
+    def test_no_anthropic_or_sampling_fields(
+        self, monkeypatch, model_id, prefix, enable_thinking
+    ):
+        _stub_resolution(monkeypatch, prefix)
+        captured = _capture_ctor(monkeypatch)
+        _offline_factory().get_model(
+            model_id,
+            temperature=0.0,
+            top_k=50,
+            enable_thinking=enable_thinking,
+            thinking_budget_tokens=8192,
+            effort="high",
+        )
+        kwargs = captured["kwargs"]
+        # Converse even on a bare id: InvokeModel would need OpenAI's own body.
+        assert captured["class"] == "ChatBedrockConverse"
+        assert "stop_sequences" not in kwargs
+        fields = _request_fields(kwargs)
+        for key in (*SAMPLING_KEYS, "thinking", "output_config"):
+            assert key not in kwargs and key not in fields, key
+
+    @pytest.mark.parametrize("model_id", GPT_6)
+    @pytest.mark.parametrize("effort", [None, "low", "max"])
+    def test_thinking_on_sends_the_configured_effort(
+        self, monkeypatch, model_id, effort
+    ):
+        _stub_resolution(monkeypatch, "global.")
+        captured = _capture_ctor(monkeypatch)
+        _offline_factory().get_model(model_id, enable_thinking=True, effort=effort)
+        fields = _request_fields(captured["kwargs"])
+        if effort:
+            assert fields["reasoning"] == {"effort": effort}
+        else:
+            assert "reasoning" not in fields  # the model default, "medium"
+
+    @pytest.mark.parametrize("model_id", GPT_6)
+    @pytest.mark.parametrize("effort", [None, "medium"])
+    def test_thinking_off(self, monkeypatch, model_id, effort):
+        _stub_resolution(monkeypatch, "global.")
+        captured = _capture_ctor(monkeypatch)
+        _offline_factory().get_model(model_id, enable_thinking=False, effort=effort)
+        fields = _request_fields(captured["kwargs"])
+        if model_id in GPT_CAN_STOP_REASONING:
+            assert fields["reasoning"] == {"effort": "none"}
+        elif effort:
+            assert fields["reasoning"] == {"effort": effort}
+        else:
+            assert "reasoning" not in fields
+
+    @pytest.mark.parametrize("model_id", GPT_6)
+    def test_prompt_caching_is_off(self, model_id):
+        # A Converse cachePoint is refused with AccessDenied on these models.
+        assert _LANGUAGE_MODEL_INFO[model_id].supports_prompt_caching is False
+
+    @pytest.mark.parametrize("model_id", GPT_6)
+    def test_real_converse_request(self, monkeypatch, model_id):
+        import boto3
+
+        factory = _offline_factory()
+        factory._client = boto3.client(
+            "bedrock-runtime",
+            region_name="us-west-2",
+            aws_access_key_id="testing",
+            aws_secret_access_key="testing",
+        )
+        _stub_resolution(monkeypatch, "global.")
+        llm = factory.get_model(model_id, enable_thinking=False, temperature=0.0)
+        params = llm._converse_params()
+        inference = params.get("inferenceConfig", {})
+        assert "temperature" not in inference
+        assert "stopSequences" not in inference
+        fields = params.get("additionalModelRequestFields") or {}
+        assert "thinking" not in fields

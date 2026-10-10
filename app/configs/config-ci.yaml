@@ -22,9 +22,9 @@ scraping:
 summarization:
   use_filtering: True
   filtering_criteria: all
-  filtering_model_id: anthropic.claude-sonnet-5
-  summarization_model_id: anthropic.claude-sonnet-5
-  greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
+  filtering_model_id: anthropic.claude-sonnet-5-5
+  summarization_model_id: anthropic.claude-sonnet-5-5
+  greeting_model_id: anthropic.claude-haiku-5-5
   max_concurrency: 5
   min_score: 0.7
   max_posts: 3

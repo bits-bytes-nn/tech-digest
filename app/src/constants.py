@@ -75,6 +75,12 @@ class LanguageModelId(str, Enum):
     CLAUDE_V5_OPUS = "anthropic.claude-opus-5"
     CLAUDE_V5_5_OPUS = "anthropic.claude-opus-5-5"
     CLAUDE_V5_1_FABLE = "anthropic.claude-fable-5-1"
+    # OpenAI GPT-6 generation on Bedrock (Converse). Astra is the top tier, Sol the
+    # general-purpose tier, Luna the low-cost tier for repeatable work at scale.
+    GPT_6_1_SOL = "openai.gpt-6.1-sol"
+    GPT_6_SOL = "openai.gpt-6-sol"
+    GPT_6_LUNA = "openai.gpt-6-luna"
+    GPT_6_ASTRA = "openai.gpt-6-astra"
     # NOTE: add new models here
 
 

@@ -98,12 +98,13 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **S3**. config, recipients, generated newsletters, and article HTML.
 - **SSM Parameter Store**. LangChain API key and Batch queue/definition names.
 - **SES**. newsletter delivery. **SNS** — run/health notifications.
-- **Bedrock (us-west-2)**. Claude Sonnet 5 (filter + summarize), Claude
-  Haiku 4.5 (greeting). Any model in the `LanguageModelId` catalog is
-  selectable per stage, including **Claude Opus 5** (`anthropic.claude-opus-5`),
-  **Claude Opus 5.5 / Sonnet 5.5 / Haiku 5.5** (`anthropic.claude-opus-5-5`,
-  `anthropic.claude-sonnet-5-5`, `anthropic.claude-haiku-5-5`) and **Claude
-  Fable 5.1** (`anthropic.claude-fable-5-1`). Fable 5.1 refuses every request
+- **Bedrock (us-west-2)**. Claude Sonnet 5.5 (filter + summarize), Claude
+  Haiku 5.5 (greeting and output repair). Any model in the `LanguageModelId`
+  catalog is selectable per stage, including **Claude Opus 5.5 / Opus 5 / Sonnet
+  5**, **Claude Fable 5.1** (`anthropic.claude-fable-5-1`) and the **OpenAI GPT-6**
+  models (`openai.gpt-6.1-sol`, `openai.gpt-6-sol`, `openai.gpt-6-luna`,
+  `openai.gpt-6-astra`), which run through Converse with `reasoning.effort` in
+  place of Claude's thinking fields. Fable 5.1 refuses every request
   until the account's Bedrock data retention mode is set to `aws_review`.
   Claude 5 models think unless told not to, so `*_enable_thinking: False` sends
   each model's own off switch; Opus 5.5 and Fable 5.1 have none, and
@@ -227,7 +228,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (822 tests, 87.5% cov)
+pytest                       # fast, offline unit/integration suite (883 tests, 87.6% cov)
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline
 # and free; --regenerate is the exception and makes real Bedrock calls.

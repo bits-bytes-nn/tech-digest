@@ -607,6 +607,16 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 ✅ DO write in a natural, flowing narrative style throughout all sections
 ✅ DO be concise while maintaining completeness
 
+**FINAL CHECK (re-read your draft and fix it before answering):**
+Knowing a rule is not the same as having followed it. These are the slips that most often survive
+into a published issue, so look for each one in your draft and fix it before you output:
+1. Go through every number in 📊. If it already appears in 📌, 🔄 or 🛠️, delete it and refer to it in
+   words ("the latency reduction above"). Only numbers not given earlier may stay in 📊.
+2. Find sentences whose verb is "provides", "offers" or "supports" and say what the feature actually does.
+3. Find praise adjectives, "not just X, it's Y" and meta-narration (principle 6) and rewrite them.
+4. Count the words in one_liner. If it is outside 15-28 words, fix it.
+5. Check that every image src is copied character for character from the article, query string included.
+
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
 <one_liner>[ONE plain-text sentence a reader scanning the digest can use to decide whether to read this
@@ -780,6 +790,17 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 ✅ DO write in a natural, flowing narrative style throughout all sections
 ✅ DO be concise while maintaining completeness
 ✅ DO translate technical terms to Korean when appropriate
+
+**마지막 점검 (답을 내기 전에 초안을 다시 읽고 고치세요):**
+규칙을 아는 것과 지킨 것은 다릅니다. 아래 다섯 가지는 지난 호들에서 실제로 가장 자주 남은
+실수이므로, 초안을 쓴 뒤 하나씩 찾아서 고치고 나서 출력하세요.
+1. 📊 섹션의 숫자를 하나씩 보세요. 📌·🔄·🛠️에 이미 쓴 숫자라면 지우고 "앞서 본 지연 감소폭은"처럼
+   말로 가리키세요. 📊에 남는 숫자는 앞에서 한 번도 나오지 않은 것뿐이어야 합니다.
+2. "제공합니다", "지원합니다"로 끝나는 문장을 찾아 그 기능이 실제로 무엇을 하는지로 바꾸세요.
+3. "~라는/다는 점입니다"로 끝나는 문장, "~하는 것" 명사절, 수량 표현 뒤의 "-들"("16개 GPU들")을
+   찾아 원칙 7·8대로 고치세요.
+4. one_liner의 글자 수를 공백을 포함해 세세요. 40~100자를 벗어나면 고치세요.
+5. 이미지 src는 원문에 있는 URL을 글자 그대로(쿼리 문자열 포함) 옮겼는지 확인하세요.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>

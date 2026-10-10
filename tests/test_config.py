@@ -206,8 +206,8 @@ class TestSummarizationSwitchesReachTheSummarizer:
 
 
 class TestNewestModelsAreSelectable:
-    """The 5.5 generation and Fable 5.1 must load from YAML for every stage —
-    without moving any default off the models it already uses."""
+    """The newest Claude and GPT ids must load from YAML for every stage, and the
+    shipped configs must agree with the code defaults."""
 
     @pytest.mark.parametrize(
         "model_value",
@@ -216,6 +216,10 @@ class TestNewestModelsAreSelectable:
             "anthropic.claude-sonnet-5-5",
             "anthropic.claude-opus-5-5",
             "anthropic.claude-fable-5-1",
+            "openai.gpt-6.1-sol",
+            "openai.gpt-6-sol",
+            "openai.gpt-6-luna",
+            "openai.gpt-6-astra",
         ],
     )
     @pytest.mark.parametrize("effort", [None, "medium", "xhigh", "max"])
@@ -234,26 +238,28 @@ class TestNewestModelsAreSelectable:
         assert s.greeting_model_id.value == model_value
         assert s.thinking_effort == effort
 
-    def test_code_defaults_unchanged(self):
+    def test_code_defaults_are_the_latest_claude(self):
         s = Config.model_fields["summarization"].default_factory()
-        assert s.filtering_model_id is LanguageModelId.CLAUDE_V5_SONNET
-        assert s.summarization_model_id is LanguageModelId.CLAUDE_V5_SONNET
-        assert s.greeting_model_id is LanguageModelId.CLAUDE_V4_5_HAIKU
+        assert s.filtering_model_id is LanguageModelId.CLAUDE_V5_5_SONNET
+        assert s.summarization_model_id is LanguageModelId.CLAUDE_V5_5_SONNET
+        assert s.greeting_model_id is LanguageModelId.CLAUDE_V5_5_HAIKU
         assert s.thinking_effort is None
 
     @pytest.mark.parametrize(
         "name", ["config-template.yaml", "config-ci.yaml", "config-ci-batch.yaml"]
     )
-    def test_shipped_config_defaults_unchanged(self, name):
+    def test_shipped_configs_match_the_code_defaults(self, name):
         import yaml
 
+        defaults = Config.model_fields["summarization"].default_factory()
         path = Path(__file__).resolve().parent.parent / "app" / "configs" / name
         section = yaml.safe_load(path.read_text(encoding="utf-8"))["summarization"]
-        assert section["filtering_model_id"] == "anthropic.claude-sonnet-5"
-        assert section["summarization_model_id"] == "anthropic.claude-sonnet-5"
-        assert (
-            section["greeting_model_id"] == "anthropic.claude-haiku-4-5-20251001-v1:0"
-        )
+        for key in (
+            "filtering_model_id",
+            "summarization_model_id",
+            "greeting_model_id",
+        ):
+            assert section[key] == getattr(defaults, key).value, (name, key)
 
 
 class TestCommittedSourcesReachTheirScraper:
