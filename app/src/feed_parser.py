@@ -849,6 +849,25 @@ class GenericPageScraper:
 
 class LinkedInBlogScraper(GenericPageScraper):
     ITEM_SELECTOR: ClassVar[str] = "li.post-list__item"
+    # The index cuts long titles to "...". The full one is only on the post page.
+    TRUNCATION_MARKERS: ClassVar[tuple[str, ...]] = ("...", "\u2026")
+
+    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
+        posts = super().fetch(start_date, end_date)
+        for post in posts:
+            if post.title.endswith(self.TRUNCATION_MARKERS):
+                post.title = self._full_title(str(post.link)) or post.title
+        return posts
+
+    @staticmethod
+    def _full_title(url: str) -> str:
+        if not (response := _make_robust_request(url)):
+            return ""
+        soup = parse_page(response)
+        meta = soup.find("meta", attrs={"property": "og:title"})
+        if isinstance(meta, Tag) and (content := meta.get("content")):
+            return str(content).strip()
+        return soup.title.get_text(strip=True) if soup.title else ""
 
     def _parse_item(self, item: Tag) -> feedparser.FeedParserDict | None:
         date_elem = item.select_one("p.grid-post__date")

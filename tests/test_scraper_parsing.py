@@ -89,3 +89,62 @@ class TestLinkedInScraper:
         assert posts
         assert posts[0].link.startswith("https://www.linkedin.com/blog/engineering/")
         assert posts[0].source == "linkedin"
+
+
+class _Page:
+    """Just enough of a ``requests.Response`` for ``parse_page``."""
+
+    def __init__(self, html: str):
+        self.content = html.encode("utf-8")
+        self.text = html
+        self.headers = {"content-type": "text/html; charset=utf-8"}
+        self.encoding = "utf-8"
+
+
+class TestLinkedInTruncatedTitles:
+    """The index shows long titles cut to "..."; the post page has the full one."""
+
+    _CARD = (
+        '<li class="post-list__item">'
+        '<p class="grid-post__date">May 25, 2026</p>'
+        '<a class="grid-post__link" href="/blog/engineering/x">{title}</a></li>'
+    )
+
+    def _scraper(self, monkeypatch, title: str) -> LinkedInBlogScraper:
+        scraper = LinkedInBlogScraper(
+            page_url="https://www.linkedin.com/blog/engineering"
+        )
+        soup = BeautifulSoup(self._CARD.format(title=title), "html.parser")
+        monkeypatch.setattr(scraper, "_fetch_page", lambda: soup)
+        return scraper
+
+    def test_a_truncated_title_is_completed_from_the_post_page(
+        self, monkeypatch, window
+    ):
+        scraper = self._scraper(monkeypatch, "Inside the data context la...")
+        page = (
+            '<html><head><meta property="og:title" '
+            'content="Inside the data context layer: trustworthy context">'
+            "</head><body></body></html>"
+        )
+        monkeypatch.setattr(
+            feed_parser, "_make_robust_request", lambda url: _Page(page)
+        )
+        [post] = scraper.fetch(*window)
+        assert post.title == "Inside the data context layer: trustworthy context"
+
+    def test_an_unreachable_post_page_keeps_the_index_title(self, monkeypatch, window):
+        scraper = self._scraper(monkeypatch, "Inside the data context la...")
+        [post] = scraper.fetch(*window)
+        assert post.title == "Inside the data context la..."
+
+    def test_a_complete_title_costs_no_request(self, monkeypatch, window):
+        calls: list[str] = []
+        monkeypatch.setattr(
+            feed_parser, "_make_robust_request", lambda url: calls.append(url)
+        )
+        scraper = self._scraper(monkeypatch, "Building A Feature Store")
+        [post] = scraper.fetch(*window)
+        assert post.title == "Building A Feature Store"
+        # Only the article-body scrape asks for the page, not the title check.
+        assert len(calls) == 1
