@@ -249,18 +249,12 @@ class NewsletterStack(Stack):
                 )
             ]
         else:
-            service_principal = iam.CompositePrincipal(
-                iam.ServicePrincipal("ec2.amazonaws.com"),
-                iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-            )
-            # Required for the Batch EC2 compute environment to register with
-            # ECS and pull container images; this is the AWS-recommended
-            # scoped instance role, not a *FullAccess policy.
-            managed_policies = [
-                iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "service-role/AmazonEC2ContainerServiceforEC2Role"
-                )
-            ]
+            # The JOB role: only the container assumes it. The EC2 hosts get their
+            # own instance role (``_create_instance_role``). One role used to serve
+            # both, so every Batch host carried Bedrock, SES, S3 and SSM rights
+            # and every container carried the ECS agent's.
+            service_principal = iam.ServicePrincipal("ecs-tasks.amazonaws.com")
+            managed_policies = []
 
         role = iam.Role(
             self,
@@ -273,6 +267,23 @@ class NewsletterStack(Stack):
         for statement in self._app_policy_statements():
             role.add_to_policy(statement)
         return role
+
+    def _create_instance_role(self) -> iam.Role:
+        """The Batch EC2 hosts' role: ECS registration, image pull and the
+        awslogs driver, which on EC2 writes with the host's credentials. Nothing
+        the application does runs under it."""
+        return iam.Role(
+            self,
+            "NewsletterInstanceRole",
+            assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
+            description="Batch EC2 instance role for Tech Digest Newsletter",
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AmazonEC2ContainerServiceforEC2Role"
+                )
+            ],
+            role_name=self._get_resource_name("newsletter-instance"),
+        )
 
     def _app_policy_statements(self) -> list[iam.PolicyStatement]:
         """Scoped permissions for the application's actual AWS operations."""
@@ -335,14 +346,14 @@ class NewsletterStack(Stack):
                     "StringEquals": {"kms:ViaService": f"ssm.{region}.amazonaws.com"}
                 },
             ),
-            # Bedrock: invoke Claude models, including via cross-region
+            # Bedrock: invoke Claude and OpenAI GPT models, including via cross-region
             # inference profiles. A cross-region profile (us./apac./global.)
             # fans the underlying InvokeModel out to MULTIPLE regions, so the
             # foundation-model resource MUST span regions or invocation hits
             # AccessDenied when the profile routes to a region not listed.
             # foundation-model ARNs are AWS-owned (no account id); the
-            # meaningful restriction is the Anthropic model namespace, with a
-            # region wildcard. The account-scoped inference-profile ARNs remain
+            # meaningful restriction is the provider model namespace
+            # (anthropic.*, openai.*), with a region wildcard. The account-scoped inference-profile ARNs remain
             # the access-controlled resource.
             iam.PolicyStatement(
                 actions=[
@@ -351,6 +362,7 @@ class NewsletterStack(Stack):
                 ],
                 resources=[
                     "arn:aws:bedrock:*::foundation-model/anthropic.*",
+                    "arn:aws:bedrock:*::foundation-model/openai.*",
                     f"arn:aws:bedrock:*:{account}:inference-profile/*",
                     # `application-inference-profile` is a DIFFERENT IAM resource
                     # type from `inference-profile`. The runtime prefers this
@@ -368,22 +380,11 @@ class NewsletterStack(Stack):
                 ],
                 resources=["*"],  # profile discovery is an account-level action
             ),
-            # CloudWatch Logs: Batch container logging (Lambda gets this from
-            # its managed exec role). Scoped to this project's Batch log groups.
-            iam.PolicyStatement(
-                actions=[
-                    "logs:CreateLogGroup",
-                    "logs:CreateLogStream",
-                    "logs:PutLogEvents",
-                ],
-                resources=[
-                    f"arn:aws:logs:{region}:{account}:log-group:/aws/batch/*",
-                    f"arn:aws:logs:{region}:{account}:log-group:"
-                    f"/aws/batch/*:log-stream:*",
-                    f"arn:aws:logs:{region}:{account}:log-group:"
-                    f"{self.project_name}-{self.stage}*",
-                ],
-            ),
+            # No CloudWatch Logs statement: nothing running as this role writes
+            # logs itself. Batch container output goes through the awslogs driver,
+            # which on EC2 uses the INSTANCE role (its managed policy grants
+            # CreateLogStream/PutLogEvents), and Lambda gets the same from
+            # AWSLambdaBasicExecutionRole.
         ]
 
     def _create_sns_topic(self, email_addresses: list[str] | None) -> sns.Topic:
@@ -549,12 +550,31 @@ class NewsletterStack(Stack):
         )
 
     def _create_job_queue(self) -> batch.JobQueue:
+        # A job that can never be placed sits in RUNNABLE indefinitely: the job
+        # definition's 3-hour timeout only counts RUNNING time, and the FAILED rule
+        # below never fires, so a missed issue raised no signal at all. Batch can
+        # cancel such a job for the three reasons it can diagnose; a cancelled job
+        # reaches FAILED, which the existing rule forwards to SNS. Two hours is
+        # far past normal placement (minutes) and still leaves the run the same day.
         job_queue = batch.JobQueue(
             self,
             "NewsletterJobQueue",
             job_queue_name=self._get_resource_name("newsletter"),
             priority=1,
             compute_environments=[],
+            job_state_time_limit_actions=[
+                batch.JobStateTimeLimitAction(
+                    max_time=Duration.hours(2),
+                    reason=reason,
+                    action=batch.JobStateTimeLimitActionsAction.CANCEL,
+                    state=batch.JobStateTimeLimitActionsState.RUNNABLE,
+                )
+                for reason in (
+                    batch.JobStateTimeLimitActionsReason.INSUFFICIENT_INSTANCE_CAPACITY,
+                    batch.JobStateTimeLimitActionsReason.COMPUTE_ENVIRONMENT_MAX_RESOURCE,
+                    batch.JobStateTimeLimitActionsReason.JOB_RESOURCE_REQUIREMENT,
+                )
+            ],
         )
 
         # Require IMDSv2 (token-authenticated) and drop the hop limit to 1 so a
@@ -573,7 +593,7 @@ class NewsletterStack(Stack):
         )
 
         compute_env_config = {
-            "instance_role": self.role,
+            "instance_role": self._create_instance_role(),
             # Let Batch pick from the optimal C/M/R instance classes. This is the
             # supported way to express Batch "optimal"; passing
             # InstanceType("optimal") is rejected as a malformed identifier by
