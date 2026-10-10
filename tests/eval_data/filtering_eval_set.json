@@ -47,6 +47,12 @@
       "expected_band": "reject",
       "title": "Deep Learning for Protein Folding in Drug Discovery",
       "content": "This article applies deep learning to protein structure prediction for pharmaceutical drug discovery, a healthcare and biology application. While it uses neural networks, the entire focus is on biological molecular dynamics, wet-lab validation of candidate compounds, and clinical relevance — squarely within the excluded Biology and Healthcare topics. The ML method is incidental to a biology/healthcare subject that is explicitly excluded."
+    },
+    {
+      "id": "excluded-topic-wins-over-included",
+      "expected_band": "reject",
+      "title": "Introducing MedFound 2: A Foundation Model for Clinical Healthcare",
+      "content": "Today we release MedFound 2, a 70B-parameter foundation model trained for clinical healthcare. The model reads radiology reports, discharge summaries and lab panels, and drafts care-plan suggestions for physicians. We describe the training mixture of de-identified hospital records and medical literature, the instruction-tuning stage with clinician feedback, and evaluation on medical licensing exams and hospital readmission prediction, where it improves AUROC from 0.71 to 0.79. The release includes model weights for research use, a model card covering clinical safety limits, and an API for hospital integration. This post is a primary, in-depth account of the release: a new foundation model whose entire purpose is healthcare."
     }
   ]
 }

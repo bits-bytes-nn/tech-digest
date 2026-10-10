@@ -31,7 +31,8 @@ dimension                     prompt rule it measures
 ``overall`` and ``weakest()`` cover only the graded dimensions
 (``SummaryQuality.TUNED``). The rest are contract checks (``GUARDS``) that a
 healthy pipeline always passes; they are reported as violations rather than
-averaged in, where they would only pad the score.
+averaged in, where they would only pad the score. ``specificity`` is reported
+for information only (``INFO``).
 
 The rubric is KOREAN-ONLY. Six of the eleven dimensions test properties that only
 exist in Korean prose (합니다체 register, 번역투, the Korean cliché list, the
@@ -150,11 +151,12 @@ def is_korean(text: str, threshold: float = 0.1) -> bool:
 
 # Formulaic closings the prompt bans by name, because every article ended the
 # same way and it read as boilerplate.
-BANNED_CLOSINGS: tuple[str, ...] = (
-    "주목할 만한 참고 자료",
-    "개발자와 아키텍트에게",
-    "참고할 만한 자료입니다",
-    "좋은 참고가 될 것입니다",
+# The formulaic audience call-out the prompt bans at the end of 📌 ("…실무자에게
+# 참고가 됩니다", "…팀에 유용합니다"). Matched as a shape — an audience noun and a
+# usefulness word in the section's last sentence — because the model rewords it
+# every time a fixed phrase list catches up with it.
+AUDIENCE_CALLOUT = re.compile(
+    r"(실무자|팀|엔지니어|개발자|아키텍트|독자|조직)[^.]{0,40}(참고|유용|의미가|도움)"
 )
 
 # Meta-framing the lede must not use: it should state the finding, not announce
@@ -335,6 +337,23 @@ def table_figures(soup: BeautifulSoup) -> set[str]:
     return figures
 
 
+def _numbers(text: str) -> set[str]:
+    """Multi-digit numbers in ``text``, with thousands separators dropped."""
+    found = {n.replace(",", "").rstrip(".") for n in re.findall(r"\d[\d,.]*", text)}
+    return {n for n in found if len(n.replace(".", "")) >= 2}
+
+
+def _table_prose_repeats(soup: BeautifulSoup) -> set[str]:
+    """Numbers that appear both in a table cell and in the prose outside tables."""
+    in_tables = _numbers(" ".join(td.get_text(" ") for td in soup.find_all("td")))
+    if not in_tables:
+        return set()
+    prose = BeautifulSoup(str(soup), "html.parser")
+    for tag in prose.find_all(["table", "pre", "code"]):
+        tag.decompose()
+    return in_tables & _numbers(prose.get_text(" "))
+
+
 def sentences(text: str) -> list[str]:
     parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", text) if p.strip()]
     return parts
@@ -381,7 +400,6 @@ class SummaryQuality:
     cliches: dict[str, int] = field(default_factory=dict)
     lede: str = ""
     lede_sentences: int = 0
-    notes: list[str] = field(default_factory=list)
 
     # -- individual dimensions ------------------------------------------------
     @property
@@ -421,7 +439,8 @@ class SummaryQuality:
 
     @property
     def distinctiveness_score(self) -> float:
-        """📊 must add implication, not re-list figures already given."""
+        """A figure stated twice: 📊 re-listing an earlier figure, or prose
+        repeating a value already in a table."""
         if not self.repeated_quantities:
             return 1.0
         return max(0.0, 1.0 - 0.2 * len(self.repeated_quantities))
@@ -480,7 +499,6 @@ class SummaryQuality:
         "length",
         "register",
         "distinctiveness",
-        "specificity",
         "translationese",
         "cliche",
     )
@@ -488,7 +506,10 @@ class SummaryQuality:
     # in would pad ``overall`` without measuring quality. Any shortfall is
     # reported as a violation instead.
     GUARDS = ("structure", "terminal_colon", "boilerplate", "lede", "caption")
-    DIMENSIONS = TUNED + GUARDS
+    # Reported, not scored: figure density is bounded by the source, so no fixed
+    # target fits every article, and steering by it rewards stuffing in numbers.
+    INFO = ("specificity",)
+    DIMENSIONS = TUNED + GUARDS + INFO
 
     def scores(self) -> dict[str, float]:
         return {d: getattr(self, f"{d}_score") for d in self.DIMENSIONS}
@@ -515,6 +536,8 @@ def evaluate_summary(
     earlier = " ".join(sections.get(m, "") for m in ("📌", "🔄", "🛠️"))
     results_section = sections.get("📊", "")
     repeated = sorted(quantities(results_section) & quantities(earlier))
+    repeated += sorted(f"table {n}" for n in _table_prose_repeats(soup))
+    lede_section = sentences(sections.get("📌", ""))
 
     images = soup.find_all("img")
     captioned = 0
@@ -543,7 +566,11 @@ def evaluate_summary(
         tables=len(soup.find_all("table")),
         images=len(images),
         captioned_images=captioned,
-        banned_closings=tuple(p for p in BANNED_CLOSINGS if p in text),
+        banned_closings=tuple(
+            lede_section[-1:]
+            if lede_section and AUDIENCE_CALLOUT.search(lede_section[-1])
+            else ()
+        ),
         translationese=translationese_hits(text),
         cliches=cliche_hits(text),
         lede=one_liner.strip(),

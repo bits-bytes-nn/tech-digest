@@ -413,6 +413,16 @@ class TestSelectForDigest:
         chosen = [p.title for p in s._select_for_digest(posts)]
         assert chosen == ["aws1", "aws2", "aws3"]
 
+    def test_backfilled_posts_are_re_ranked_into_score_order(self):
+        s = _summarizer(max_posts=3, max_per_source=1)
+        posts = self._scored(
+            [("aws1", "aws", 0.90), ("aws2", "aws", 0.88), ("meta1", "meta", 0.80)]
+        )
+        # aws2 is backfilled after the capped pass picked aws1 and meta1, but it
+        # outranks meta1 and must be listed before it.
+        chosen = [p.title for p in s._select_for_digest(posts)]
+        assert chosen == ["aws1", "aws2", "meta1"]
+
     def test_no_cap_keeps_pure_score_order(self):
         s = _summarizer(max_posts=2)
         posts = self._scored(
@@ -804,3 +814,27 @@ class TestFailureReasonsAreRecognisable:
         s._gate_by_content_length([_post("thin", content="<p>short</p>")])
         [(_, reason)] = s.filtered_out_posts
         assert not reason.startswith(MODEL_FAILURE_PREFIXES)
+
+
+class TestBackticksBecomeCode:
+    """Markdown is not processed inside HTML, so backticks would show verbatim."""
+
+    def test_a_backtick_span_in_prose_becomes_code(self):
+        from app.src.summarizer import _postprocess_summary
+
+        out = _postprocess_summary("<p>Set `--tp 2` and `PD_BUFFER` first.</p>")
+        assert out == (
+            "<p>Set <code>--tp 2</code> and <code>PD_BUFFER</code> first.</p>"
+        )
+
+    def test_backticks_inside_a_code_block_are_left_alone(self):
+        from app.src.summarizer import _postprocess_summary
+
+        html = "<pre><code>echo `date`</code></pre>"
+        assert _postprocess_summary(html) == html
+
+    def test_escaped_text_in_a_span_stays_escaped(self):
+        from app.src.summarizer import _postprocess_summary
+
+        out = _postprocess_summary("<p>Check `a &lt; b` here.</p>")
+        assert out == "<p>Check <code>a &lt; b</code> here.</p>"

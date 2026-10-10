@@ -1,10 +1,10 @@
 """Evaluate filtering-score behavior against a labeled eval set.
 
-Measures, per article (scored ``--repeats`` times): adherence to the 0.05 anchor
-grid, alignment with the expected quality band, and reproducibility (determinism,
+Measures, per article (scored ``--repeats`` times): adherence to the rubric's
+anchors, alignment with the expected quality band, and reproducibility (determinism,
 band stability, spread).
 
-Only the grid and band-alignment checks are GATED. Exact determinism is reported
+Only the anchor and band-alignment checks are GATED. Exact determinism is reported
 but not gated: models from Sonnet 5 on expose no sampling controls, so greedy
 decoding cannot be requested and repeated scorings of identical input differ.
 See the comment on the gate in ``main()`` for the measured numbers.
@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from app.src import logger
-from app.src.eval_metrics import GRID_STEP, band_of_score, build_report, is_on_grid
+from app.src.eval_metrics import ANCHOR_BANDS, build_report
 
 EVAL_SET = (
     Path(__file__).resolve().parent.parent
@@ -46,17 +46,8 @@ def load_eval_set(path: Path) -> dict:
 
 
 def _band_anchor_score(band: str) -> float:
-    """A representative on-grid (0.05) score that lands in ``band``.
-
-    Derived by scanning the grid through ``band_of_score`` rather than hardcoding
-    thresholds, so it stays correct if the band cutoffs change. Used only by the
-    zero-cost dry-run to exercise the reporting path.
-    """
-    candidates = [i * 0.05 for i in range(20, -1, -1)]  # 1.00 .. 0.00
-    for score in candidates:
-        if is_on_grid(score) and band_of_score(score) == band:
-            return round(score, 2)
-    return 0.0
+    """The highest anchor in ``band``; the dry run uses it to exercise reporting."""
+    return max((a for a, b in ANCHOR_BANDS.items() if b == band), default=0.0)
 
 
 def _score_live(
@@ -113,7 +104,7 @@ def _score_live(
                 }
             )
             # Same rule as the pipeline: a missing, unparseable or out-of-range
-            # score is a failed call. Scoring it 0.0 would count as on-grid and
+            # score is a failed call. Scoring it 0.0 would count as on-anchor and
             # as a correct "reject" for half the set.
             try:
                 score = float(response["score"])
@@ -159,7 +150,7 @@ def main() -> int:
 
     if not args.live:
         # Exercise the full analysis wiring (build_report + format_table) at zero
-        # cost by feeding each article a synthetic on-grid score in its expected
+        # cost by feeding each article a synthetic on-anchor score in its expected
         # band. This is what makes the CI dry-run a real smoke test of the
         # reporting path — not just "the JSON parsed" — without any Bedrock call.
         synthetic = {
@@ -167,12 +158,12 @@ def main() -> int:
         }
         report = build_report(synthetic, expected)
         print(report.format_table())
-        if not (report.grid_rate == 1.0 and report.band_match_rate == 1.0):
+        if not (report.anchor_rate == 1.0 and report.band_match_rate == 1.0):
             logger.error(
                 "Dry-run self-check failed: synthetic scores should be 100%% "
-                "on-grid and band-matching (got grid=%.0f%%, band=%.0f%%). "
+                "on-anchor and band-matching (got anchor=%.0f%%, band=%.0f%%). "
                 "This indicates a regression in the eval-metrics wiring.",
-                report.grid_rate * 100,
+                report.anchor_rate * 100,
                 report.band_match_rate * 100,
             )
             return 1
@@ -209,16 +200,16 @@ def main() -> int:
     # repeated scorings of identical input differ (design.md §9). A gate the
     # default model cannot meet is a gate people stop running, so determinism,
     # band stability and spread are reported as warnings.
-    ok = report.grid_rate >= 0.99 and report.band_match_rate >= 0.80
+    ok = report.anchor_rate >= 0.99 and report.band_match_rate >= 0.80
     if not ok:
         logger.error(
-            "Filtering behavior below thresholds (on-grid>=99%%, band-match>=80%%)."
+            "Filtering behavior below thresholds (on-anchor>=99%%, band-match>=80%%)."
         )
         return 1
     if report.determinism_rate < 1.0:
         logger.warning(
             "Scores are NOT reproducible: determinism=%.0f%%, band-stable=%.0f%%, "
-            "max spread=%.2f (%.0f anchor steps). Expected on models without "
+            "max spread=%.2f. Expected on models without "
             "sampling controls. Practical consequence: a post scoring within "
             "~%.2f of min_score may be included in one run and excluded in the "
             "next. Pin a temperature-capable filtering model if reproducible "
@@ -226,7 +217,6 @@ def main() -> int:
             report.determinism_rate * 100,
             report.band_stability_rate * 100,
             report.max_spread,
-            report.max_spread / GRID_STEP,
             report.max_spread,
         )
     logger.info("Filtering behavior within thresholds.")

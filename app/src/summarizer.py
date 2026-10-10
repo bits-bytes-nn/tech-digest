@@ -10,6 +10,7 @@ from bs4 import (
     Comment,
     Declaration,
     Doctype,
+    NavigableString,
     ProcessingInstruction,
 )
 from langchain_aws import ChatBedrockConverse
@@ -24,7 +25,7 @@ from .constants import (
     Language,
     LanguageModelId,
 )
-from .eval_metrics import is_on_grid
+from .eval_metrics import is_anchor
 from .feed_parser import Post, content_html, is_safe_url, visible_text
 from .logger import logger
 from .model_factory import BedrockLanguageModelFactory
@@ -129,15 +130,43 @@ def _normalize_tags(tags_input: Any) -> list[str]:
     return tags
 
 
+_BACKTICK_SPAN = re.compile(r"`([^`\n]+)`")
+
+
+def _backticks_to_code(summary: str) -> str:
+    """Turn Markdown inline code left inside HTML into ``<code>``.
+
+    Markdown is not processed inside raw HTML blocks, so a backtick span the
+    model wrote inside a ``<p>`` would reach the reader as literal backticks.
+    """
+    if "`" not in summary:
+        return summary
+    soup = BeautifulSoup(summary, "html.parser")
+    for text in soup.find_all(string=_BACKTICK_SPAN):
+        if text.find_parent(["pre", "code"]):
+            continue
+        pieces = _BACKTICK_SPAN.split(str(text))
+        for i, piece in enumerate(pieces):
+            if i % 2:
+                code = soup.new_tag("code")
+                code.string = piece
+                text.insert_before(code)
+            elif piece:
+                text.insert_before(NavigableString(piece))
+        text.extract()
+    return str(soup)
+
+
 def _postprocess_summary(summary: str) -> str:
     """Deterministic corrections to the model's summary HTML.
 
-    Only the Korean terminal colon, which is unambiguously wrong and cheap to
-    detect (see ``KO_TERMINAL_COLON``). Links are not rewritten: a host-alias
-    table cannot know a site's URL layout (``magazine.sebastianraschka.com/p/x``
-    resolves where ``sebastianraschka.com/p/x`` 404s).
+    The Korean terminal colon (see ``KO_TERMINAL_COLON``) and Markdown backtick
+    spans, both unambiguously wrong and cheap to detect. Links are not
+    rewritten: a host-alias table cannot know a site's URL layout
+    (``magazine.sebastianraschka.com/p/x`` resolves where
+    ``sebastianraschka.com/p/x`` 404s).
     """
-    return KO_TERMINAL_COLON.sub(r"\1.", summary)
+    return _backticks_to_code(KO_TERMINAL_COLON.sub(r"\1.", summary))
 
 
 def _safe_anchor(url: str, text: str) -> str:
@@ -317,8 +346,11 @@ class SummaryOutput(BaseModel):
         """
         if not isinstance(v, str):
             return ""
-        text = BeautifulSoup(v, "html.parser").get_text(separator=" ", strip=True)
-        return " ".join(text.split())
+        text = " ".join(
+            BeautifulSoup(v, "html.parser").get_text(separator=" ", strip=True).split()
+        )
+        # The lede is a sentence; models drop the period about one time in three.
+        return f"{text}." if text and text[-1] not in ".!?" else text
 
     @field_validator("summary", mode="before")
     def _convert_markdown_to_html(cls, v: str) -> str:
@@ -624,10 +656,18 @@ class Summarizer:
         return [p for p in lineup if p.link in done]
 
     def _select_for_digest(self, posts: list[Post]) -> list[Post]:
+        return self.select_for_digest(
+            posts, self.settings.max_posts, self.settings.max_per_source
+        )
+
+    @staticmethod
+    def select_for_digest(
+        posts: list[Post], max_posts: int | None, max_per_source: int | None
+    ) -> list[Post]:
         """Rank by relevance and pick the issue's line-up.
 
-        Ordering is ``(score desc, published_date desc)``: the coarse 0.05 anchor
-        grid produces frequent ties, and recency breaks them deterministically so
+        Ordering is ``(score desc, published_date desc)``: the rubric's few anchors
+        produce frequent ties, and recency breaks them deterministically so
         the same inputs always yield the same issue.
 
         When ``max_per_source`` is set, the cap is applied in a first pass and any
@@ -639,9 +679,8 @@ class Summarizer:
         source concentration is the point rather than a defect.
         """
         ranked = sorted(posts, key=lambda p: (p.score, p.published_date), reverse=True)
-        max_posts = self.settings.max_posts
-        limit = max_posts if max_posts and max_posts > 0 else len(ranked)
-        cap = self.settings.max_per_source
+        limit = max_posts or len(ranked)
+        cap = max_per_source
 
         if cap:
             per_source: dict[str, int] = {}
@@ -793,7 +832,7 @@ class Summarizer:
                 score = float(response["score"])
                 # Out of [0,1] is a failed call, not a verdict: clamping the
                 # model's "8.5" (meant as 0.85) to 1.0 would rank it first.
-                # Off-grid values are only logged.
+                # A value off the rubric's anchors is only logged.
                 if not 0.0 <= score <= 1.0:
                     logger.error(
                         "Filter score %.3f for '%s' is outside [0,1]; treating it "
@@ -805,9 +844,9 @@ class Summarizer:
                         (post, f"{FILTER_FAILED} (score {score} out of range).")
                     )
                     continue
-                if not is_on_grid(score):
+                if not is_anchor(score):
                     logger.info(
-                        "Filter score %.3f for '%s' is off the 0.05 anchor grid.",
+                        "Filter score %.3f for '%s' is not one of the rubric's anchors.",
                         score,
                         post.title,
                     )
