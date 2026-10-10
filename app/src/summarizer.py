@@ -383,9 +383,10 @@ class SummarizationOptions(BaseModel):
     # The summarizer needs markup (code, tables, images) but not site furniture.
     summarize_on_cleaned_html: bool = True
     # Thinking budgets for budget-thinking models (Claude 4.x and older) only;
-    # adaptive-thinking models ignore them and use thinking_effort.
-    filtering_thinking_budget_tokens: int = Field(default=4096, ge=1024)
-    summarization_thinking_budget_tokens: int = Field(default=8192, ge=1024)
+    # adaptive-thinking models ignore them and use thinking_effort. None = the
+    # factory default, so only an explicitly set budget is reported as ignored.
+    filtering_thinking_budget_tokens: int | None = Field(default=None, ge=1024)
+    summarization_thinking_budget_tokens: int | None = Field(default=None, ge=1024)
     # Depth for adaptive-thinking models (output_config.effort) and GPT models
     # (reasoning.effort). None = the model's default. Sent only while thinking is
     # on, except on models that cannot stop thinking (§8).

@@ -80,8 +80,10 @@ summarization:
   # NOTE: adaptive-thinking models (Sonnet 5+) IGNORE these budgets — they are
   # steered by `thinking_effort` below. The budgets apply only to legacy
   # budget-thinking models (Sonnet 4.x / older).
-  filtering_thinking_budget_tokens: 4096
-  summarization_thinking_budget_tokens: 8192
+  # Leave unset unless a budget-thinking model is configured; an explicit value
+  # on an adaptive model only logs that it is ignored.
+  # filtering_thinking_budget_tokens: 4096
+  # summarization_thinking_budget_tokens: 8192
   # Adaptive-thinking depth for newer models (Sonnet 5+ / Opus 5 / 5.5 / Fable 5.1):
   #   low | medium | high | xhigh | max
   # Blank = model default ("medium" on Opus 5.5 and Haiku 5.5, "high" elsewhere).
