@@ -46,7 +46,7 @@ from .newsletter_renderer import (
     BuildConfiguration,
     NewsletterBuilder,
 )
-from .summarizer import Summarizer, SummarizerSettings
+from .summarizer import MODEL_FAILURE_PREFIXES, Summarizer, SummarizerSettings
 from .utils import (
     HTMLTagOutputParser,
     format_alarm,
@@ -57,6 +57,7 @@ from .utils import (
 
 __all__ = [
     "GMAIL_CLIP_BYTES",
+    "MODEL_FAILURE_PREFIXES",
     "AnthropicBlogScraper",
     "AppConstants",
     "BedrockCrossRegionModelHelper",

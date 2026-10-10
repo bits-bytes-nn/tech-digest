@@ -73,6 +73,16 @@ IMAGE_ASSET_EXCLUDES: list[str] = [
     "*.pyc",
     ".git",
     "assets/recipients-*.txt",
+    # Local tool caches and secrets. `cd app && mypy .` leaves a 154 MB
+    # .mypy_cache that shipped in the Batch image, and because it changes on
+    # every type-check, the asset hash did too: a no-op deploy rebuilt and
+    # pushed the image and cut a new job-definition revision.
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".DS_Store",
+    ".env",
+    ".env.*",
 ]
 
 

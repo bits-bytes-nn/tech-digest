@@ -189,6 +189,22 @@ def _normalize_urls(urls_input: Any) -> list[str]:
     return sanitized
 
 
+# Prefixes of the filtered-out reasons that mean a model call FAILED, as opposed
+# to a verdict on the post. main's "Model Failures" alert matches on these, so
+# they are defined once here and every failure reason is built from them: a
+# reworded message used to silence the alert without failing a single test.
+FILTER_FAILED = "Filtering failed"
+FILTER_UNPARSEABLE = "Filter response unparseable"
+SUMMARY_FAILED = "Summarization failed"
+SUMMARY_INVALID = "Summary validation failed"
+MODEL_FAILURE_PREFIXES: tuple[str, ...] = (
+    FILTER_FAILED,
+    FILTER_UNPARSEABLE,
+    SUMMARY_FAILED,
+    SUMMARY_INVALID,
+)
+
+
 def _sanitize_html(html: str) -> str:
     """Strip disallowed tags/attributes from model-generated summary HTML.
 
@@ -759,7 +775,7 @@ class Summarizer:
             if response is None:
                 # The model call failed for this post even after fallback.
                 self.filtered_out_posts.append(
-                    (post, "Filtering failed (no model response).")
+                    (post, f"{FILTER_FAILED} (no model response).")
                 )
                 logger.warning("No filter response for '%s'; skipping.", post.title)
                 continue
@@ -775,7 +791,7 @@ class Summarizer:
                     response,
                 )
                 self.filtered_out_posts.append(
-                    (post, "Filtering failed (no score in model response).")
+                    (post, f"{FILTER_FAILED} (no score in model response).")
                 )
                 continue
             try:
@@ -794,7 +810,7 @@ class Summarizer:
                         post.title,
                     )
                     self.filtered_out_posts.append(
-                        (post, f"Filtering failed (score {score} out of range).")
+                        (post, f"{FILTER_FAILED} (score {score} out of range).")
                     )
                     continue
                 if not is_on_grid(score):
@@ -829,9 +845,7 @@ class Summarizer:
                 )
                 # Record it so the post is accounted for in the run report
                 # rather than silently vanishing from both lists.
-                self.filtered_out_posts.append(
-                    (post, f"Filter response unparseable: {e}")
-                )
+                self.filtered_out_posts.append((post, f"{FILTER_UNPARSEABLE}: {e}"))
         return filtered_posts
 
     def _summarize_posts(self, posts: list[Post]) -> list[Post]:
@@ -876,7 +890,7 @@ class Summarizer:
                 # every summary fails, the empty-digest alert fires instead of a
                 # silent empty send. Mirrors _filter_posts' failure handling.
                 self.filtered_out_posts.append(
-                    (post, "Summarization failed (no model response).")
+                    (post, f"{SUMMARY_FAILED} (no model response).")
                 )
                 continue
             try:
@@ -885,7 +899,7 @@ class Summarizer:
                 if problem := self._unusable_summary(finalized):
                     logger.warning("Summary for '%s' rejected: %s", post.title, problem)
                     self.filtered_out_posts.append(
-                        (post, f"Summarization failed ({problem}).")
+                        (post, f"{SUMMARY_FAILED} ({problem}).")
                     )
                     continue
                 post.summary = finalized
@@ -908,9 +922,7 @@ class Summarizer:
                     e,
                     summary_data,
                 )
-                self.filtered_out_posts.append(
-                    (post, f"Summary validation failed: {e}")
-                )
+                self.filtered_out_posts.append((post, f"{SUMMARY_INVALID}: {e}"))
         return succeeded
 
     # A real summary is thousands of characters (KO band 4,000-6,000, EN

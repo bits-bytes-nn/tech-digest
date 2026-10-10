@@ -711,3 +711,71 @@ class TestFailedSummariesAreReplaced:
         assert s._summarize_lineup(self._ranked(10)) == []
         # The first line-up plus MAX_BACKFILL_ROUNDS refills of two posts each.
         assert len(s.summarizer.calls) == 2 * (1 + s.MAX_BACKFILL_ROUNDS)
+
+
+class TestFailureReasonsAreRecognisable:
+    """main's "Model Failures" alert matches reasons by prefix. Every failure path
+    here must produce one, and a verdict must not — or a reworded message
+    silences the alert, or every quiet week pages someone."""
+
+    @staticmethod
+    def _reasons_after_filter(response) -> list[str]:
+        s = _summarizer(min_score=0.7)
+        s.filter = _FakeChain([response])
+        s._filter_posts([_post("a")])
+        return [reason for _, reason in s.filtered_out_posts]
+
+    @staticmethod
+    def _reasons_after_summary(response) -> list[str]:
+        s = _summarizer()
+        s.summarizer = _FakeChain([response])
+        s._summarize_posts([_post("a")])
+        return [reason for _, reason in s.filtered_out_posts]
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            None,  # no model response
+            {"reason": "x"},  # no score
+            {"score": "8.5", "reason": "x"},  # out of range
+            {"score": "high", "reason": "x"},  # unparseable
+        ],
+    )
+    def test_filter_failures(self, response):
+        from app.src.summarizer import MODEL_FAILURE_PREFIXES
+
+        [reason] = self._reasons_after_filter(response)
+        assert reason.startswith(MODEL_FAILURE_PREFIXES), reason
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            None,  # no model response
+            {
+                "summary": "<p>요약할 수 없습니다.</p>",
+                "tags": [],
+                "urls": [],
+            },  # unusable
+            {"tags": [], "urls": []},  # fails SummaryOutput validation
+        ],
+    )
+    def test_summary_failures(self, response):
+        from app.src.summarizer import MODEL_FAILURE_PREFIXES
+
+        [reason] = self._reasons_after_summary(response)
+        assert reason.startswith(MODEL_FAILURE_PREFIXES), reason
+
+    @pytest.mark.parametrize("response", [{"score": "0.2", "reason": "Off topic."}])
+    def test_a_low_score_verdict_is_not_a_failure(self, response):
+        from app.src.summarizer import MODEL_FAILURE_PREFIXES
+
+        [reason] = self._reasons_after_filter(response)
+        assert not reason.startswith(MODEL_FAILURE_PREFIXES)
+
+    def test_a_thin_post_is_not_a_failure(self):
+        from app.src.summarizer import MODEL_FAILURE_PREFIXES
+
+        s = _summarizer(min_content_length=600)
+        s._gate_by_content_length([_post("thin", content="<p>short</p>")])
+        [(_, reason)] = s.filtered_out_posts
+        assert not reason.startswith(MODEL_FAILURE_PREFIXES)

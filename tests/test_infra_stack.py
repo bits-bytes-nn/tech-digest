@@ -29,9 +29,21 @@ CONFIG = (
 
 
 @pytest.fixture(scope="module")
-def template() -> dict:
+def template(tmp_path_factory) -> dict:
+    # Restored afterwards so the rest of the session does not inherit it.
+    previous = os.environ.get("CDK_SYNTH_DUMMY_AZS")
     os.environ["CDK_SYNTH_DUMMY_AZS"] = "1"
     os.environ.setdefault("JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION", "1")
+    try:
+        yield _synthesize(tmp_path_factory.mktemp("cdk"))
+    finally:
+        if previous is None:
+            os.environ.pop("CDK_SYNTH_DUMMY_AZS", None)
+        else:
+            os.environ["CDK_SYNTH_DUMMY_AZS"] = previous
+
+
+def _synthesize(outdir: Path) -> dict:
     import aws_cdk as core
     from aws_cdk.assertions import Template
 
@@ -39,7 +51,9 @@ def template() -> dict:
     from scripts.deploy_infra import NewsletterStack
 
     config = Config.from_yaml(str(CONFIG))
-    app = core.App()
+    # An explicit outdir under pytest's tmp: the default is a fresh system temp
+    # directory per run, each holding a full copy of app/ that nothing removed.
+    app = core.App(outdir=str(outdir))
     stack = NewsletterStack(
         app,
         "TestStack",
@@ -147,3 +161,71 @@ def test_the_job_role_and_the_instance_role_are_separate(template):
     assert '{"Service": "ecs-tasks.amazonaws.com"}' in principals
     assert '{"Service": "ec2.amazonaws.com"}' in principals
     assert not any("ec2.amazonaws.com" in p and "ecs-tasks" in p for p in principals)
+
+
+def test_s3_grants_no_destructive_action(template):
+    s3_actions = {
+        a for s in _statements(template) for a in _actions(s) if a.startswith("s3:")
+    }
+    assert s3_actions == {
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+    }
+
+
+def test_kms_decrypt_only_through_ssm(template):
+    [kms] = [s for s in _statements(template) if "kms:Decrypt" in _actions(s)]
+    assert kms["Condition"] == {
+        "StringEquals": {"kms:ViaService": "ssm.ap-northeast-2.amazonaws.com"}
+    }
+
+
+def test_ses_send_only_as_the_configured_sender(template):
+    [ses] = [s for s in _statements(template) if "ses:SendRawEmail" in _actions(s)]
+    assert ses["Condition"] == {
+        "StringEquals": {"ses:FromAddress": "sender@example.com"}
+    }
+
+
+def test_ssm_reads_only_this_projects_parameters(template):
+    [ssm] = [s for s in _statements(template) if "ssm:GetParameter" in _actions(s)]
+    assert json.dumps(ssm["Resource"]).endswith(':parameter/tech-digest/dev/*"')
+
+
+def test_the_job_role_carries_no_managed_policy(template):
+    roles = _resources(template, "AWS::IAM::Role")
+    [job_role] = [
+        r
+        for r in roles
+        if r["Properties"]["AssumeRolePolicyDocument"]["Statement"][0]["Principal"]
+        == {"Service": "ecs-tasks.amazonaws.com"}
+        and r["Properties"].get("RoleName") == "tech-digest-dev-newsletter"
+    ]
+    assert not job_role["Properties"].get("ManagedPolicyArns")
+
+
+def test_instances_require_imdsv2_with_one_hop(template):
+    [launch_template] = _resources(template, "AWS::EC2::LaunchTemplate")
+    options = launch_template["Properties"]["LaunchTemplateData"]["MetadataOptions"]
+    assert options["HttpTokens"] == "required"
+    assert options["HttpPutResponseHopLimit"] == 1
+
+
+def test_a_dropped_schedule_lands_in_the_dlq(template):
+    [schedule] = [
+        r
+        for r in _resources(template, "AWS::Events::Rule")
+        if "ScheduleExpression" in r["Properties"]
+    ]
+    [target] = schedule["Properties"]["Targets"]
+    assert "DeadLetterConfig" in target
+    assert target["RetryPolicy"]["MaximumRetryAttempts"] == 2
+
+
+def test_job_logs_expire_and_jobs_time_out(template):
+    groups = _resources(template, "AWS::Logs::LogGroup")
+    assert groups and all(g["Properties"].get("RetentionInDays") for g in groups)
+    [job_definition] = _resources(template, "AWS::Batch::JobDefinition")
+    assert job_definition["Properties"]["Timeout"] == {"AttemptDurationSeconds": 10800}

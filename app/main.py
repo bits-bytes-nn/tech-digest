@@ -18,6 +18,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from configs import Config
 from src import (
     GMAIL_CLIP_BYTES,
+    MODEL_FAILURE_PREFIXES,
     AppConstants,
     BuildConfiguration,
     CrawlReport,
@@ -827,15 +828,6 @@ def _maybe_send_partial_delivery_alert(
     )
 
 
-# filtered_out reasons that mean a model call failed, as opposed to a verdict.
-MODEL_FAILURE_REASONS: Final[tuple[str, ...]] = (
-    "Filtering failed",
-    "Filter response unparseable",
-    "Summarization failed",
-    "Summary validation failed",
-)
-
-
 def _maybe_send_model_failure_alert(
     boto_session: boto3.Session,
     topic_arn: str,
@@ -853,7 +845,7 @@ def _maybe_send_model_failure_alert(
     failures = [
         (post, reason)
         for post, reason in filtered_out_posts
-        if reason.startswith(MODEL_FAILURE_REASONS)
+        if reason.startswith(MODEL_FAILURE_PREFIXES)
     ]
     if not failures:
         return

@@ -294,3 +294,58 @@ class TestModelFailureAlert:
             [(self._post("low"), "Off topic.")],
         )
         assert sns.published == []
+
+
+class TestModelFailureAlertFromTheHandler:
+    def test_a_shipped_issue_that_lost_a_post_pages(self, monkeypatch, tmp_path):
+        from src.feed_parser import CrawlReport, Post
+
+        sns = TestModelFailureAlert._SNS()
+        session = TestModelFailureAlert._Session(sns)
+
+        class _Cfg:
+            class resources:
+                project_name = "tech-digest"
+                profile_name = None
+                default_region_name = "ap-northeast-2"
+                bedrock_region_name = "us-west-2"
+
+            class scraping:
+                expected_flaky_urls = ()
+
+            class newsletter:
+                send_emails = False
+
+        kept = Post(
+            title="kept", link="https://x.example/k", published_date="2026-10-09"
+        )
+        lost = Post(
+            title="lost", link="https://x.example/l", published_date="2026-10-09"
+        )
+        newsletter = tmp_path / "n.html"
+        newsletter.write_text("<html></html>", encoding="utf-8")
+        monkeypatch.setattr(main, "is_running_in_aws", lambda: True)
+        monkeypatch.setenv(main.EnvVars.TOPIC_ARN.value, "arn:topic")
+        monkeypatch.setattr(main, "DEFAULT_BOTO_SESSION", session)
+        monkeypatch.setattr(main, "BEDROCK_BOTO_SESSION", session)
+        monkeypatch.setattr(main.Config, "load", classmethod(lambda cls: _Cfg()))
+        monkeypatch.setattr(main, "_setup_aws_env", lambda *a: None)
+        monkeypatch.setattr(main, "_log_run_summary", lambda *a: None)
+        monkeypatch.setattr(main, "_archive_suffix", lambda *a: "")
+        monkeypatch.setattr(
+            main,
+            "_fetch_and_filter_posts",
+            lambda *a, **k: (
+                [kept],
+                "2026-10-10",
+                [(lost, "Summarization failed (no model response).")],
+                CrawlReport(),
+            ),
+        )
+        monkeypatch.setattr(
+            main, "_process_posts_and_create_newsletter", lambda *a, **k: newsletter
+        )
+        assert main.handler({}, None)["statusCode"] == 200
+        assert [m["Subject"] for m in sns.published] == [
+            "[tech-digest] Model Failures — WARN"
+        ]
