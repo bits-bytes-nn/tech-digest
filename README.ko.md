@@ -222,9 +222,16 @@ python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
 # 프롬프트 수정을 같은 입력으로 A/B: 과거 실행에 저장된 기사를 현재 프롬프트로 다시
 # 요약해 루브릭을 비교합니다. 비용이 발생합니다(기사당 호출 1회).
 python scripts/eval_summary_quality.py --regenerate 2026-08-19
+
+# 필터 루브릭 수정을 라벨 없이 실제 후보로 판단: 최근 몇 주의 후보를 고정하고 수정 전후로
+# 채점한 뒤(비용 발생), 라인업이 바뀐 글을 확인합니다. 전체 절차는 스크립트 docstring에 있습니다.
+python scripts/replay_filter.py collect --stage prod --weeks 6
+python scripts/replay_filter.py score --stage prod --label before   # 그다음 수정
+python scripts/replay_filter.py score --stage prod --label after
+python scripts/replay_filter.py compare --stage prod before after
 ```
 
-CI는 모든 푸시와 풀 리퀘스트에서 린트, 포맷, 타입, 테스트 검사를
+CI는 `main`으로 가는 푸시와 풀 리퀘스트에서 린트, 포맷, 타입, 테스트 검사를
 실행합니다([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)). 출력 품질 루브릭은 생성된
 실행 결과가 있어야 하므로 직접 돌립니다.
 
