@@ -143,9 +143,9 @@ scraping:
     - "https://www.amazon.science/index.rss"
 
 summarization:
-  filtering_model_id: anthropic.claude-sonnet-5
-  summarization_model_id: anthropic.claude-sonnet-5
-  greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
+  filtering_model_id: anthropic.claude-sonnet-5-5
+  summarization_model_id: anthropic.claude-sonnet-5-5
+  greeting_model_id: anthropic.claude-haiku-5-5
   min_score: 0.7                         # keep posts scoring >= this
   max_posts: 5                           # cap kept posts (applied before summarizing)
   max_per_source: 2                      # optional diversity cap; unfilled slots are
@@ -228,7 +228,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (882 tests, 87.6% cov)
+pytest                       # fast, offline unit/integration suite (898 tests, 87.9% cov)
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline
 # and free; --regenerate is the exception and makes real Bedrock calls.
@@ -249,8 +249,9 @@ python scripts/eval_summary_quality.py --regenerate 2026-08-19
 python scripts/check_docs_current.py
 ```
 
-These same checks run in CI on every push and pull request
-([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
+CI runs the lint, format, type and test gates and `check_docs_current.py` on every
+push and pull request ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
+The output-quality rubric needs a generated run, so it is run by hand.
 
 ---
 

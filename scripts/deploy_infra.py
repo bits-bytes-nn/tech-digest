@@ -90,6 +90,7 @@ class NewsletterStack(Stack):
         project_name: str,
         stage: str = "dev",
         s3_bucket_name: str = "",
+        s3_prefix: str | None = None,
         vpc_id: str | None = None,
         subnet_ids: list[str] | None = None,
         lambda_or_batch: str = "lambda",
@@ -113,6 +114,7 @@ class NewsletterStack(Stack):
         self.project_name = project_name
         self.stage = stage
         self._bucket_name = s3_bucket_name
+        self._s3_prefix = (s3_prefix or "").strip("/")
         self._bedrock_region = bedrock_region_name or "us-west-2"
         # The SES sender identity to scope send permissions to (operator email).
         self._sender = (email_addresses or [None])[0]
@@ -290,6 +292,15 @@ class NewsletterStack(Stack):
         region = self.region
         account = self.account
         bucket_arn = f"arn:aws:s3:::{self._bucket_name}"
+        # Every key the app reads or writes sits under resources.s3_prefix
+        # (recipients/, newsletters/, articles/, deliveries/). The configured
+        # bucket is the account's shared SageMaker default bucket, so granting
+        # the whole of it let this role read and overwrite other workloads' data.
+        object_arn = (
+            f"{bucket_arn}/{self._s3_prefix}/*"
+            if self._s3_prefix
+            else f"{bucket_arn}/*"
+        )
         param_arn = (
             f"arn:aws:ssm:{region}:{account}:parameter/"
             f"{self.project_name}/{self.stage}/*"
@@ -302,8 +313,14 @@ class NewsletterStack(Stack):
             # action of the three contradicted the least-privilege claim above.
             iam.PolicyStatement(
                 actions=["s3:GetObject", "s3:PutObject"],
-                resources=[f"{bucket_arn}/*"],
+                resources=[object_arn],
             ),
+            # ListBucket stays unconditioned: the app never lists, but S3 answers
+            # a GetObject on a missing key with 404 only when the caller holds
+            # ListBucket on the bucket, and that check carries no s3:prefix to
+            # match a condition against. Without it, the absent delivery ledger
+            # of every first send reads as AccessDenied. It exposes key names,
+            # not contents.
             iam.PolicyStatement(
                 actions=["s3:ListBucket", "s3:GetBucketLocation"],
                 resources=[bucket_arn],
@@ -860,6 +877,7 @@ def main() -> None:
             project_name=config.resources.project_name,
             stage=config.resources.stage,
             s3_bucket_name=config.resources.s3_bucket_name,
+            s3_prefix=config.resources.s3_prefix,
             vpc_id=config.resources.vpc_id,
             subnet_ids=config.resources.subnet_ids,
             lambda_or_batch=config.resources.lambda_or_batch,

@@ -49,19 +49,30 @@ RETRYABLE_ERROR_CODES: frozenset[str] = frozenset(
 )
 
 
+class EmptyModelOutput(ValueError):
+    """The model returned nothing where a required tag was expected.
+
+    Deliberately NOT an ``OutputParserException``: ``OutputFixingParser`` would
+    hand the empty completion to the repair model, which then writes a summary
+    from nothing — and that invention shipped as an article card.
+    """
+
+
 def is_retryable(error: BaseException) -> bool:
     """Whether another attempt at the call that raised ``error`` could succeed.
 
-    Throttling, server faults, dropped connections and timeouts can; so can
-    malformed model output (``OutputParserException``), which gets the same
-    bounded attempts. Anything else is permanent: a 400 for a bad request shape
-    or a missing permission, or a bug in this code. Retrying those used to cost
+    Throttling, server faults, dropped connections and timeouts can. Anything
+    else is permanent: a 400 for a bad request shape or a missing permission, a
+    bug in this code, or malformed output the repair model already had one try
+    at — regenerating the whole summary for it re-paid the full call up to six
+    times per post. Retrying those used to cost
     up to five attempts and ~330s of backoff per item, so one bad config on the
     filter (one call per collected post) held the run for well over an hour
     before the empty-digest alert could say anything.
 
-    The cause chain is walked because a wrapper may raise its own exception
-    ``from`` the botocore one.
+    Only the explicit cause chain (``raise ... from``) is walked. The implicit
+    ``__context__`` also links an exception raised while HANDLING another, which
+    made a bug inside the repair path look like the parse error it was handling.
     """
     seen: set[int] = set()
     current: BaseException | None = error
@@ -70,12 +81,9 @@ def is_retryable(error: BaseException) -> bool:
         if isinstance(current, ClientError):
             code = current.response.get("Error", {}).get("Code", "")
             return code in RETRYABLE_ERROR_CODES
-        if isinstance(
-            current,
-            (BotoConnectionError, HTTPClientError, TimeoutError, OutputParserException),
-        ):
+        if isinstance(current, BotoConnectionError | HTTPClientError | TimeoutError):
             return True
-        current = current.__cause__ or current.__context__
+        current = current.__cause__
     return False
 
 
@@ -300,11 +308,16 @@ class HTMLTagOutputParser(BaseOutputParser):
     # triggers its repair model. Empty by default to preserve lenient behavior
     # (the filter tolerates missing optional fields downstream).
     required_tags: list[str] = Field(default_factory=list)
+    # Tags whose value is plain text (a title, a score, a tag list), returned as
+    # text rather than serialized inner HTML. decode_contents() re-escapes "&",
+    # so "Q&A" came back as "Q&amp;A" and the template's autoescape then showed
+    # the reader "Q&amp;A".
+    text_tags: list[str] = Field(default_factory=list)
 
     def parse(self, text: str) -> str | dict[str, str]:
-        if not text:
+        if not text or not text.strip():
             if self.required_tags:
-                raise OutputParserException(
+                raise EmptyModelOutput(
                     f"Empty model output; required tags missing: {self.required_tags}"
                 )
             return {} if isinstance(self.tag_names, list) else ""
@@ -315,7 +328,9 @@ class HTMLTagOutputParser(BaseOutputParser):
         )
         for tag_name in tag_list:
             if tag := soup.find(tag_name):
-                if hasattr(tag, "decode_contents"):
+                if tag_name in self.text_tags and hasattr(tag, "get_text"):
+                    parsed[tag_name] = tag.get_text().strip()
+                elif hasattr(tag, "decode_contents"):
                     parsed[tag_name] = str(tag.decode_contents()).strip()
                 else:
                     parsed[tag_name] = str(tag).strip()

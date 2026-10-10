@@ -182,12 +182,25 @@ class TestHTMLTagOutputParser:
         result = parser.parse("<summary>real content</summary>")
         assert result["summary"] == "real content"
 
-    def test_empty_text_with_required_raises(self):
-        from langchain_core.exceptions import OutputParserException
+    @pytest.mark.parametrize("text", ["", "   \n"])
+    def test_empty_text_with_required_is_not_handed_to_the_repair_model(self, text):
+        # An OutputParserException here sent the EMPTY completion to the repair
+        # model, which wrote a summary from nothing that then shipped.
+        from langchain_classic.output_parsers import OutputFixingParser
+        from langchain_core.language_models.fake_chat_models import (
+            FakeListChatModel,
+        )
 
-        parser = HTMLTagOutputParser(tag_names=["summary"], required_tags=["summary"])
-        with pytest.raises(OutputParserException):
-            parser.parse("")
+        from app.src.utils import EmptyModelOutput
+
+        parser = OutputFixingParser.from_llm(
+            llm=FakeListChatModel(responses=["<summary>invented</summary>"]),
+            parser=HTMLTagOutputParser(
+                tag_names=["summary"], required_tags=["summary"]
+            ),
+        )
+        with pytest.raises(EmptyModelOutput):
+            parser.parse(text)
 
     def test_output_fixing_parser_actually_repairs(self):
         # The repair path end to end, through the installed langchain_classic:
@@ -235,8 +248,24 @@ class TestIsRetryable:
         assert is_retryable(EndpointConnectionError(endpoint_url="https://x"))
         assert is_retryable(ReadTimeoutError(endpoint_url="https://x"))
 
-    def test_malformed_output_retries(self):
-        assert is_retryable(OutputParserException("no <summary>"))
+    def test_malformed_output_is_not_regenerated(self):
+        # The repair model already had its one try; regenerating the whole
+        # summary for a format slip re-paid the full call up to six times.
+        assert not is_retryable(OutputParserException("no <summary>"))
+
+    def test_timeout_retries(self):
+        assert is_retryable(TimeoutError("read timed out"))
+
+    def test_an_error_raised_while_handling_another_is_judged_on_its_own(self):
+        # __context__ (implicit chaining) used to be walked, so a bug inside the
+        # repair path inherited the retryable verdict of the error it handled.
+        try:
+            try:
+                raise _client_error("ThrottlingException")
+            except ClientError:
+                raise KeyError("bug in the handler")  # noqa: B904
+        except KeyError as error:
+            assert not is_retryable(error)
 
     @pytest.mark.parametrize("error", [KeyError("x"), TypeError("x"), ValueError("x")])
     def test_bugs_do_not(self, error):

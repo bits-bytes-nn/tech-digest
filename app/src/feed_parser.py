@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from html import unescape
 from typing import ClassVar, Literal, Protocol, TypeAlias
 from urllib.parse import urljoin, urlparse
 
@@ -280,16 +281,25 @@ class SourceFetchError(Exception):
 
 
 def visible_text(html: str) -> str:
-    """The readable prose in an HTML string, markup stripped.
+    """The readable prose in an HTML string, site furniture and markup stripped.
 
     Single source of truth for "what a reader actually sees", used by the
     scrape decision, the content-sufficiency gate and the relevance filter so
-    all three agree on what counts as content.
+    all three agree on what counts as content — and agree with the summarizer,
+    which receives ``content_html`` and so never sees ``NON_CONTENT_TAGS``.
+
+    Those tags used to count here. A JavaScript-rendered page (tech.kakao.com)
+    then scraped as 681 characters of menus, sitemap and script data: enough to
+    beat the feed teaser and clear the 600-character gate, while the summarizer
+    received 182 characters, essentially the title.
     """
     if not html:
         return ""
     try:
-        return BeautifulSoup(html, "html.parser").get_text(separator=" ", strip=True)
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(list(NON_CONTENT_TAGS)):
+            tag.decompose()
+        return soup.get_text(separator=" ", strip=True)
     except Exception:
         return html
 
@@ -518,7 +528,11 @@ class Post(BaseModel):
         link_str = getattr(entry, "link", "")
         content = cls._extract_content_from_entry(entry, link_str)
         return cls(
-            title=getattr(entry, "title", "No Title").strip(),
+            # Some feeds escape the title twice (Amazon Science sends
+            # "don&amp;#8217;t"), so feedparser hands back "don&#8217;t" and the
+            # card showed the entity literally. Decoding is idempotent on a
+            # title that was already plain text.
+            title=unescape(getattr(entry, "title", "No Title")).strip(),
             link=link_str,
             published_date=parse_published_date(entry_date_text(entry)),
             source=cls._determine_source(link_str),
@@ -811,10 +825,20 @@ class RssFetcher:
                 self.candidates = sum(d is not None for d in dates)
 
                 for entry, published_date in zip(feed.entries, dates, strict=True):
-                    if published_date is not None and is_date_in_range(
+                    if published_date is None or not is_date_in_range(
                         published_date, start_date, end_date
                     ):
+                        continue
+                    # One malformed entry (e.g. a link urlparse rejects) must
+                    # cost that entry, not every valid post in the feed.
+                    try:
                         posts.append(Post.from_entry(entry))
+                    except Exception as e:
+                        logger.error(
+                            "Skipping an entry of '%s' that could not be read: %s",
+                            self.rss_url,
+                            e,
+                        )
 
         except SourceFetchError:
             raise

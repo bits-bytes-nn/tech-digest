@@ -18,7 +18,7 @@ scraping:
     - "https://www.anthropic.com/engineering"
     - "https://aws.amazon.com/blogs/amazon-ai/feed/"
     - "https://deepmind.google/blog/rss.xml" # was www.deepmind.com/blog/rss.xml (302 redirect)
-    - "https://research.google/blog/rss/" # the index-page scraper stopped dating posts; RSS carries full text
+    - "https://research.google/blog/rss/" # the index-page scraper stopped dating posts; the article body is fetched from each post page
     - "https://huggingface.co/blog/feed.xml"
     - "https://tech.kakao.com/feed/"
     - "https://www.linkedin.com/blog/engineering"

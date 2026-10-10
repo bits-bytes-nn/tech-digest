@@ -4,7 +4,14 @@ from typing import Any, ClassVar
 
 import boto3
 import markdown
-from bs4 import BeautifulSoup
+from bs4 import (
+    BeautifulSoup,
+    CData,
+    Comment,
+    Declaration,
+    Doctype,
+    ProcessingInstruction,
+)
 from langchain_aws import ChatBedrockConverse
 from langchain_classic.output_parsers import OutputFixingParser
 from langchain_core.runnables import Runnable
@@ -30,7 +37,7 @@ from .prompts.prompts import FilteringPrompt, SummarizationPrompt
 # had separate patterns and did disagree: the rubric counted the
 # list-introducing colon this corrector deliberately preserves, and scored a
 # correct summary 0 on that dimension.
-from .quality_metrics import KO_TERMINAL_COLON
+from .quality_metrics import KO_LENGTH_BAND, KO_TERMINAL_COLON, is_korean
 from .utils import (
     BatchProcessor,
     HTMLTagOutputParser,
@@ -192,6 +199,16 @@ def _sanitize_html(html: str) -> str:
     attributes and unsafe href/src schemes are removed.
     """
     soup = BeautifulSoup(html, "html.parser")
+    # Comments are not tags, so the loop below never saw them — and Outlook
+    # renders whatever sits inside a conditional comment (<!--[if mso]>...),
+    # links, forms and tracking images included. Nothing the reader should see
+    # lives in one, so every such node goes.
+    for node in soup.find_all(
+        string=lambda text: isinstance(
+            text, Comment | CData | Declaration | Doctype | ProcessingInstruction
+        )
+    ):
+        node.extract()
     for tag in list(soup.find_all(True)):
         name = tag.name.lower()
         if name not in SummarizerConfig.ALLOWED_HTML_TAGS:
@@ -313,8 +330,11 @@ class SummaryOutput(BaseModel):
             # class attributes (code/pre/table) survive the attribute filter.
             return _sanitize_html(html)
         except Exception as e:
+            # Never hand back the raw model output: it is rendered with | safe,
+            # and this was the one path from model text to the email that
+            # skipped the sanitizer.
             logger.error("Error converting markdown to HTML: %s", e)
-            return v
+            return _sanitize_html(escape(v))
 
     @field_validator("tags", mode="before")
     def _validate_tags(cls, v: Any) -> list[str]:
@@ -454,7 +474,10 @@ class Summarizer:
         return (
             prompt
             | filtering_llm
-            | HTMLTagOutputParser(tag_names=FilteringPrompt.output_variables)
+            | HTMLTagOutputParser(
+                tag_names=FilteringPrompt.output_variables,
+                text_tags=FilteringPrompt.output_variables,
+            )
         )
 
     def _cache_can_hit(self) -> bool:
@@ -503,6 +526,7 @@ class Summarizer:
             parser=HTMLTagOutputParser(
                 tag_names=SummarizationPrompt.output_variables,
                 required_tags=["summary"],
+                text_tags=["one_liner", "tags"],
             ),
         )
         summarization_llm = self.llm_factory.get_model(
@@ -720,21 +744,25 @@ class Summarizer:
                 )
                 continue
             try:
-                raw_score = float(response["score"])
-                # Clamp to [0,1]: the model occasionally emits an out-of-range
-                # value (e.g. "8.5" for an intended 0.85), which would both pass
-                # the min_score gate and sort to the top of the rank, evicting
-                # genuinely better posts. Off-grid values are logged (not
-                # rejected — the rubric allows a ±0.05 step) for observability.
-                score = min(1.0, max(0.0, raw_score))
-                if score != raw_score:
-                    logger.warning(
-                        "Filter score %.3f for '%s' out of [0,1]; clamped to %.2f.",
-                        raw_score,
-                        post.title,
+                score = float(response["score"])
+                # Out of [0,1] is a failed call, not a verdict. It used to be
+                # clamped, which turned the model's "8.5" (meant as 0.85) into
+                # 1.0: past min_score and to the top of the rank, evicting
+                # genuinely better posts — what the clamp claimed to prevent.
+                # Off-grid values are logged (not rejected — the rubric allows a
+                # ±0.05 step) for observability.
+                if not 0.0 <= score <= 1.0:
+                    logger.error(
+                        "Filter score %.3f for '%s' is outside [0,1]; treating it "
+                        "as a failed call.",
                         score,
+                        post.title,
                     )
-                elif not is_on_grid(score):
+                    self.filtered_out_posts.append(
+                        (post, f"Filtering failed (score {score} out of range).")
+                    )
+                    continue
+                if not is_on_grid(score):
                     logger.info(
                         "Filter score %.3f for '%s' is off the 0.05 anchor grid.",
                         score,
@@ -818,7 +846,14 @@ class Summarizer:
                 continue
             try:
                 summary_output = SummaryOutput.model_validate(summary_data)
-                post.summary = self._finalize_summary(post, summary_output.summary)
+                finalized = self._finalize_summary(post, summary_output.summary)
+                if problem := self._unusable_summary(finalized):
+                    logger.warning("Summary for '%s' rejected: %s", post.title, problem)
+                    self.filtered_out_posts.append(
+                        (post, f"Summarization failed ({problem}).")
+                    )
+                    continue
+                post.summary = finalized
                 post.one_liner = summary_output.one_liner
                 post.tags = summary_output.tags
                 post.urls = summary_output.urls
@@ -842,6 +877,31 @@ class Summarizer:
                     (post, f"Summary validation failed: {e}")
                 )
         return succeeded
+
+    # A real summary is thousands of characters (KO band 4,000-6,000, EN
+    # 1,300-2,000 words). A refusal, a "too short to summarize" reply or a
+    # repair that wrapped either of them in tags is a sentence or two. The floor
+    # sits far below the band so a terse but genuine summary still ships.
+    MIN_SUMMARY_SHARE: ClassVar[float] = 0.3
+    EN_MIN_WORDS: ClassVar[int] = 400
+
+    def _unusable_summary(self, summary_html: str) -> str | None:
+        """Why this summary must not ship, or None if it may.
+
+        The output parser only checks that a ``<summary>`` tag exists. Without
+        this, a refused or empty answer that the repair model wrapped in tags
+        was published as an article card.
+        """
+        text = visible_text(summary_html)
+        if self.language is Language.KO:
+            minimum = int(KO_LENGTH_BAND[0] * self.MIN_SUMMARY_SHARE)
+            if len(text) < minimum:
+                return f"{len(text)} visible chars, below {minimum}"
+            if not is_korean(text):
+                return "not written in Korean"
+        elif len(text.split()) < self.EN_MIN_WORDS:
+            return f"{len(text.split())} words, below {self.EN_MIN_WORDS}"
+        return None
 
     @staticmethod
     def _finalize_summary(post: Post, summary_html: str) -> str:

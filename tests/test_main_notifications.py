@@ -674,12 +674,19 @@ class TestDuplicateSendGuard:
         self._patch_recipients(
             monkeypatch, ["a@example.com", "b@example.com", "c@example.com"]
         )
-        outcome, sent, _ = self._run(
+        outcome, sent, writes = self._run(
             monkeypatch, tmp_path, ledger={"delivered": ["a@example.com"]}
         )
         assert sent == ["b@example.com", "c@example.com"]
         assert outcome.skipped == 1
         assert outcome.succeeded == 2
+        # The ledger is overwritten, not merged, so the reader the crashed run
+        # already served must be carried forward — or a second retry re-sends.
+        assert writes[-1]["delivered"] == [
+            "a@example.com",
+            "b@example.com",
+            "c@example.com",
+        ]
 
     def test_the_ledger_is_written_after_every_success_not_once_at_the_end(
         self, monkeypatch, tmp_path

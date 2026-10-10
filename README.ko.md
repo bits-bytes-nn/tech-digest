@@ -139,9 +139,9 @@ scraping:
     - "https://www.amazon.science/index.rss"
 
 summarization:
-  filtering_model_id: anthropic.claude-sonnet-5
-  summarization_model_id: anthropic.claude-sonnet-5
-  greeting_model_id: anthropic.claude-haiku-4-5-20251001-v1:0
+  filtering_model_id: anthropic.claude-sonnet-5-5
+  summarization_model_id: anthropic.claude-sonnet-5-5
+  greeting_model_id: anthropic.claude-haiku-5-5
   min_score: 0.7                         # 이 점수 이상인 글만 유지
   max_posts: 5                           # 남길 글 수 상한(요약 전에 적용)
   max_per_source: 2                      # 소스 다양성 캡(선택). 빈 자리는 랭크 순으로
@@ -223,7 +223,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(882개 테스트, 커버리지 87.6%)
+pytest                       # 빠른 오프라인 단위/통합 스위트(898개 테스트, 커버리지 87.9%)
 
 # 생성된 실행 결과에 대한 출력 품질 루빅스. 채점은 결정적이고 오프라인이며 무료입니다.
 # --regenerate만 예외로 실제 Bedrock을 호출합니다.
@@ -243,8 +243,9 @@ python scripts/eval_summary_quality.py --regenerate 2026-08-19
 python scripts/check_docs_current.py
 ```
 
-이 검사들은 모든 푸시와 풀 리퀘스트에서 CI로도 똑같이 실행됩니다
-([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
+CI는 모든 푸시와 풀 리퀘스트에서 린트, 포맷, 타입, 테스트 검사와 `check_docs_current.py`를
+실행합니다([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)). 출력 품질 루브릭은 생성된
+실행 결과가 있어야 하므로 직접 돌립니다.
 
 ---
 

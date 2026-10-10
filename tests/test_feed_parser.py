@@ -431,3 +431,15 @@ class TestContentContainerSelection:
 
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
         assert fp.Post._scrape_full_content("https://x.example/post") == ""
+
+
+class TestFeedTitles:
+    def test_double_escaped_title_is_decoded(self):
+        # Amazon Science sends "don&amp;#8217;t"; the card showed "&#8217;".
+        entry = feedparser.FeedParserDict(
+            title="Why don&#8217;t models generalize?",
+            link="https://www.amazon.science/blog/x",
+            published="2026-10-01T00:00:00Z",
+            summary="body " * 400,
+        )
+        assert Post.from_entry(entry).title == "Why don\u2019t models generalize?"

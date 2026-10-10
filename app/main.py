@@ -46,7 +46,13 @@ from src import (
     write_s3_json,
 )
 
-SEND_INTERVAL_SECONDS: Final[float] = 0.5
+# SES caps this account at 1 message per second (MaxSendRate, checked
+# 2026-10-10; the account is still in the SES sandbox). 0.5s sent at twice
+# that and relied on burst tolerance; a throttled send is a reader dropped.
+SEND_INTERVAL_SECONDS: Final[float] = 1.1
+# Where an explicit --recipients run archives its build, under the newsletters/
+# and articles/ prefixes, so a test send never replaces a delivered issue.
+TEST_RUN_PREFIX: Final[str] = "tests"
 # The intro used when the greeting model fails, in the issue's own language (the
 # renderer's built-in default is English, which read oddly atop a Korean issue).
 FALLBACK_INTRO: Final[dict[Language, str]] = {
@@ -137,6 +143,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
             default_boto_session,
             bedrock_boto_session,
             language=language,
+            test_run=recipients is not None,
         )
         if is_running_in_aws() and topic_arn:
             _maybe_send_clipped_newsletter_alert(
@@ -272,7 +279,16 @@ def _process_posts_and_create_newsletter(
     default_boto_session: boto3.Session,
     bedrock_boto_session: boto3.Session,
     language: Language = Language.KO,
+    test_run: bool = False,
 ) -> Path:
+    """Build the issue and archive it in S3.
+
+    ``test_run`` (an explicit recipients override) archives under a separate
+    ``tests/`` prefix. The archive key is the issue's stage, date and language,
+    so a test send on an issue date used to replace the record of what every
+    subscriber received with a rebuild that, model output being
+    non-deterministic, can carry different posts.
+    """
     inputs_dir = _prepare_and_save_posts(posts, date_suffix)
     first_section_intro = _generate_greeting(
         posts, date_suffix, config, bedrock_boto_session, language
@@ -282,8 +298,12 @@ def _process_posts_and_create_newsletter(
     newsletter_path, article_filenames = _build_newsletter(
         inputs_dir, outputs_dir, date_suffix, first_section_intro, config, language
     )
+    suffix = f"/{TEST_RUN_PREFIX}" if test_run else ""
     _upload_files_to_s3(
-        newsletter_path, S3Paths.NEWSLETTERS.value, config, default_boto_session
+        newsletter_path,
+        f"{S3Paths.NEWSLETTERS.value}{suffix}",
+        config,
+        default_boto_session,
     )
     if article_filenames:
         article_paths = [
@@ -291,7 +311,10 @@ def _process_posts_and_create_newsletter(
             for filename in article_filenames
         ]
         _upload_files_to_s3(
-            article_paths, S3Paths.ARTICLES.value, config, default_boto_session
+            article_paths,
+            f"{S3Paths.ARTICLES.value}{suffix}",
+            config,
+            default_boto_session,
         )
     return newsletter_path
 

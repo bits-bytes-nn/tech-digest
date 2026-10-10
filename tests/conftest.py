@@ -70,3 +70,39 @@ def propagating_logger():
         yield logger
     finally:
         logger.propagate = original
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Fail any test that opens a real connection or resolves a real hostname.
+
+    Several tests reached openai.com and example.com through the scrape fallback
+    in ``Post.from_entry``, and the request-layer tests resolved real names, so
+    the suite's result depended on third-party sites and took 30s offline.
+    Literal IP addresses still resolve: they need no network.
+    """
+    import ipaddress
+    import socket
+
+    real_getaddrinfo = socket.getaddrinfo
+
+    def guarded_getaddrinfo(host, *args, **kwargs):
+        try:
+            ipaddress.ip_address(str(host).strip("[]"))
+        except ValueError as e:
+            raise socket.gaierror(f"network disabled in tests: {host}") from e
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    def refuse_connect(self, address):
+        raise OSError(f"network disabled in tests: {address}")
+
+    monkeypatch.setattr(socket, "getaddrinfo", guarded_getaddrinfo)
+    monkeypatch.setattr(socket.socket, "connect", refuse_connect)
+    # The article-page fetch behind Post.from_entry's thin-feed fallback: without
+    # this, a blocked request is "transient" and the ladder sleeps through its
+    # backoff. Tests that exercise the request layer import the function
+    # directly, so this module-level stub does not reach them. Both import
+    # layouts (app.src and the container's bare src) are covered.
+    for name in ("app.src.feed_parser", "src.feed_parser"):
+        if module := sys.modules.get(name):
+            monkeypatch.setattr(module, "_make_robust_request", lambda url: None)

@@ -23,6 +23,11 @@ def _post(title: str, content: str = "body", source: str = "unknown") -> Post:
     )
 
 
+# A summary long enough to clear the usable-summary floor, so tests about tags,
+# images and alignment are not tripped by it (that floor has its own tests).
+BODY = "<p>" + "모델이 실제로 받은 본문을 바탕으로 요약한 문장입니다. " * 60 + "</p>"
+
+
 class _FakeChain:
     """Stands in for the filter/summarizer LangChain runnable: .batch returns
     the queued responses (aligned to inputs)."""
@@ -83,23 +88,28 @@ class TestFilterPosts:
         [(_post_a, reason)] = s.filtered_out_posts
         assert reason.startswith("Filtering failed")
 
-    def test_out_of_range_score_clamped(self):
-        # A dropped decimal point ('8.5' for 0.85) must be clamped to [0,1] so it
-        # can't dominate the rank and evict genuinely better posts.
-        s = _summarizer(min_score=0.7)
-        posts = [_post("a")]
-        s.filter = _FakeChain([{"score": "8.5", "reason": "x", "title": ""}])
-        kept = s._filter_posts(posts)
-        assert kept[0].score == 1.0
+    @pytest.mark.parametrize("raw", ["8.5", "-0.3", "1.05"])
+    def test_out_of_range_score_is_a_failed_call(self, raw):
+        # A dropped decimal point ('8.5' for 0.85) used to be clamped to 1.0,
+        # which passed min_score and ranked it first — evicting better posts.
+        s = _summarizer(min_score=0.0)
+        s.filter = _FakeChain([{"score": raw, "reason": "x", "title": ""}])
+        assert s._filter_posts([_post("a")]) == []
+        [(_, reason)] = s.filtered_out_posts
+        assert reason.startswith("Filtering failed")
 
-    def test_negative_score_clamped_to_zero(self):
-        s = _summarizer(min_score=0.7)
-        posts = [_post("a")]
-        s.filter = _FakeChain([{"score": "-0.3", "reason": "x", "title": ""}])
-        kept = s._filter_posts(posts)
-        # Clamped to 0.0, below min_score -> filtered out, not kept.
-        assert kept == []
-        assert posts[0].score == 0.0
+    def test_filter_title_is_plain_text_not_escaped_markup(self):
+        # decode_contents() returned "Q&amp;A"; autoescape then showed the
+        # reader the entity. The filter's tags are all plain text.
+        from app.src.utils import HTMLTagOutputParser
+
+        parser = HTMLTagOutputParser(
+            tag_names=["score", "title"], text_tags=["score", "title"]
+        )
+        assert parser.parse("<score>0.8</score><title>Q&amp;A at AT&T</title>") == {
+            "score": "0.8",
+            "title": "Q&A at AT&T",
+        }
 
     def test_title_overwrite_applied(self):
         s = _summarizer(min_score=0.5)
@@ -144,7 +154,13 @@ class TestSummarizePosts:
         s = _summarizer()
         post = _post("a")
         s.summarizer = _FakeChain(
-            [{"summary": "Real summary content.", "tags": "RAG, LLM", "urls": []}]
+            [
+                {
+                    "summary": BODY + "Real summary content.",
+                    "tags": "RAG, LLM",
+                    "urls": [],
+                }
+            ]
         )
         assert s._summarize_posts([post]) == [post]
         assert "Real summary content." in post.summary
@@ -155,7 +171,7 @@ class TestSummarizePosts:
         s = _summarizer()
         posts = [_post("a"), _post("b")]
         s.summarizer = _FakeChain(
-            [None, {"summary": "Second.", "tags": [], "urls": []}]
+            [None, {"summary": BODY + "Second.", "tags": [], "urls": []}]
         )
         assert s._summarize_posts(posts) == [posts[1]]
         assert posts[0].summary == ""  # failed item untouched
@@ -175,7 +191,7 @@ class TestSummarizePosts:
         s.summarizer = _FakeChain(
             [
                 {
-                    "summary": "Body.",
+                    "summary": BODY + "Body.",
                     "one_liner": "<b>Cuts latency</b>\n  by 40%.",
                     "tags": [],
                     "urls": [],
@@ -198,7 +214,7 @@ class TestSummarizePosts:
             [
                 {
                     "summary": (
-                        f'<p>x</p><img src="{real}">'
+                        BODY + f'<p>x</p><img src="{real}">'
                         '<img src="https://cdn.example.com/invented.png">'
                     ),
                     "tags": [],
@@ -219,7 +235,8 @@ class TestSummarizePosts:
         s.summarizer = _FakeChain(
             [
                 {
-                    "summary": '<img src="https://cdn.example.com/lazy.png">body',
+                    "summary": BODY
+                    + '<img src="https://cdn.example.com/lazy.png">body',
                     "tags": [],
                     "urls": [],
                 }
@@ -240,7 +257,7 @@ class TestSummarizePosts:
         )
         post.images = []
         s.summarizer = _FakeChain(
-            [{"summary": f'<img src="{url}">body', "tags": [], "urls": []}]
+            [{"summary": BODY + f'<img src="{url}">body', "tags": [], "urls": []}]
         )
         s._summarize_posts([post])
         assert "Saved.png" in post.summary
@@ -307,7 +324,9 @@ class TestProcessPostsCapBeforeSummarize:
                 {"score": "0.80", "reason": "", "title": ""},
             ]
         )
-        s.summarizer = _FakeChain([{"summary": "good", "tags": [], "urls": []}, None])
+        s.summarizer = _FakeChain(
+            [{"summary": BODY + "good", "tags": [], "urls": []}, None]
+        )
         result = s.process_posts(posts)
         assert [p.title for p in result] == ["ok"]
         assert any(
@@ -413,7 +432,7 @@ class TestFilterInputIsProseNotMarkup:
         class _Capture(_FakeChain):
             def batch(self, inputs, config=None, return_exceptions=False):
                 captured.extend(inputs)
-                return [{"summary": "ok", "tags": [], "urls": []}]
+                return [{"summary": BODY + "ok", "tags": [], "urls": []}]
 
         summarizer.summarizer = _Capture([])
         summarizer._summarize_posts([post])
@@ -516,3 +535,42 @@ class TestFilterThinkingWarning:
         messages = self._build_filter(model_id, caplog, propagating_logger)
         assert not any("temperature" in m for m in messages)
         assert any("NOT deterministic" in m for m in messages)
+
+
+class TestUnusableSummariesDoNotShip:
+    """The parser only checks that a <summary> tag exists; a refusal or an
+    empty answer the repair model wrapped in tags must not become a card."""
+
+    @pytest.mark.parametrize(
+        "summary",
+        [
+            "<p>죄송하지만 이 글은 요약할 수 없습니다.</p>",
+            "<p>" + "This summary is long but written in English. " * 60 + "</p>",
+        ],
+    )
+    def test_rejected_and_recorded(self, summary):
+        s = _summarizer()
+        post = _post("a")
+        s.summarizer = _FakeChain([{"summary": summary, "tags": [], "urls": []}])
+        assert s._summarize_posts([post]) == []
+        [(_, reason)] = s.filtered_out_posts
+        assert reason.startswith("Summarization failed")
+        assert post.summary == ""
+
+    def test_a_real_summary_ships(self):
+        s = _summarizer()
+        post = _post("a")
+        s.summarizer = _FakeChain([{"summary": BODY, "tags": [], "urls": []}])
+        assert s._summarize_posts([post]) == [post]
+
+
+class TestSanitizerDropsComments:
+    def test_outlook_conditional_comment_is_removed(self):
+        from app.src.summarizer import _sanitize_html
+
+        html = (
+            '<p>ok</p><!--[if mso]><a href="javascript:alert(1)">x</a>'
+            '<form action="https://evil"></form><![endif]-->'
+        )
+        cleaned = _sanitize_html(html)
+        assert cleaned == "<p>ok</p>"

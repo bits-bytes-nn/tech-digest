@@ -56,7 +56,7 @@ jobs:
         run: mypy .
 
       - name: Run tests
-        # --cov-fail-under is a ratchet, not a target: coverage is at 87.6%, so a
+        # --cov-fail-under is a ratchet, not a target: coverage is at 87.9%, so a
         # change that removes test coverage from a covered path fails here rather
         # than being noticed months later. Raise the floor when it rises — it sat
         # at 82 against 84.7% actual, which is nearly three points of slack the
@@ -64,6 +64,13 @@ jobs:
         run: >-
           pytest --cov=app --cov-report=term-missing --cov-report=xml
           --cov-fail-under=86 -m "not live"
+
+      - name: Docs match the code
+        # Re-runs the suite to measure the test count and coverage, then checks
+        # every numeric claim in README.md, README.ko.md, docs/design.md and this
+        # file against them. The README says these checks run in CI; this is
+        # what makes that true.
+        run: python scripts/check_docs_current.py
 
       - name: Filtering eval harness (dry run — no AWS, no cost)
         # Validates the eval set + analysis wiring stay healthy. The live

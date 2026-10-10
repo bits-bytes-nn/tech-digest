@@ -273,6 +273,56 @@ class TestCandidatesComeFromTheFetchers:
         assert scraper.fetch(*self.WINDOW) == []
         assert scraper.candidates == 1
 
+    @staticmethod
+    def _bound(monkeypatch, scraper, html):
+        monkeypatch.setattr(
+            scraper, "_fetch_page", lambda: BeautifulSoup(html, "html.parser")
+        )
+        monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
+        return scraper
+
+    @pytest.mark.parametrize(
+        ("date_text", "expected"), [("sometime soon", 0), ("January 5, 2020", 1)]
+    )
+    def test_generic_scraper_counts_only_items_it_could_date(
+        self, monkeypatch, date_text, expected
+    ):
+        # The Google Research failure exactly: the card and its date element are
+        # there, the date text no longer parses.
+        html = (
+            '<ul><li class="post-list__item"><p class="grid-post__date">'
+            f"{date_text}</p>"
+            '<a class="grid-post__link" href="/blog/engineering/x">A Post</a>'
+            "</li></ul>"
+        )
+        scraper = self._bound(
+            monkeypatch,
+            fp.LinkedInBlogScraper(
+                page_url="https://www.linkedin.com/blog/engineering"
+            ),
+            html,
+        )
+        assert scraper.fetch(*self.WINDOW) == []
+        assert scraper.candidates == expected
+
+    @pytest.mark.parametrize(
+        ("date_text", "expected"), [("Smarch 40, 2026", 0), ("June 6, 2016", 1)]
+    )
+    def test_anthropic_scraper_counts_only_links_it_could_date(
+        self, monkeypatch, date_text, expected
+    ):
+        html = (
+            '<div><a href="/engineering/x"><h3>A Long Enough Title</h3>'
+            f"<span>{date_text}</span></a></div>"
+        )
+        scraper = self._bound(
+            monkeypatch,
+            fp.AnthropicBlogScraper(page_url="https://www.anthropic.com/engineering"),
+            html,
+        )
+        assert scraper.fetch(*self.WINDOW) == []
+        assert scraper.candidates == expected
+
     def test_rss_entries_with_no_readable_date_count_as_nothing_offered(
         self, monkeypatch
     ):

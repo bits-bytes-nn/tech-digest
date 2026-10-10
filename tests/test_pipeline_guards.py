@@ -128,3 +128,60 @@ class TestTestRunsKeepOutOfTheLogFile:
 
         configured = configure_logger("tech-digest-probe")
         assert not any(isinstance(h, logging.FileHandler) for h in configured.handlers)
+
+
+class TestRecipientsOverrideInTheContainer:
+    """The container entrypoint's own guard, independent of run_batch."""
+
+    class _Cfg:
+        class resources:
+            stage = "dev"
+            s3_bucket_name = "bucket"
+            s3_prefix = "tech-digest"
+            profile_name = None
+            default_region_name = "ap-northeast-2"
+            bedrock_region_name = "us-west-2"
+            project_name = "tech-digest"
+
+        class newsletter:
+            send_emails = True
+
+    def test_an_all_invalid_override_never_falls_back_to_the_list(self, monkeypatch):
+        downloads = []
+        monkeypatch.setattr(
+            main,
+            "_download_recipients_file",
+            lambda *a, **k: downloads.append(a) or True,
+        )
+        assert main._get_recipients(self._Cfg(), object(), ["not-an-address"]) == []
+        assert downloads == []
+
+    def test_the_override_reaches_the_send_phase_and_archives_as_a_test(
+        self, monkeypatch, tmp_path
+    ):
+        from src.feed_parser import CrawlReport, Post
+
+        seen: dict = {}
+        post = Post(title="t", link="https://x.example/p", published_date="2026-10-09")
+        monkeypatch.setattr(main.Config, "load", classmethod(lambda cls: self._Cfg()))
+        monkeypatch.setattr(main, "_setup_aws_env", lambda *a: None)
+        monkeypatch.setattr(main, "_log_run_summary", lambda *a: None)
+        monkeypatch.setattr(
+            main,
+            "_fetch_and_filter_posts",
+            lambda *a, **k: ([post], "2026-10-10", [], CrawlReport()),
+        )
+
+        def build(*a, **k):
+            seen["test_run"] = k["test_run"]
+            return tmp_path / "n.html"
+
+        def send(_path, _date, _cfg, _session, _language, recipients):
+            seen["recipients"] = recipients
+            return main.DeliveryOutcome(resolved=1, attempted=1, succeeded=1)
+
+        monkeypatch.setattr(main, "_process_posts_and_create_newsletter", build)
+        monkeypatch.setattr(main, "_process_newsletter_emails", send)
+        result = main.handler({"RECIPIENTS": "me@example.com"}, None)
+        assert result["statusCode"] == 200
+        assert seen == {"test_run": True, "recipients": ["me@example.com"]}
