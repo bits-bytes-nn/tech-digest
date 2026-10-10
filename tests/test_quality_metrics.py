@@ -253,8 +253,19 @@ class TestReport:
         bad = evaluate_summary("bad", _summary("짧다."), one_liner="")
         report = QualityReport(results=[bad])
         weakest = dict(report.weakest(3))
-        assert "lede" in weakest
+        assert "length" in weakest
         assert report.overall < 1.0
+
+    def test_guards_are_reported_not_averaged(self):
+        """A missing lede is a contract violation, not a lower quality score."""
+        body = "지연이 22% 줄었습니다. " * 300
+        with_lede = evaluate_summary("a", _summary(body), one_liner="가" * 60 + ".")
+        without = evaluate_summary("a", _summary(body), one_liner="")
+        assert with_lede.overall == without.overall
+        assert "lede" in without.guard_violations()
+        assert QualityReport(results=[without]).guard_violations() == {
+            "a": without.guard_violations()
+        }
 
     def test_empty_report_is_safe(self):
         report = QualityReport(results=[])
@@ -322,9 +333,7 @@ class TestSpecificitySaturationIsReachable:
         result = evaluate_summary("a", html)
         density = 1000 * result.quantity_count / result.length
         assert density >= SPECIFICITY_SATURATION
-        # 0.7 of the score is density; the rest needs code/tables, which this
-        # synthetic summary has none of.
-        assert result.specificity_score == pytest.approx(0.7, abs=0.01)
+        assert result.specificity_score == 1.0
 
     def test_a_summary_of_vibes_still_scores_near_zero(self):
         assert evaluate_summary("a", _summary("가" * 2000)).specificity_score == 0.0
@@ -355,12 +364,27 @@ class TestMeasuredQuantitiesRequireARealUnit:
             ("8,000토큰", {"8,000토큰"}),
             ("2노드 16 GPU", {"16 GPU"}),
             ("정확도가 5포인트 올랐습니다", {"5포인트"}),
+            ("벤치마크에서 87.5점을 기록했습니다", {"87.5점"}),
+            ("투자 규모는 3억 달러입니다", {"3억"}),
+            ("IOI 2026 점수는 535점입니다", {"535점"}),
         ],
     )
     def test_real_units_still_count(self, text, expected):
         from app.src.quality_metrics import quantities
 
         assert quantities(text) == expected
+
+
+class TestTableCellsCarryTheirHeadersUnit:
+    def test_bare_numbers_in_a_results_table_count(self):
+        html = (
+            "<h3>📊 성과</h3><table><tr><th>대회</th><th>점수</th></tr>"
+            "<tr><td>IOI 2026</td><td>535.4 / 600</td></tr>"
+            "<tr><td>IMO</td><td>30%</td></tr></table>"
+        )
+        # 535.4 and 600 from the bare cell; 30% via ``quantities``; the label
+        # cell "IOI 2026" is not a measurement.
+        assert evaluate_summary("a", html).quantity_count == 3
 
 
 class TestTerminalColonAgreesWithTheCorrector:

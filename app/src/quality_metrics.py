@@ -23,10 +23,15 @@ dimension                     prompt rule it measures
 ``specificity``               "mechanisms, parameters, measured numbers"
 ``boilerplate``               the banned formulaic audience call-out
 ``lede``                      the one-sentence ``one_liner`` contract
-``captions``                  images wrapped in a figure WITH a caption
+``caption``                   images wrapped in a figure WITH a caption
 ``translationese``            "영어 문장 구조를 옮기지 말고" (번역투 금지)
 ``cliche``                    the banned praise adjectives and filler formulas
 ============================  ==================================================
+
+``overall`` and ``weakest()`` cover only the graded dimensions
+(``SummaryQuality.TUNED``). The rest are contract checks (``GUARDS``) that a
+healthy pipeline always passes; they are reported as violations rather than
+averaged in, where they would only pad the score.
 
 The rubric is KOREAN-ONLY. Six of the eleven dimensions test properties that only
 exist in Korean prose (합니다체 register, 번역투, the Korean cliché list, the
@@ -177,17 +182,14 @@ ABSENCE_FILLER: tuple[str, ...] = (
 # findings from version strings. Tuning a prompt against that would have chased a
 # defect that did not exist.
 #
-# A bare ``p`` used to be listed as a unit (for 퍼센트포인트). Being a single
-# letter with no boundary, it matched the first letter of any word after a
-# number: "2 pods", "3 papers" and "5 people" all counted as measurements — the
-# same over-counting the version-string fix was meant to end. ``%p`` is already
-# covered by ``%``, and 포인트 is spelled out, so nothing is lost by dropping it.
-# Multi-letter units keep a boundary requirement for the same reason.
+# No bare ``p`` unit: as a single letter it would match "2 pods" or "3 papers".
+# ``%p`` is covered by ``%`` and 포인트 is spelled out. Multi-letter units keep a
+# boundary requirement for the same reason.
 _MEASURED = re.compile(
     r"\d[\d,.]*\s*"
     r"(?:%|퍼센트|배속|배|밀리초|ms|초|분|시간|GiB|MiB|GB|MB|KB|TB|"
     r"Gbps|Mbps|[Bb]ps|fps|토큰|tokens?|vCPU|GPU|원|달러|USD|건|개|회|"
-    r"포인트|x(?=\s|$))"
+    r"포인트|점(?!수)|억|x(?=\s|$))"
 )
 
 
@@ -318,6 +320,21 @@ def quantities(text: str) -> set[str]:
     return {m.group(0).strip() for m in _MEASURED.finditer(text) if m.group(0).strip()}
 
 
+def table_figures(soup: BeautifulSoup) -> set[str]:
+    """Bare numbers in table cells that start with a digit ("535.4 / 600").
+
+    A table's column header carries the unit, so its cells are measurements even
+    without one; requiring a unit there would score a results table as empty.
+    Cells that already contain a unit are left to ``quantities``.
+    """
+    figures: set[str] = set()
+    for cell in soup.find_all("td"):
+        value = cell.get_text(" ", strip=True)
+        if value[:1].isdigit() and not quantities(value):
+            figures.update(re.findall(r"\d[\d,.]*", value))
+    return figures
+
+
 def sentences(text: str) -> list[str]:
     parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", text) if p.strip()]
     return parts
@@ -411,19 +428,17 @@ class SummaryQuality:
 
     @property
     def specificity_score(self) -> float:
-        """Measured quantities plus code/table evidence, per 1,000 characters.
+        """Measured quantities per 1,000 characters.
 
         A technical write-up of this length that names no numbers is a summary of
         vibes. See ``SPECIFICITY_SATURATION`` for where the target comes from.
+        Tables and code blocks earn nothing here: rewarding their presence would
+        reward adding one whether or not the source has the material.
         """
         if not self.length:
             return 0.0
         density = 1000 * self.quantity_count / self.length
-        evidence = min(1.0, 0.5 * (self.code_blocks + self.tables))
-        return min(
-            1.0,
-            0.7 * min(1.0, density / SPECIFICITY_SATURATION) + 0.3 * evidence,
-        )
+        return min(1.0, density / SPECIFICITY_SATURATION)
 
     @property
     def boilerplate_score(self) -> float:
@@ -460,27 +475,33 @@ class SummaryQuality:
     def cliche_score(self) -> float:
         return _density_score(sum(self.cliches.values()), self.length, CLICHE_BAND)
 
-    DIMENSIONS = (
+    # Graded dimensions: where real output varies, so they steer tuning.
+    TUNED = (
         "length",
-        "structure",
         "register",
-        "terminal_colon",
         "distinctiveness",
         "specificity",
-        "boilerplate",
-        "lede",
-        "caption",
         "translationese",
         "cliche",
     )
+    # Contract checks: a healthy pipeline scores 1.0 on these, so averaging them
+    # in would pad ``overall`` without measuring quality. Any shortfall is
+    # reported as a violation instead.
+    GUARDS = ("structure", "terminal_colon", "boilerplate", "lede", "caption")
+    DIMENSIONS = TUNED + GUARDS
 
     def scores(self) -> dict[str, float]:
         return {d: getattr(self, f"{d}_score") for d in self.DIMENSIONS}
 
     @property
     def overall(self) -> float:
-        values = self.scores().values()
-        return sum(values) / len(values)
+        """Mean of the graded dimensions; guards are reported separately."""
+        scores = self.scores()
+        return sum(scores[d] for d in self.TUNED) / len(self.TUNED)
+
+    def guard_violations(self) -> list[str]:
+        scores = self.scores()
+        return [d for d in self.GUARDS if scores[d] < 1.0]
 
 
 def evaluate_summary(
@@ -517,7 +538,7 @@ def evaluate_summary(
         # so a colon that legitimately introduces a list is not a defect here.
         terminal_colons=len(KO_TERMINAL_COLON.findall(summary_html or "")),
         repeated_quantities=tuple(repeated),
-        quantity_count=len(quantities(text)),
+        quantity_count=len(quantities(text)) + len(table_figures(soup)),
         code_blocks=len(soup.find_all("pre")),
         tables=len(soup.find_all("table")),
         images=len(images),
@@ -547,8 +568,16 @@ class QualityReport:
 
     def weakest(self, n: int = 3) -> list[tuple[str, float]]:
         """The dimensions to tune next, worst first."""
-        means = [(d, self.mean(d)) for d in SummaryQuality.DIMENSIONS]
+        means = [(d, self.mean(d)) for d in SummaryQuality.TUNED]
         return sorted(means, key=lambda kv: kv[1])[:n]
+
+    def guard_violations(self) -> dict[str, list[str]]:
+        """Article id -> the contract checks it fails."""
+        return {
+            r.article_id: violations
+            for r in self.results
+            if (violations := r.guard_violations())
+        }
 
     def format_table(self) -> str:
         dims = SummaryQuality.DIMENSIONS
@@ -568,4 +597,6 @@ class QualityReport:
             + ", ".join(f"{d}={v:.2f}" for d, v in self.weakest())
             + "   <- tune these"
         )
+        for article_id, violations in self.guard_violations().items():
+            lines.append(f"GUARD {article_id}: {', '.join(violations)}")
         return "\n".join(lines)

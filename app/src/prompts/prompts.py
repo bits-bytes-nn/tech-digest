@@ -119,7 +119,7 @@ class FilteringPrompt(BasePrompt):
         "included_topics",
         "excluded_topics",
     ]
-    output_variables: list[str] = ["title", "score", "reason"]
+    output_variables: list[str] = ["score", "reason"]
     system_prompt_template: str = ""
     human_prompt_template: str = ""
     # Everything from this marker onward is the static rubric; caching moves it
@@ -224,7 +224,6 @@ PRIMARY focus, not a passing mention). Included topics take priority; score in t
 ---
 
 **OUTPUT FORMAT:**
-<title>[Original title in proper title case]</title>
 <reason>[Explain concisely: (1) Topic validation — does the content SUBSTANTIALLY cover (>30%
 primary focus) an included topic? If so, name it. (2) Which anchor score you chose and why.
 (3) Any one-step adjustment and its reason.]</reason>
@@ -306,7 +305,6 @@ context — >30% as a PRIMARY focus, not a passing mention). Score in the top ba
 ---
 
 **OUTPUT FORMAT:**
-<title>[Original title in proper title case]</title>
 <reason>[Explain concisely: (1) Topic validation — does the content SUBSTANTIALLY cover (>30%
 primary focus) an included topic with AWS context? If so, name it. (2) Which anchor score you
 chose and why. (3) Any one-step adjustment and its reason.]</reason>
@@ -347,10 +345,8 @@ in the tech community."""
 **CONTEXT:**
 <context>{context}</context>
 
-**LENGTH — HARDEST CONSTRAINT (check before answering):**
-50-75 words TOTAL, including the opener. Count them. This block sits above the articles in an
-email; going long pushes the first article below the fold. If your draft is longer, cut it — do
-not submit it.
+**LENGTH:** 50-75 words in total, including the opener. It sits above the first article, so
+going long pushes that article below the fold.
 
 **REQUIREMENTS:**
 1. Start with "Hey friends! I'm Peccy 😎"
@@ -358,7 +354,8 @@ not submit it.
    week's articles (see the context). BANNED, because it is what a model reaches for by default:
    the "back then X, now Y" / "we used to X, now we Y" contrast template in any wording. Also
    banned: facts unrelated to this week's topics, and vague claims ("AI is moving fast")
-3. Name or clearly allude to the concrete thread the articles share — not "exciting topics"
+3. If the articles genuinely share a theme, name it concretely. If they do not, do not invent
+   one: introduce two or three of them in a phrase each
 4. Close with one short line that hands off to the articles
 5. Casual, confident, technically fluent. No markdown, plain text only
 
@@ -368,10 +365,8 @@ not submit it.
 **CONTEXT:**
 <context>{context}</context>
 
-**분량 — 가장 지키기 어려운 제약이니 답하기 전에 직접 세어 보세요:**
-공백 포함 **100~150자**, 3~4문장. 여는 인사("안녕 친구들! 난 Peccy야 😎")도 이 안에 포함됩니다.
-이 블록은 이메일에서 첫 아티클 위에 놓이므로, 길어지면 첫 카드가 화면 아래로 밀려납니다.
-초안이 150자를 넘으면 **제출하지 말고 줄이세요**.
+**분량:** 공백 포함 **100~150자**, 3~4문장. 여는 인사("안녕 친구들! 난 Peccy야 😎")도 포함입니다.
+첫 아티클 위에 놓이므로 길어지면 첫 카드가 화면 아래로 밀려납니다.
 
 **REQUIREMENTS:**
 1. "안녕 친구들! 난 Peccy야 😎"로 시작
@@ -379,13 +374,13 @@ not submit it.
    **금지** — 모델이 기본값으로 집어드는 패턴이라서입니다: "예전엔 X였는데 이제 Y야",
    "과거엔 X했지만 이제는 Y해" 같은 **과거-현재 대조 템플릿을 어떤 표현으로든** 쓰지 마세요.
    이번 주 주제와 무관한 잡지식, "AI가 빠르게 발전하고 있어" 같은 뻔한 서술도 금지
-3. 아티클들을 잇는 **구체적인 실마리**를 짚어 주세요 — "흥미로운 주제들"처럼 뭉개지 말고
+3. 아티클끼리 실제로 겹치는 주제가 있으면 그것을 구체적으로 짚고, 없으면 억지로 묶지 말고
+   두세 편을 각각 한 구절로 소개하세요
 4. 마지막은 아티클로 넘겨주는 짧은 한 문장으로 닫으세요
 5. 반말, 자신감 있는 어조. 기술 용어는 필요하면 영어 그대로
-6. 흔한 표현의 띄어쓰기를 일관되게 (항상 "이번 주", "이번주"는 쓰지 않음)
-7. "혁신적인", "강력한", "놀라운", "다양한" 같은 칭찬·뭉갬 형용사와 "~라는 점이야" 같은
+6. "혁신적인", "강력한", "놀라운", "다양한" 같은 칭찬·뭉갬 형용사와 "~라는 점이야" 같은
    맺음은 쓰지 마세요. 구체적인 것을 그냥 말하면 됩니다
-8. 평문만 출력 — 마크다운 금지
+7. 평문만 출력 — 마크다운 금지
 
 **OUTPUT:** Newsletter introduction in Korean only.""",
     }
@@ -480,9 +475,8 @@ explanations that make complex technical concepts accessible without sacrificing
 
 1. **Factual Accuracy First**
    - Base your analysis ONLY on information explicitly stated in the source material
-   - Never speculate, assume, or infer information not present in the original content
-   - If details are unclear or missing, acknowledge the limitation rather than filling gaps with assumptions
-   - Clearly distinguish between what the article states and what can be objectively verified
+   - Never speculate, assume, or infer information not present in the original content, and add no
+     examples or scenarios the article does not give
 
 2. **Conversational Yet Precise**
    - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
@@ -502,23 +496,18 @@ explanations that make complex technical concepts accessible without sacrificing
      2,000-word post get the SAME budget; a longer source means being more
      selective about WHICH details, not writing more
 
-4. **Educational Focus**
-   - Prioritize clarity and understanding over exhaustiveness
-   - Explain concepts with appropriate context and background
-   - Connect technical details to practical implications
-   - Make complex ideas accessible without oversimplifying
-
-5. **Section Distinctiveness**
+4. **Section Distinctiveness**
    - Each section must carry NEW information. Never restate figures, sentences, or conclusions
      already given in an earlier section
-   - The 📊 Results section is NOT a place to re-list metrics already stated in 📌/🛠️
-     (e.g. "5x faster", "30% cost reduction"). Focus on the business/practical implications of
-     those results, or outcomes not yet mentioned
+   - The 📊 Results section is where the article's headline results are stated, ONCE. 📌 and 🛠️
+     name the mechanism and refer to its effect in words; the figure ("5x faster", "30% cost
+     reduction") appears in 📊 only. Do not add business implications, ratios you computed, or
+     forecasts the article does not state
    - The 🔮 Future section is NOT a place to re-state limitations already listed in 🛠️. Cover the
      roadmap, expansion directions, and opportunities the article explicitly mentions. If there is
      nothing new and forward-looking to add, OMIT this section
 
-6. **No Filler Register**
+5. **No Filler Register**
    - These are shapes a model reaches for by default, and a reader recognises them as such.
      Do not use them:
      - Praise adjectives as assessment — "groundbreaking", "revolutionary", "powerful",
@@ -538,7 +527,9 @@ explanations that make complex technical concepts accessible without sacrificing
   faster" — once the figures are gone the summary is useless to a practitioner
 - If the article contains code, configuration, CLI or a schema, include at least the most load-bearing
   snippet in `<pre><code class="highlight">` (never invent one that is not in the source)
-- When three or more numbers are being compared, put them in a TABLE rather than in prose
+- When three or more numbers are being compared, put them in a TABLE rather than in prose, and do not
+  repeat the table's values in the surrounding text
+- When you shorten a code snippet, mark each omitted span with `...` rather than silently splicing lines
 - Name parameters, flags and thresholds exactly as the article does (`routingThreshold`, `PD_BUFFER_SIZE`)
 
 **SECTION SKIP RULE:**
@@ -575,8 +566,8 @@ as a cohesive narrative without subsection labels. Be detailed but avoid repeati
 sections.
 
 <h3>📊 Results and Impact</h3>
-Present concrete outcomes with specific metrics, measured improvements, business value, and cost implications when 
-available. Write as a flowing narrative without subsections. Focus only on results explicitly stated in the article.
+Present the measured outcomes the article reports, including cost figures when it gives them. Write as a flowing
+narrative without subsections. Focus only on results explicitly stated in the article.
 
 <h3>🔮 Future Directions</h3>
 Discuss future directions, integration possibilities, and limitations explicitly mentioned in the article. Write as a 
@@ -590,30 +581,17 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 - Maintain clear heading hierarchy
 - Ensure all code uses <pre><code class="highlight"> blocks
 - Make technical explanations accessible but accurate
-
-**CRITICAL REMINDERS:**
-❌ DO NOT speculate about information not in the article
-❌ DO NOT assume unstated technical details
-❌ DO NOT infer motivations or context not explicitly provided
-❌ DO NOT add examples or scenarios not in the original content
-❌ DO NOT include meta-commentary about following these instructions
-❌ DO NOT create subsection headers within the main sections
-❌ DO NOT repeat information across different sections
-❌ DO NOT include sections that only state the absence of information — omit them instead
-❌ DO NOT reach for praise adjectives, "not just X, it's Y", or meta-narration (principle 6)
-✅ DO acknowledge when information is limited or unclear
-✅ DO stay faithful to the source material
-✅ DO explain only what is actually presented
-✅ DO write in a natural, flowing narrative style throughout all sections
-✅ DO be concise while maintaining completeness
+- Use one name per concept throughout; do not alternate between synonyms for the same component
+- No meta-commentary about following these instructions
 
 **FINAL CHECK (re-read your draft and fix it before answering):**
 Knowing a rule is not the same as having followed it. These are the slips that most often survive
 into a published issue, so look for each one in your draft and fix it before you output:
-1. Go through every number in 📊. If it already appears in 📌, 🔄 or 🛠️, delete it and refer to it in
-   words ("the latency reduction above"). Only numbers not given earlier may stay in 📊.
+1. Go through every number in 📊. If it also appears in 📌, 🔄 or 🛠️, keep it in 📊 and replace the
+   earlier mention with words ("cuts latency sharply"). Then delete any 📊 sentence about business
+   value, a ratio you computed, or a forecast the article does not make.
 2. Find sentences whose verb is "provides", "offers" or "supports" and say what the feature actually does.
-3. Find praise adjectives, "not just X, it's Y" and meta-narration (principle 6) and rewrite them.
+3. Find praise adjectives, "not just X, it's Y" and meta-narration (principle 5) and rewrite them.
 4. Count the words in one_liner. If it is outside 15-28 words, fix it.
 5. Check that every image src is copied character for character from the article, query string included.
 
@@ -641,9 +619,8 @@ Korean:
 
 1. **Factual Accuracy First**
    - Base your analysis ONLY on information explicitly stated in the source material
-   - Never speculate, assume, or infer information not present in the original content
-   - If details are unclear or missing, acknowledge the limitation rather than filling gaps with assumptions
-   - Clearly distinguish between what the article states and what can be objectively verified
+   - Never speculate, assume, or infer information not present in the original content, and add no
+     examples or scenarios the article does not give
 
 2. **Conversational Yet Precise**
    - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
@@ -662,28 +639,23 @@ Korean:
      **같습니다**. 원문이 길다는 건 더 많이 쓰라는 게 아니라 **어떤** 디테일을 고를지
      더 신중하라는 뜻입니다
 
-4. **Educational Focus**
-   - Prioritize clarity and understanding over exhaustiveness
-   - Explain concepts with appropriate context and background
-   - Connect technical details to practical implications
-   - Make complex ideas accessible without oversimplifying
-
-5. **일관된 문체 (Consistent Register)**
+4. **일관된 문체 (Consistent Register)**
    - 모든 섹션의 모든 문장을 **정중한 합니다체**로 통일하세요 (예: "제안합니다", "달성했습니다",
      "확인되지 않았습니다"). 절대 문어체 평서형(한다체: "제안한다", "달성했다")과 섞지 마세요
    - 원문 블로그의 어조를 따라가지 말고, 위 합니다체를 처음부터 끝까지 유지하세요
    - 이 뉴스레터는 여러 아티클을 하나로 묶어 발송하므로, 아티클마다 문체가 다르면 독자가 이질감을
      느낍니다. 문체 통일은 필수입니다
 
-6. **섹션 간 정보 차별화 (Section Distinctiveness)**
+5. **섹션 간 정보 차별화 (Section Distinctiveness)**
    - 각 섹션은 **새로운 정보**를 담아야 합니다. 앞 섹션에서 이미 말한 수치·문장·결론을 뒤 섹션에서
      그대로 반복하지 마세요
-   - 특히 📊 성과 섹션은 📌·🛠️에서 이미 제시한 수치(예: "5배 향상", "30% 절감")를 재나열하는 곳이
-     아닙니다. 그 수치가 의미하는 **비즈니스·실무적 함의**나 아직 언급하지 않은 결과에 집중하세요
+   - 원문의 대표 성과 수치(예: "5배 향상", "30% 절감")는 **📊에서 한 번만** 제시합니다. 📌·🛠️에서는
+     메커니즘을 설명하고 그 효과는 말로만 가리키세요. 원문에 없는 비즈니스 함의, 직접 계산한 비율,
+     전망은 덧붙이지 마세요
    - 🔮 향후 섹션은 🛠️에서 이미 열거한 한계점을 뒤집어 재서술하는 곳이 아닙니다. 원문이 명시한
      **로드맵·확장 방향·기회**를 다루세요. 새로 덧붙일 forward-looking 내용이 없으면 이 섹션을 생략하세요
 
-7. **번역투 금지 (원문이 영어여도 한국어로 쓴 문장이어야 합니다)**
+6. **번역투 금지 (원문이 영어여도 한국어로 쓴 문장이어야 합니다)**
    - 원문의 **문장 구조를 옮기지 말고**, 뜻을 파악한 뒤 한국어로 처음부터 쓰세요. 아래 목록을
      외우는 게 아니라 원리를 적용하세요: **같은 뜻을 군더더기 없이 말할 수 있으면 그렇게 씁니다.**
      - "X를 통해 Y" → 수단은 조사로 붙입니다: "샤딩을 통해 분산합니다" → "샤딩으로 분산합니다"
@@ -695,7 +667,7 @@ Korean:
        "캐싱을 제공합니다" → "결과를 캐시에 보관해 재계산을 건너뜁니다"
      - "~에 의해 처리됩니다" → 행위자를 주어로: "스케줄러가 처리합니다"
 
-8. **상투구 금지 (내용이 없거나, 모델이 기본값으로 집어드는 문형입니다)**
+7. **상투구 금지 (내용이 없거나, 모델이 기본값으로 집어드는 문형입니다)**
    - 평가는 형용사가 아니라 **측정값이 합니다**. "강력한 성능" 대신 "p99 지연 12ms".
      "혁신적인", "획기적인", "놀라운", "인상적인"을 쓰지 마세요
    - "다양한"은 몇 가지인지로: "다양한 로봇에서" → "ALOHA 2와 Apollo 두 기종에서"
@@ -704,7 +676,7 @@ Korean:
    - "~라는/다는 점입니다"로 문장을 맺지 마세요. 감싸던 절을 서술문으로 내려 쓰면 됩니다:
      "지연이 줄었다는 점입니다" → "지연이 22% 줄었습니다"
 
-   **원칙 7·8은 문체 규칙이고, 우선순위는 원칙 3보다 낮습니다.** 표현을 다듬느라 메커니즘·
+   **원칙 6·7은 문체 규칙이고, 우선순위는 원칙 3보다 낮습니다.** 표현을 다듬느라 메커니즘·
    파라미터·측정값·코드를 빼지 마세요. 번역투를 피하려고 문장을 짧게 끊는 것도, 강조하려고 앞
    섹션의 수치를 뒤 섹션에서 다시 꺼내는 것도 금지입니다. **고칠 것은 문장이고, 줄일 것은
    중복 서술뿐입니다.**
@@ -715,7 +687,8 @@ Korean:
   사라지면 이 요약은 실무자에게 쓸모가 없어집니다
 - 원문에 **코드·설정·CLI·스키마가 있으면**, 가장 핵심적인 조각을 최소 하나
   `<pre><code class="highlight">`로 실으세요(원문에 없으면 만들어내지 마세요)
-- 수치가 3개 이상 비교되면 산문으로 늘어놓지 말고 **표**로 만드세요
+- 수치가 3개 이상 비교되면 산문으로 늘어놓지 말고 **표**로 만드세요. 표에 넣은 값은 본문에서 다시 쓰지 마세요
+- 코드 조각을 줄일 때는 생략한 부분을 `...`로 표시하세요. 떨어진 줄을 말없이 이어 붙이지 마세요
 - 파라미터·플래그·임계값의 **이름을 그대로** 쓰세요(`routingThreshold`, `PD_BUFFER_SIZE`)
 
 **섹션 생략 규칙:**
@@ -751,9 +724,9 @@ scalability considerations, edge cases, and known limitations. Use <pre><code cl
 as a cohesive narrative without subsection labels. Be detailed but avoid repeating information already covered in other 
 sections.
 
-<h3>📊 성과 및 비즈니스 임팩트</h3>
-Present concrete outcomes with specific metrics, measured improvements, business value, and cost implications when 
-available. Write as a flowing narrative without subsections. Focus only on results explicitly stated in the article.
+<h3>📊 주요 성과</h3>
+Present the measured outcomes the article reports, including cost figures when it gives them. Write as a flowing
+narrative without subsections. Focus only on results explicitly stated in the article.
 
 <h3>🔮 향후 발전 가능성과 기회</h3>
 Discuss future directions, integration possibilities, and limitations explicitly mentioned in the article. Write as a 
@@ -771,34 +744,18 @@ cohesive narrative without subsection headers. Be concise and avoid speculation.
 - Keep technical terms in English only when translation would be awkward or unclear
 - End Korean sentences with a period (.), never a colon (:). Korean prose does not
   terminate a sentence with a colon — use a colon only to introduce a list or example
-
-**CRITICAL REMINDERS:**
-❌ DO NOT speculate about information not in the article
-❌ DO NOT assume unstated technical details
-❌ DO NOT infer motivations or context not explicitly provided
-❌ DO NOT add examples or scenarios not in the original content
-❌ DO NOT include meta-commentary about following these instructions
-❌ DO NOT create subsection headers within the main sections
-❌ DO NOT repeat information across different sections
-❌ DO NOT use English technical terms when clear Korean translations exist
-❌ DO NOT include sections that only state the absence of information — omit them instead
-❌ DO NOT write 번역투 — 영어 구조를 그대로 옮긴 문장 (원칙 7)
-❌ DO NOT evaluate with 칭찬 형용사 or close a sentence with "~라는 점입니다" (원칙 8)
-✅ DO acknowledge when information is limited or unclear
-✅ DO stay faithful to the source material
-✅ DO explain only what is actually presented
-✅ DO write in a natural, flowing narrative style throughout all sections
-✅ DO be concise while maintaining completeness
-✅ DO translate technical terms to Korean when appropriate
+- 한 개념에는 처음 고른 용어 하나만 쓰세요. 같은 구성 요소를 "추론"과 "인퍼런스"처럼 번갈아 부르지 마세요
+- No meta-commentary about following these instructions
 
 **마지막 점검 (답을 내기 전에 초안을 다시 읽고 고치세요):**
 규칙을 아는 것과 지킨 것은 다릅니다. 아래 다섯 가지는 지난 호들에서 실제로 가장 자주 남은
 실수이므로, 초안을 쓴 뒤 하나씩 찾아서 고치고 나서 출력하세요.
-1. 📊 섹션의 숫자를 하나씩 보세요. 📌·🔄·🛠️에 이미 쓴 숫자라면 지우고 "앞서 본 지연 감소폭은"처럼
-   말로 가리키세요. 📊에 남는 숫자는 앞에서 한 번도 나오지 않은 것뿐이어야 합니다.
+1. 📊 섹션의 숫자를 하나씩 보세요. 📌·🔄·🛠️에도 같은 숫자가 있으면 📊에 남기고 앞쪽은 "지연을 크게
+   줄입니다"처럼 말로 바꾸세요. 그다음 원문에 없는 비즈니스 함의, 직접 계산한 비율, 전망을 담은 📊
+   문장을 지우세요.
 2. "제공합니다", "지원합니다"로 끝나는 문장을 찾아 그 기능이 실제로 무엇을 하는지로 바꾸세요.
 3. "~라는/다는 점입니다"로 끝나는 문장, "~하는 것" 명사절, 수량 표현 뒤의 "-들"("16개 GPU들")을
-   찾아 원칙 7·8대로 고치세요.
+   찾아 원칙 6·7대로 고치세요.
 4. one_liner의 글자 수를 공백을 포함해 세세요. 40~100자를 벗어나면 고치세요.
 5. 이미지 src는 원문에 있는 URL을 글자 그대로(쿼리 문자열 포함) 옮겼는지 확인하세요.
 
