@@ -45,11 +45,11 @@ Amazon Bedrock (Claude) 기반 · AWS 위에서 CDK로 정의·오케스트레�
 - **멱등한 발송**. 호마다 어떤 수신자에게 전달됐는지를 S3 원장에 기록하므로, 재시도된
   실행(스팟 회수, OOM 등)이 같은 호를 두 번 보내지 않고 아직 못 받은 독자에게만
   보냅니다.
-- **추측이 아니라 측정**. 루빅스 하버스 두 개가 취향 대신 튜닝을 이끕니다. 하나는
+- **추측이 아니라 측정**. 루브릭 하네스 두 개가 취향 대신 튜닝을 이끕니다. 하나는
   *필터*("올바른 글을 골랐나"), 하나는 *출력*("글이 잘 써졌나")을 채점합니다. 출력 검사는
   전부 결정적이며 프롬프트 규칙과 1:1로 대응하므로, 낮은 점수가 **어느 지시문을 고쳐야
   하는지**를 알려줍니다.
-- **재현 가능한 빌드**. 베이스 이미지를 digest로 고정하는 것에 더해 Python 의존성 64개를
+- **재현 가능한 빌드**. 베이스 이미지를 digest로 고정하는 것에 더해 전이 의존성을 포함한 모든 Python 의존성을
   `app/requirements.lock`으로 고정하고, CI가 이를 constraints로 적용해 **테스트가 실제
   배포되는 버전을 검증**합니다.
 - **귀속 가능한 비용**. 온디맨드 Bedrock에는 태그를 붙일 리소스가 없으므로, 태그가 달린
@@ -75,10 +75,10 @@ Amazon Bedrock (Claude) 기반 · AWS 위에서 CDK로 정의·오케스트레�
 
 | 모듈 | 책임 |
 | --- | --- |
-| `feed_parser.py` | RSS 파싱 + 견고한 HTML 스크레이핑(BeautifulSoup4 / Selenium), 소스별 헬스 추적 |
+| `feed_parser.py` | RSS 파싱 + HTML 스크레이핑(BeautifulSoup4), 소스별 헬스 추적 |
 | `summarizer.py` | 콘텐츠 게이트 → 관련성 필터 → 랭킹/캡 → 요약까지, 모두 Bedrock으로 |
 | `model_factory.py` | Bedrock 모델 능력 레지스트리 + LangChain 채팅 모델 생성, 비용 귀속 프로파일 |
-| `quality_metrics.py` | 결정적 출력 품질 루빅스 (순수 함수) |
+| `quality_metrics.py` | 결정적 출력 품질 루브릭 (순수 함수) |
 | `eval_metrics.py` | 필터 점수 지표 (순수 함수) |
 | `newsletter_renderer.py` | Jinja2 기반 HTML 생성(반응형, 다크모드, 현지화, 크기 검사) |
 | `aws_helpers.py` | S3, SES, SNS, SSM, Batch 연동 |
@@ -97,14 +97,9 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **SSM Parameter Store**. LangChain API 키와 Batch 큐/정의 이름을 저장합니다.
 - **SES**로 뉴스레터를 전달하고, **SNS**로 실행·헬스 알림을 보냅니다.
 - **Bedrock(us-west-2)**. Claude Sonnet 5.5(필터 + 요약), Claude Haiku 5.5(인사말,
-  출력 복구). `LanguageModelId` 카탈로그의 모델은 스테이지별로 골라 쓸 수 있고 **Claude
-  Opus 5.5 / Opus 5 / Sonnet 5**, **Claude Fable 5.1**(`anthropic.claude-fable-5-1`),
-  **OpenAI GPT-6** 모델(`openai.gpt-6.1-sol`, `openai.gpt-6-sol`, `openai.gpt-6-luna`,
-  `openai.gpt-6-astra`)도 포함됩니다. GPT 모델은 Converse로 호출하고, Claude의
-  thinking 필드 대신 `reasoning.effort`로 추론 깊이를 조절합니다. Fable 5.1은 계정의 Bedrock 데이터 보존 모드를 `aws_review`로 바꾸기
-  전에는 모든 요청을 거부합니다. Claude 5 모델은 따로 끄지 않으면 사고하므로
-  `*_enable_thinking: False`는 모델마다 다른 끄기 값을 보냅니다. Opus 5.5와 Fable
-  5.1은 끌 방법이 없어 `thinking_effort`만으로 깊이를 조절합니다.
+  출력 복구). [`app/src/constants.py`](./app/src/constants.py)의 `LanguageModelId`
+  카탈로그에 있는 모델은 OpenAI GPT-6 모델을 포함해 스테이지별로 골라 쓸 수 있습니다.
+  모델별 요청 규칙(thinking 끄기 값, effort, GPT 호출 방식)은 design.md §8에 있습니다.
 
 ---
 
@@ -112,7 +107,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 
 - **언어 / IaC:** Python 3.12+, AWS CDK, Docker
 - **AI:** Amazon Bedrock, LangChain
-- **스크레이핑:** Feedparser, BeautifulSoup4, Selenium
+- **스크레이핑:** Feedparser, BeautifulSoup4
 - **렌더링 / 설정:** Jinja2, Pydantic, YAML
 
 ---
@@ -132,8 +127,7 @@ resources:
 
 scraping:
   min_content_length: 600                # 이보다 빈약한 글은 제외(가시 텍스트 문자 수)
-  expected_flaky_urls:                   # 여기 실패는 리포트만, 알림은 띄우지 않음
-    - "x.ai/news"
+  expected_flaky_urls: []                # 실패를 리포트만 하고 알림은 띄우지 않을 URL 일부
   rss_urls:
     - "https://aws.amazon.com/blogs/amazon-ai/feed/"
     - "https://www.amazon.science/index.rss"
@@ -172,30 +166,17 @@ python scripts/put_inference_profiles.py --stage dev   # 계정/스테이지마�
 
 ### Bedrock 비용 귀속
 
-온디맨드 Bedrock의 `InvokeModel`에는 태그를 붙일 수 있는 리소스가 없어서 토큰 사용량에
-비용 할당 태그를 실을 수 없습니다. 여러 워크로드가 같은 계정에서 같은 Claude 모델을
-쓰면 Bedrock 청구서는 **귀속 불가능한 하나의 총액**이 됩니다. **애플리케이션 추론
-프로파일**은 태그가 붙고, 그 ARN으로 호출하면 사용량이 그 태그로 귀속됩니다.
+온디맨드 Bedrock 호출에는 태그를 붙일 리소스가 없으므로, `scripts/put_inference_profiles.py`가
+설정된 모델마다 `Project`/`Stage` 태그를 단 애플리케이션 추론 프로파일을 만들고 모델 해석 시
+이를 우선합니다. 프로파일이 없으면 시스템 정의 ID를 씁니다. 모든 호출은 단계별로
+`LLM usage stage=... model=... input=... output=...`를 로그로 남깁니다.
 
-`scripts/put_inference_profiles.py`가 설정된 모델마다 하나씩,
-`{project}-{stage}-{model-slug}` 이름으로 `Project`/`Stage` 태그를 달아 만듭니다.
-시스템 정의 크로스 리전 프로파일에서 복사하므로 라우팅은 그대로 물려받습니다.
-`BedrockCrossRegionModelHelper`가 해석 시점에 이걸 우선하는데, 모든 모델 생성이 이미
-지나가는 단 한 곳입니다. 프로파일이 없거나 조회가 거부되면 조용히 기존 ID를
-씁니다. 비용 리포팅이 생성을 멈추게 해서는 안 되기 때문입니다.
+- `application-inference-profile`은 `inference-profile`과 다른 IAM 리소스 타입입니다. 정책이
+  둘 다 허용하지 않으면 프로파일이 생기는 순간부터 모든 호출이 `AccessDenied`가 됩니다.
+- Billing → 비용 할당 태그에서 `Project` 태그를 활성화해야 Cost Explorer에 나타납니다(최대
+  24시간, 소급 적용 안 됨).
 
-알아둘 것 두 가지:
-
-- `application-inference-profile`은 `inference-profile`과 **다른 IAM 리소스 타입**입니다.
-  정책은 둘 다 허용하며, 앞의 것을 빼면 프로파일이 존재하는 순간부터 모든 Bedrock
-  호출이 `AccessDenied`가 됩니다(프로파일이 없을 때는 아무 문제 없이 동작합니다).
-- Cost Explorer에 나타나게 하려면 Billing → 비용 할당 태그에서 `Project` 태그를
-  활성화해야 합니다(최대 24시간, **소급 적용 안 됨**).
-
-보완 장치로, 각 단계가 모델을 만들 때 자기 이름을 넘기므로 모든 호출이
-`LLM usage stage=... model=... input=... output=... cache_read=... cache_write=...`를
-남깁니다. 청구는 모델 단위인데 필터링·요약·출력 교정·인사말이 모델 두 개를 나눠 쓰기
-때문입니다.
+자세한 내용은 [design.md §8](./docs/design.md#8-bedrock-모델-팩토리-appsrcmodel_factorypy--배치-처리-appsrcutilspy)을 참고하세요.
 
 ### 로컬 실행
 
@@ -227,27 +208,23 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(958개 테스트, 커버리지 88.7%)
+pytest                       # 빠른 오프라인 단위/통합 스위트
 
-# 생성된 실행 결과에 대한 출력 품질 루빅스. 채점은 결정적이고 오프라인이며 무료입니다.
+# 생성된 실행 결과에 대한 출력 품질 루브릭. 채점은 결정적이고 오프라인이며 무료입니다.
 # --regenerate만 예외로 실제 Bedrock을 호출합니다.
-# 11개 차원이 각각 요약 프롬프트의 규칙 하나에 대응하므로, 낮은 점수는 어느
-# 지시문을 고쳐야 하는지를 알려줍니다. 이 중 번역투와 상투구 두 차원은 빈도로
+# 각 차원이 요약 프롬프트의 규칙 하나에 대응하므로, 낮은 점수는 어느 지시문을
+# 고쳐야 하는지를 알려줍니다. 종합 점수는 등급형 차원만 평균하고, 계약 검사(구조,
+# 리드, 캡션 등)는 위반으로 따로 표시합니다. 등급형 중 번역투와 상투구 두 차원은 빈도로
 # 채점합니다 — 적게 쓰면 평범한 한국어이기 때문입니다. --compare로 수정 효과 검증.
 python scripts/eval_summary_quality.py --date 2026-08-19
 python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
 
 # 프롬프트 수정을 같은 입력으로 A/B: 과거 실행에 저장된 기사를 현재 프롬프트로 다시
-# 요약해 루빅스를 비교합니다. 비용이 발생합니다(기사당 호출 1회).
+# 요약해 루브릭을 비교합니다. 비용이 발생합니다(기사당 호출 1회).
 python scripts/eval_summary_quality.py --regenerate 2026-08-19
-
-# 문서가 코드와 여전히 맞는지 검증 — 변경의 마지막 단계입니다. 수치 주장(테스트 수,
-# 커버리지, 고정 의존성 개수, 억제된 소스)을 그것을 만드는 산출물과 대조하고,
-# 어긋나면 non-zero로 끝납니다.
-python scripts/check_docs_current.py
 ```
 
-CI는 모든 푸시와 풀 리퀘스트에서 린트, 포맷, 타입, 테스트 검사와 `check_docs_current.py`를
+CI는 모든 푸시와 풀 리퀘스트에서 린트, 포맷, 타입, 테스트 검사를
 실행합니다([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)). 출력 품질 루브릭은 생성된
 실행 결과가 있어야 하므로 직접 돌립니다.
 

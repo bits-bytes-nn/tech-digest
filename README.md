@@ -50,8 +50,8 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
   one scores the *filter* (does the right article get picked?) and one scores the
   *output* (is the write-up any good?). Every output check is deterministic and
   maps onto a specific prompt rule, so a low score says which instruction to fix.
-- **Reproducible builds**. base images pinned by digest *and* all 64 Python
-  dependencies pinned in `app/requirements.lock`, which CI applies as a
+- **Reproducible builds**. base images pinned by digest *and* every Python
+  dependency, transitive ones included, pinned in `app/requirements.lock`, which CI applies as a
   constraints file so the suite tests exactly what the image ships.
 - **Attributable cost**. on-demand Bedrock carries no taggable resource, so the
   pipeline invokes through tagged application inference profiles and logs token
@@ -77,7 +77,7 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
 
 | Module | Responsibility |
 | --- | --- |
-| `feed_parser.py` | RSS parsing + resilient HTML scraping (BeautifulSoup4 / Selenium), per-source health tracking |
+| `feed_parser.py` | RSS parsing + HTML scraping (BeautifulSoup4), per-source health tracking |
 | `summarizer.py` | Content gate → relevance filter → rank/cap → summarize, all via Bedrock |
 | `model_factory.py` | Bedrock model capability registry + LangChain chat-model construction, cost-attribution profiles |
 | `quality_metrics.py` | Deterministic output-quality rubric (pure functions) |
@@ -100,15 +100,9 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **SES**. newsletter delivery. **SNS** — run/health notifications.
 - **Bedrock (us-west-2)**. Claude Sonnet 5.5 (filter + summarize), Claude
   Haiku 5.5 (greeting and output repair). Any model in the `LanguageModelId`
-  catalog is selectable per stage, including **Claude Opus 5.5 / Opus 5 / Sonnet
-  5**, **Claude Fable 5.1** (`anthropic.claude-fable-5-1`) and the **OpenAI GPT-6**
-  models (`openai.gpt-6.1-sol`, `openai.gpt-6-sol`, `openai.gpt-6-luna`,
-  `openai.gpt-6-astra`), which run through Converse with `reasoning.effort` in
-  place of Claude's thinking fields. Fable 5.1 refuses every request
-  until the account's Bedrock data retention mode is set to `aws_review`.
-  Claude 5 models think unless told not to, so `*_enable_thinking: False` sends
-  each model's own off switch; Opus 5.5 and Fable 5.1 have none, and
-  `thinking_effort` is their only depth control.
+  catalog in [`app/src/constants.py`](./app/src/constants.py) is selectable per
+  stage, including OpenAI GPT-6 models; per-model request rules (thinking
+  off-switches, effort, the GPT dialect) are in design.md §8.
 
 ---
 
@@ -116,7 +110,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 
 - **Language / IaC:** Python 3.12+, AWS CDK, Docker
 - **AI:** Amazon Bedrock, LangChain
-- **Scraping:** Feedparser, BeautifulSoup4, Selenium
+- **Scraping:** Feedparser, BeautifulSoup4
 - **Rendering / config:** Jinja2, Pydantic, YAML
 
 ---
@@ -136,8 +130,7 @@ resources:
 
 scraping:
   min_content_length: 600                # drop posts thinner than this (visible chars)
-  expected_flaky_urls:                   # fetch failures here are reported, not alerted
-    - "x.ai/news"
+  expected_flaky_urls: []                # URL substrings whose failures are reported, not alerted
   rss_urls:
     - "https://aws.amazon.com/blogs/amazon-ai/feed/"
     - "https://www.amazon.science/index.rss"
@@ -176,30 +169,19 @@ python scripts/put_inference_profiles.py --stage dev   # once per account/stage
 
 ### Bedrock cost attribution
 
-On-demand Bedrock bills against no taggable resource, so `InvokeModel` token spend
-cannot carry a cost-allocation tag — in a shared account the Bedrock line is one
-unattributable total. An **application inference profile** *is* taggable, and invoking
-through its ARN attributes the usage.
+On-demand Bedrock usage carries no taggable resource, so
+`scripts/put_inference_profiles.py` creates a tagged (`Project`/`Stage`) application
+inference profile per configured model, and model resolution prefers it. A missing
+profile falls back to the system-defined id. Each call also logs
+`LLM usage stage=... model=... input=... output=...` per pipeline stage.
 
-`scripts/put_inference_profiles.py` creates one per configured model, named
-`{project}-{stage}-{model-slug}` and tagged `Project`/`Stage`, copied from the
-system-defined cross-region profile so the same routing is inherited.
-`BedrockCrossRegionModelHelper` prefers them at resolution time — the single place every
-model build already goes through. A missing profile or a denied lookup silently keeps
-the system-defined id: cost reporting must never stop a generation.
+- `application-inference-profile` is a different IAM resource type from
+  `inference-profile`; the policy must grant both, or every call is `AccessDenied`
+  once a profile exists.
+- Activate the `Project` cost allocation tag under **Billing → Cost allocation tags**
+  (takes up to 24h, not retroactive).
 
-Two things to know:
-
-- `application-inference-profile` is a **different IAM resource type** from
-  `inference-profile`. The policy grants both; dropping the former makes every Bedrock
-  call `AccessDenied` the moment a profile exists.
-- Activate the `Project` cost allocation tag in **Billing → Cost allocation tags** for
-  this to reach Cost Explorer (up to 24h, and **not** retroactive).
-
-Complementing it, each stage names itself when building its model, so every call logs
-`LLM usage stage=... model=... input=... output=... cache_read=... cache_write=...` —
-the bill is per model, while filtering, summarization, output-fixing and the greeting
-share just two of them.
+See [design.md §8](./docs/design.md#8-bedrock-모델-팩토리-appsrcmodel_factorypy--배치-처리-appsrcutilspy) for details.
 
 ### Run locally
 
@@ -232,13 +214,14 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (958 tests, 88.7% cov)
+pytest                       # fast, offline unit/integration suite
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline
 # and free; --regenerate is the exception and makes real Bedrock calls.
-# Each of the 11 dimensions maps onto one summarization-prompt rule, so a low
-# score says which instruction to change. Two of them — translationese and
-# cliche — score a rate rather than presence, since the phrasing they catch is
+# Each dimension maps onto one summarization-prompt rule, so a low score says
+# which instruction to change. The overall score averages the graded dimensions;
+# contract checks (structure, lede, captions...) are listed as violations. Two
+# graded ones — translationese and cliche — score a rate rather than presence, since the phrasing they catch is
 # ordinary Korean at low frequency. --compare diffs two runs to verify an edit.
 python scripts/eval_summary_quality.py --date 2026-08-19
 python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
@@ -246,15 +229,9 @@ python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
 # A/B a prompt edit on identical input: re-summarize a past run's stored articles
 # with the current prompt and diff the rubric. COSTS MONEY (one call per article).
 python scripts/eval_summary_quality.py --regenerate 2026-08-19
-
-# Verify the docs still match the code — the last step of a change. Checks the
-# numeric claims (test count, coverage, pinned dependency count, suppressed
-# sources) against what actually produces them, and exits non-zero on a mismatch.
-python scripts/check_docs_current.py
 ```
 
-CI runs the lint, format, type and test gates and `check_docs_current.py` on every
-push and pull request ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
+CI runs the lint, format, type and test gates on every push and pull request ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
 The output-quality rubric needs a generated run, so it is run by hand.
 
 ---
