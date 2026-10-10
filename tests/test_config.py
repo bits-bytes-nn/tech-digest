@@ -203,3 +203,54 @@ class TestSummarizationSwitchesReachTheSummarizer:
             f"config-template.yaml documents summarization keys the model ignores: "
             f"{sorted(unknown)}"
         )
+
+
+class TestNewestModelsAreSelectable:
+    """The 5.5 generation and Fable 5.1 must load from YAML for every stage —
+    without moving any default off the models it already uses."""
+
+    @pytest.mark.parametrize(
+        "model_value",
+        [
+            "anthropic.claude-haiku-5-5",
+            "anthropic.claude-sonnet-5-5",
+            "anthropic.claude-opus-5-5",
+            "anthropic.claude-fable-5-1",
+        ],
+    )
+    @pytest.mark.parametrize("effort", [None, "medium", "xhigh", "max"])
+    def test_every_stage_accepts_the_id(self, model_value, effort):
+        s = Summarization.model_validate(
+            {
+                "filtering_criteria": "all",
+                "filtering_model_id": model_value,
+                "summarization_model_id": model_value,
+                "greeting_model_id": model_value,
+                "thinking_effort": effort,
+            }
+        )
+        assert s.filtering_model_id.value == model_value
+        assert s.summarization_model_id.value == model_value
+        assert s.greeting_model_id.value == model_value
+        assert s.thinking_effort == effort
+
+    def test_code_defaults_unchanged(self):
+        s = Config.model_fields["summarization"].default_factory()
+        assert s.filtering_model_id is LanguageModelId.CLAUDE_V5_SONNET
+        assert s.summarization_model_id is LanguageModelId.CLAUDE_V5_SONNET
+        assert s.greeting_model_id is LanguageModelId.CLAUDE_V4_5_HAIKU
+        assert s.thinking_effort is None
+
+    @pytest.mark.parametrize(
+        "name", ["config-template.yaml", "config-ci.yaml", "config-ci-batch.yaml"]
+    )
+    def test_shipped_config_defaults_unchanged(self, name):
+        import yaml
+
+        path = Path(__file__).resolve().parent.parent / "app" / "configs" / name
+        section = yaml.safe_load(path.read_text(encoding="utf-8"))["summarization"]
+        assert section["filtering_model_id"] == "anthropic.claude-sonnet-5"
+        assert section["summarization_model_id"] == "anthropic.claude-sonnet-5"
+        assert (
+            section["greeting_model_id"] == "anthropic.claude-haiku-4-5-20251001-v1:0"
+        )

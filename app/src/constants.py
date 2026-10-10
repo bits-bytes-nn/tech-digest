@@ -54,6 +54,7 @@ class LanguageModelId(str, Enum):
     CLAUDE_V3_HAIKU = "anthropic.claude-3-haiku-20240307-v1:0"
     CLAUDE_V3_5_HAIKU = "anthropic.claude-3-5-haiku-20241022-v1:0"
     CLAUDE_V4_5_HAIKU = "anthropic.claude-haiku-4-5-20251001-v1:0"
+    CLAUDE_V5_5_HAIKU = "anthropic.claude-haiku-5-5"
     CLAUDE_V3_5_SONNET = "anthropic.claude-3-5-sonnet-20240620-v1:0"
     CLAUDE_V3_5_SONNET_V2 = "anthropic.claude-3-5-sonnet-20241022-v2:0"
     CLAUDE_V3_7_SONNET = "anthropic.claude-3-7-sonnet-20250219-v1:0"
@@ -61,6 +62,7 @@ class LanguageModelId(str, Enum):
     CLAUDE_V4_5_SONNET = "anthropic.claude-sonnet-4-5-20250929-v1:0"
     CLAUDE_V4_6_SONNET = "anthropic.claude-sonnet-4-6"
     CLAUDE_V5_SONNET = "anthropic.claude-sonnet-5"
+    CLAUDE_V5_5_SONNET = "anthropic.claude-sonnet-5-5"
     CLAUDE_V4_OPUS = "anthropic.claude-opus-4-20250514-v1:0"
     CLAUDE_V4_1_OPUS = "anthropic.claude-opus-4-1-20250805-v1:0"
     CLAUDE_V4_5_OPUS = "anthropic.claude-opus-4-5-20251101-v1:0"
@@ -68,6 +70,8 @@ class LanguageModelId(str, Enum):
     CLAUDE_V4_7_OPUS = "anthropic.claude-opus-4-7"
     CLAUDE_V4_8_OPUS = "anthropic.claude-opus-4-8"
     CLAUDE_V5_OPUS = "anthropic.claude-opus-5"
+    CLAUDE_V5_5_OPUS = "anthropic.claude-opus-5-5"
+    CLAUDE_V5_1_FABLE = "anthropic.claude-fable-5-1"
     # NOTE: add new models here
 
 

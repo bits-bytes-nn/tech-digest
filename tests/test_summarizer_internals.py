@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from app.src.constants import LanguageModelId
 from app.src.feed_parser import Post
 from app.src.summarizer import Summarizer, SummarizerSettings
@@ -231,7 +233,7 @@ class TestProcessPostsCapBeforeSummarize:
             summarized.extend(p.title for p in posts)
             return list(posts)
 
-        s._summarize_posts = fake_summarize  # type: ignore[method-assign]
+        s._summarize_posts = fake_summarize
 
         posts = [_post("low"), _post("high"), _post("mid")]
         # Filter assigns distinct scores so ranking is unambiguous.
@@ -442,3 +444,47 @@ class TestFilterInputIsProseNotMarkup:
         html = "<p>Prose</p>"
         captured = self._captured_inputs(s, [_post("a", content=html)])
         assert captured[0]["post"] == html
+
+
+class TestFilterThinkingWarning:
+    """The thinking warning must not claim temperature=1.0 sampling on a model
+    that takes no temperature at all — those are non-deterministic regardless."""
+
+    @staticmethod
+    def _build_filter(model_id, caplog, propagating_logger):
+        from langchain_core.runnables import RunnableLambda
+
+        from app.src.model_factory import BedrockLanguageModelFactory
+
+        s = _summarizer(filtering_model_id=model_id, filtering_enable_thinking=True)
+        factory = BedrockLanguageModelFactory.__new__(BedrockLanguageModelFactory)
+        factory.get_model = lambda **kwargs: RunnableLambda(lambda x: x)
+        s.llm_factory = factory
+        with caplog.at_level("WARNING"):
+            s._create_filter(model_id, use_thinking=True)
+        messages = [r.getMessage() for r in caplog.records]
+        assert messages, "no warning logged"
+        return messages
+
+    def test_sampling_model_names_temperature(self, caplog, propagating_logger):
+        messages = self._build_filter(
+            LanguageModelId.CLAUDE_V4_6_SONNET, caplog, propagating_logger
+        )
+        assert any("temperature=1.0" in m for m in messages)
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            LanguageModelId.CLAUDE_V5_SONNET,
+            LanguageModelId.CLAUDE_V5_5_SONNET,
+            LanguageModelId.CLAUDE_V5_5_OPUS,
+            LanguageModelId.CLAUDE_V5_5_HAIKU,
+            LanguageModelId.CLAUDE_V5_1_FABLE,
+        ],
+    )
+    def test_no_sampling_model_does_not_claim_temperature(
+        self, caplog, propagating_logger, model_id
+    ):
+        messages = self._build_filter(model_id, caplog, propagating_logger)
+        assert not any("temperature" in m for m in messages)
+        assert any("NOT deterministic" in m for m in messages)

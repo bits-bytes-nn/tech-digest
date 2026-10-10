@@ -411,10 +411,19 @@ class Summarizer:
             # post may fall either side of min_score across runs, making the
             # score-ranked top-N cut unstable. Acceptable if you want deeper
             # reasoning, but be aware inclusion is no longer reproducible.
-            logger.warning(
-                "Filtering has thinking enabled: scores are sampled at "
-                "temperature=1.0 and are NOT deterministic across runs."
-            )
+            # Models without sampling controls are non-deterministic with or
+            # without this switch (and the 5.5 generation thinks either way), so
+            # the temperature claim would be false for them.
+            if model_info.supports_sampling_params:
+                logger.warning(
+                    "Filtering has thinking enabled: scores are sampled at "
+                    "temperature=1.0 and are NOT deterministic across runs."
+                )
+            else:
+                logger.warning(
+                    "Filtering has thinking enabled on a model without sampling "
+                    "controls: scores are NOT deterministic across runs."
+                )
         filtering_llm = self.llm_factory.get_model(
             model_id=model_id,
             temperature=0.0,

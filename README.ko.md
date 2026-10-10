@@ -98,8 +98,12 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **SES**로 뉴스레터를 전달하고, **SNS**로 실행·헬스 알림을 보냅니다.
 - **Bedrock(us-west-2)**. Claude Sonnet 5(필터 + 요약), Claude Haiku 4.5(인사말).
   `LanguageModelId` 카탈로그의 모델은 스테이지별로 골라 쓸 수 있고 **Claude
-  Opus 5**(`anthropic.claude-opus-5`)도 포함됩니다. `thinking_effort`는 Opus
-  티어에서 `xhigh`/`max`까지 받습니다.
+  Opus 5**(`anthropic.claude-opus-5`), **Claude Opus 5.5 / Sonnet 5.5 / Haiku
+  5.5**(`anthropic.claude-opus-5-5`, `anthropic.claude-sonnet-5-5`,
+  `anthropic.claude-haiku-5-5`), **Claude Fable 5.1**(`anthropic.claude-fable-5-1`)도
+  포함됩니다. `thinking_effort`는 Opus 티어와 5.5·Fable 5.1 모델에서
+  `xhigh`/`max`까지 받습니다. 5.5·Fable 5.1 모델은 `*_enable_thinking`을 꺼도 사고를
+  합니다.
 
 ---
 
@@ -215,7 +219,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(638개 테스트, 커버리지 86.0%)
+pytest                       # 빠른 오프라인 단위/통합 스위트(786개 테스트, 커버리지 86.3%)
 
 # 생성된 실행 결과에 대한 출력 품질 루빅스. 채점은 결정적이고 오프라인이며 무료입니다.
 # --regenerate만 예외로 실제 Bedrock을 호출합니다.

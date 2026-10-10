@@ -4,7 +4,8 @@ Holds the per-model capability registry and the factory that turns a
 ``LanguageModelId`` into a configured LangChain chat model, including the
 backend-specific differences (ChatBedrock vs ChatBedrockConverse), cross-region
 inference-profile resolution, and the thinking/sampling parameter rules that
-changed with Sonnet 5.
+changed with Sonnet 5 (plus the forced-tool-choice rule that changed with the
+5.5 generation).
 
 Split out of ``utils`` so that module is once again a small set of unrelated
 helpers rather than the project's largest file.
@@ -91,6 +92,18 @@ class LanguageModelInfo(BaseModel):
     # (thinking.type="adaptive"); the old form is rejected. Depth is instead
     # controlled by output_config.effort. Set True for those models.
     uses_adaptive_thinking: bool = False
+    # Opus 5.5, Sonnet 5.5 and Fable 5.1 reject forced tool use (tool_choice
+    # "any" or a named tool) with a 400; only "auto"/"none" are accepted.
+    # langchain_aws (1.7.x) assumes any Claude id outside 3.7/4.x accepts all
+    # three and forces the tool in with_structured_output, so the factory pins
+    # these models to "auto".
+    supports_forced_tool_choice: bool = True
+    # The model runs adaptive thinking even when the request carries no
+    # ``thinking`` field, and its off switch is either rejected outright or only
+    # valid at some effort levels. The factory never sends thinking.type
+    # "disabled", so enable_thinking=False means "send no thinking field", not
+    # "no thinking" — and output_config.effort stays the only depth control.
+    thinks_when_omitted: bool = False
 
 
 _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
@@ -198,6 +211,50 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
+    ),
+    # Claude 5.5 generation and Fable 5.1: the Claude 5 request contract, plus
+    # thinking that runs when omitted, and (except Haiku 5.5) no forced tool use.
+    # The API allows 128K output; the cap stays at 64K like every other entry,
+    # because these calls are not streamed. Effort defaults to "medium" on Opus 5.5
+    # and Haiku 5.5 ("high" on the others) when thinking_effort is left unset.
+    LanguageModelId.CLAUDE_V5_5_HAIKU: LanguageModelInfo(
+        context_window_size=1000000,
+        max_output_tokens=64000,
+        supports_prompt_caching=True,
+        supports_thinking=True,
+        supports_sampling_params=False,
+        uses_adaptive_thinking=True,
+        thinks_when_omitted=True,
+    ),
+    LanguageModelId.CLAUDE_V5_5_SONNET: LanguageModelInfo(
+        context_window_size=1000000,
+        max_output_tokens=64000,
+        supports_prompt_caching=True,
+        supports_thinking=True,
+        supports_sampling_params=False,
+        uses_adaptive_thinking=True,
+        supports_forced_tool_choice=False,
+        thinks_when_omitted=True,
+    ),
+    LanguageModelId.CLAUDE_V5_5_OPUS: LanguageModelInfo(
+        context_window_size=1000000,
+        max_output_tokens=64000,
+        supports_prompt_caching=True,
+        supports_thinking=True,
+        supports_sampling_params=False,
+        uses_adaptive_thinking=True,
+        supports_forced_tool_choice=False,
+        thinks_when_omitted=True,
+    ),
+    LanguageModelId.CLAUDE_V5_1_FABLE: LanguageModelInfo(
+        context_window_size=1000000,
+        max_output_tokens=64000,
+        supports_prompt_caching=True,
+        supports_thinking=True,
+        supports_sampling_params=False,
+        uses_adaptive_thinking=True,
+        supports_forced_tool_choice=False,
+        thinks_when_omitted=True,
     ),
     # NOTE: add new models here
 }
@@ -418,10 +475,16 @@ class BedrockLanguageModelFactory:
         # as ``use_converse``; they previously named the same argument
         # ``is_cross_region``, which read as if thinking-on-a-plain-model took the
         # ChatBedrock path when it does not.
+        #
+        # Models that reject forced tool use also always take Converse: only
+        # ChatBedrockConverse can be told which tool_choice values are allowed,
+        # while ChatBedrock's with_structured_output forces the tool for them.
         is_cross_region = resolved_model_id != model_id.value
         enable_thinking = kwargs.get("enable_thinking", False)
-        use_converse = is_cross_region or (
-            enable_thinking and model_info.supports_thinking
+        use_converse = (
+            is_cross_region
+            or (enable_thinking and model_info.supports_thinking)
+            or not model_info.supports_forced_tool_choice
         )
         model_config = self._build_model_config(
             model_info, resolved_model_id, use_converse, model_id=model_id, **kwargs
@@ -513,6 +576,8 @@ class BedrockLanguageModelFactory:
         }
         if use_converse:
             config.update(common_params)
+            if not model_info.supports_forced_tool_choice:
+                config["supports_tool_choice_values"] = ("auto",)
         else:
             model_kwargs: dict[str, Any] = {**common_params}
             # top_k is a sampling param; newer models (Sonnet 5+) reject it.
@@ -538,14 +603,21 @@ class BedrockLanguageModelFactory:
                 self._apply_adaptive_thinking(config, use_converse, **kwargs)
             else:
                 self._apply_budget_thinking(config, model_info, use_converse, **kwargs)
+        elif model_info.thinks_when_omitted and (effort := kwargs.get("effort")):
+            # Thinking runs anyway on these models, so effort is still the depth
+            # control; send it without a thinking field (never type="disabled").
+            key = "additional_model_request_fields" if use_converse else "model_kwargs"
+            config.setdefault(key, {})["output_config"] = {"effort": effort}
+            logger.debug("Applied effort='%s' without a thinking field", effort)
 
     def _apply_adaptive_thinking(
         self, config: dict[str, Any], use_converse: bool, **kwargs: Any
     ) -> None:
         # Newer models (Sonnet 5+) require adaptive thinking; the model
         # self-moderates how much it thinks. Depth is optionally steered via
-        # output_config.effort ("low"|"medium"|"high"|"max") rather than a token
-        # budget. Omitting effort uses the model default.
+        # output_config.effort ("low"|"medium"|"high"|"xhigh"|"max") rather than
+        # a token budget. Omitting effort uses the model default, which is not the
+        # same everywhere: "medium" on Opus 5.5 and Haiku 5.5, "high" elsewhere.
         think_config: dict[str, Any] = {"thinking": {"type": "adaptive"}}
         effort = kwargs.get("effort")
         if effort:
@@ -558,7 +630,7 @@ class BedrockLanguageModelFactory:
         if budget is not None and budget != self.DEFAULT_THINKING_BUDGET_TOKENS:
             logger.warning(
                 "thinking_budget_tokens=%s is ignored for adaptive-thinking "
-                "models; use 'effort' (low/medium/high/max) to steer depth.",
+                "models; use 'effort' (low/medium/high/xhigh/max) to steer depth.",
                 budget,
             )
         if use_converse:

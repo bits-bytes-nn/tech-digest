@@ -6,6 +6,8 @@ table, max-token validation, and cross-region id construction.
 
 from __future__ import annotations
 
+import pytest
+
 import app.src.model_factory as factory_mod
 from app.src.constants import LanguageModelId
 from app.src.model_factory import (
@@ -48,7 +50,12 @@ class TestModelInfoRegistry:
             m
             for m in _LANGUAGE_MODEL_INFO
             if m.value.startswith(
-                ("anthropic.claude-sonnet-5", "anthropic.claude-opus-5")
+                (
+                    "anthropic.claude-sonnet-5",
+                    "anthropic.claude-opus-5",
+                    "anthropic.claude-haiku-5",
+                    "anthropic.claude-fable-5",
+                )
             )
         ]
         assert generation_5, "no Claude 5 models registered"
@@ -536,3 +543,262 @@ class TestCrossRegionResolution:
             session, LanguageModelId.CLAUDE_V5_SONNET, "us-west-2"
         )
         assert second == "us.anthropic.claude-sonnet-5"  # retried and resolved
+
+
+NEW_GENERATION = [
+    LanguageModelId.CLAUDE_V5_5_HAIKU,
+    LanguageModelId.CLAUDE_V5_5_SONNET,
+    LanguageModelId.CLAUDE_V5_5_OPUS,
+    LanguageModelId.CLAUDE_V5_1_FABLE,
+]
+NO_FORCED_TOOL_CHOICE = [
+    LanguageModelId.CLAUDE_V5_5_SONNET,
+    LanguageModelId.CLAUDE_V5_5_OPUS,
+    LanguageModelId.CLAUDE_V5_1_FABLE,
+]
+SAMPLING_KEYS = ("temperature", "top_k", "top_p")
+
+
+def _offline_factory() -> BedrockLanguageModelFactory:
+    factory = BedrockLanguageModelFactory.__new__(BedrockLanguageModelFactory)
+    factory.region_name = "us-west-2"
+    factory._client = None
+
+    class _Session:
+        profile_name = "default"
+
+    factory.boto_session = _Session()
+    return factory
+
+
+def _stub_resolution(monkeypatch, prefix: str = "") -> None:
+    monkeypatch.setattr(
+        BedrockCrossRegionModelHelper,
+        "get_cross_region_model_id",
+        classmethod(lambda cls, s, m, r: f"{prefix}{m.value}"),
+    )
+
+
+def _capture_ctor(monkeypatch) -> dict:
+    captured: dict = {}
+
+    def make(name):
+        def _ctor(**kwargs):
+            captured["class"] = name
+            captured["kwargs"] = kwargs
+            return object()
+
+        return _ctor
+
+    monkeypatch.setattr(factory_mod, "ChatBedrock", make("ChatBedrock"))
+    monkeypatch.setattr(factory_mod, "ChatBedrockConverse", make("ChatBedrockConverse"))
+    return captured
+
+
+def _request_fields(kwargs: dict) -> dict:
+    """Every place a model-specific field can land, merged for assertions."""
+    return {
+        **kwargs.get("model_kwargs", {}),
+        **kwargs.get("additional_model_request_fields", {}),
+    }
+
+
+class TestClaude55AndFable51:
+    """Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1 return a 400 for sampling
+    params, for a thinking budget, for thinking.type="disabled" (Opus 5.5 / Fable
+    5.1 always; Sonnet 5.5 always; Haiku 5.5 at higher effort), and — all but
+    Haiku 5.5 — for forced tool_choice. Each of those is a silent, total failure
+    on the weekly job, so the request shape is pinned per model."""
+
+    @pytest.mark.parametrize(
+        ("model_id", "value"),
+        [
+            (LanguageModelId.CLAUDE_V5_5_HAIKU, "anthropic.claude-haiku-5-5"),
+            (LanguageModelId.CLAUDE_V5_5_SONNET, "anthropic.claude-sonnet-5-5"),
+            (LanguageModelId.CLAUDE_V5_5_OPUS, "anthropic.claude-opus-5-5"),
+            (LanguageModelId.CLAUDE_V5_1_FABLE, "anthropic.claude-fable-5-1"),
+        ],
+    )
+    def test_id_is_the_bedrock_base_id(self, model_id, value):
+        # No date/version suffix: the base ids and their global./us. profiles are
+        # listed exactly like this by ListFoundationModels/ListInferenceProfiles.
+        assert model_id.value == value
+        assert LanguageModelId(value) is model_id
+
+    @pytest.mark.parametrize("model_id", NEW_GENERATION)
+    def test_registry_declares_the_request_contract(self, model_id):
+        info = _LANGUAGE_MODEL_INFO[model_id]
+        assert info.supports_sampling_params is False
+        assert info.supports_thinking is True
+        assert info.uses_adaptive_thinking is True
+        assert info.thinks_when_omitted is True
+        assert info.supports_prompt_caching is True
+        assert info.context_window_size == 1_000_000
+        assert info.max_output_tokens == 64000
+
+    @pytest.mark.parametrize("model_id", NEW_GENERATION)
+    def test_forced_tool_choice_flag(self, model_id):
+        info = _LANGUAGE_MODEL_INFO[model_id]
+        assert info.supports_forced_tool_choice is (
+            model_id not in NO_FORCED_TOOL_CHOICE
+        )
+
+    @pytest.mark.parametrize("model_id", NEW_GENERATION)
+    @pytest.mark.parametrize("prefix", ["", "us.", "global."])
+    @pytest.mark.parametrize("enable_thinking", [False, True])
+    def test_no_sampling_params_sent(
+        self, monkeypatch, model_id, prefix, enable_thinking
+    ):
+        _stub_resolution(monkeypatch, prefix)
+        captured = _capture_ctor(monkeypatch)
+        _offline_factory().get_model(
+            model_id,
+            temperature=0.4,
+            top_k=50,
+            max_tokens=4096,
+            enable_thinking=enable_thinking,
+        )
+        kwargs = captured["kwargs"]
+        for key in SAMPLING_KEYS:
+            assert key not in kwargs, (model_id, key)
+            assert key not in _request_fields(kwargs), (model_id, key)
+
+    @pytest.mark.parametrize("model_id", NEW_GENERATION)
+    @pytest.mark.parametrize("prefix", ["", "global."])
+    @pytest.mark.parametrize("effort", [None, "low", "xhigh", "max"])
+    def test_thinking_on_is_adaptive_never_budget(
+        self, monkeypatch, model_id, prefix, effort
+    ):
+        _stub_resolution(monkeypatch, prefix)
+        captured = _capture_ctor(monkeypatch)
+        _offline_factory().get_model(
+            model_id,
+            enable_thinking=True,
+            thinking_budget_tokens=20000,
+            effort=effort,
+            max_tokens=64000,
+        )
+        fields = _request_fields(captured["kwargs"])
+        assert fields["thinking"] == {"type": "adaptive"}
+        if effort:
+            assert fields["output_config"] == {"effort": effort}
+        else:
+            assert "output_config" not in fields
+
+    @pytest.mark.parametrize("model_id", NEW_GENERATION)
+    @pytest.mark.parametrize("prefix", ["", "global."])
+    @pytest.mark.parametrize("effort", [None, "medium", "max"])
+    def test_thinking_off_sends_no_thinking_field(
+        self, monkeypatch, model_id, prefix, effort
+    ):
+        # "disabled" 400s on these models and omitting runs adaptive anyway, so
+        # enable_thinking=False must send nothing — and effort, the only depth
+        # control left, must still reach the request.
+        _stub_resolution(monkeypatch, prefix)
+        captured = _capture_ctor(monkeypatch)
+        _offline_factory().get_model(
+            model_id, enable_thinking=False, effort=effort, max_tokens=4096
+        )
+        fields = _request_fields(captured["kwargs"])
+        assert "thinking" not in fields
+        if effort:
+            assert fields["output_config"] == {"effort": effort}
+        else:
+            assert "output_config" not in fields
+
+    def test_effort_without_thinking_is_not_sent_to_older_models(self, monkeypatch):
+        # Sonnet 5 keeps its existing behaviour: effort rides on thinking only.
+        _stub_resolution(monkeypatch, "us.")
+        captured = _capture_ctor(monkeypatch)
+        _offline_factory().get_model(
+            LanguageModelId.CLAUDE_V5_SONNET, enable_thinking=False, effort="high"
+        )
+        assert "output_config" not in _request_fields(captured["kwargs"])
+
+    @pytest.mark.parametrize("model_id", NO_FORCED_TOOL_CHOICE)
+    @pytest.mark.parametrize("prefix", ["", "us.", "global."])
+    def test_forced_tool_choice_disabled(self, monkeypatch, model_id, prefix):
+        # Even on a bare id with thinking off — which would otherwise build
+        # ChatBedrock, whose with_structured_output forces the tool — the model
+        # goes through Converse, pinned to tool_choice "auto".
+        _stub_resolution(monkeypatch, prefix)
+        captured = _capture_ctor(monkeypatch)
+        _offline_factory().get_model(model_id, max_tokens=4096)
+        assert captured["class"] == "ChatBedrockConverse"
+        assert captured["kwargs"]["supports_tool_choice_values"] == ("auto",)
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [LanguageModelId.CLAUDE_V5_5_HAIKU, LanguageModelId.CLAUDE_V5_SONNET],
+    )
+    def test_forced_tool_choice_left_to_langchain_elsewhere(
+        self, monkeypatch, model_id
+    ):
+        _stub_resolution(monkeypatch, "us.")
+        captured = _capture_ctor(monkeypatch)
+        _offline_factory().get_model(model_id, max_tokens=4096)
+        assert "supports_tool_choice_values" not in captured["kwargs"]
+
+
+class TestNoForcedToolChoiceAgainstLangchain:
+    """The same guarantee checked against the installed langchain_aws rather
+    than a stub: with_structured_output must not force the tool, and an explicit
+    forced bind must fail locally instead of reaching Bedrock as a 400. Builds
+    real ChatBedrockConverse objects but sends nothing."""
+
+    @staticmethod
+    def _real_model(monkeypatch, model_id, **kwargs):
+        import boto3
+
+        factory = _offline_factory()
+        factory._client = boto3.client(
+            "bedrock-runtime",
+            region_name="us-west-2",
+            aws_access_key_id="testing",
+            aws_secret_access_key="testing",
+        )
+        _stub_resolution(monkeypatch, "global.")
+        return factory.get_model(model_id, max_tokens=4096, **kwargs)
+
+    @pytest.mark.parametrize("model_id", NO_FORCED_TOOL_CHOICE)
+    @pytest.mark.parametrize("enable_thinking", [False, True])
+    def test_structured_output_does_not_force_the_tool(
+        self, monkeypatch, model_id, enable_thinking
+    ):
+        from pydantic import BaseModel
+
+        class Score(BaseModel):
+            score: float
+
+        llm = self._real_model(monkeypatch, model_id, enable_thinking=enable_thinking)
+        bound = llm.with_structured_output(Score).first
+        assert bound.kwargs.get("tool_choice") is None
+
+    @pytest.mark.parametrize("model_id", NO_FORCED_TOOL_CHOICE)
+    def test_explicit_forced_bind_fails_locally(self, monkeypatch, model_id):
+        from pydantic import BaseModel
+
+        class Score(BaseModel):
+            score: float
+
+        llm = self._real_model(monkeypatch, model_id)
+        with pytest.raises(ValueError, match="tool_choice"):
+            llm.bind_tools([Score], tool_choice="any")
+
+    @pytest.mark.parametrize("model_id", NEW_GENERATION)
+    @pytest.mark.parametrize("enable_thinking", [False, True])
+    def test_converse_request_has_no_sampling_or_disabled_thinking(
+        self, monkeypatch, model_id, enable_thinking
+    ):
+        llm = self._real_model(
+            monkeypatch, model_id, enable_thinking=enable_thinking, temperature=0.0
+        )
+        params = llm._converse_params()
+        inference = params.get("inferenceConfig", {})
+        assert "temperature" not in inference
+        assert "topP" not in inference
+        fields = params.get("additionalModelRequestFields") or {}
+        assert "top_k" not in fields
+        thinking = fields.get("thinking")
+        assert thinking in (None, {"type": "adaptive"})
+        assert (thinking is not None) is enable_thinking

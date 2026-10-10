@@ -98,6 +98,21 @@ class TestApplicationProfileName:
         )
         assert ":" not in name and "." not in name
 
+    def test_every_model_gets_its_own_profile_name(self):
+        """Sonnet 5 and Sonnet 5.5 differ only by a "-5" suffix; their profiles
+        (and so their cost attribution) must not collapse into one name."""
+        names = [
+            BedrockCrossRegionModelHelper.application_profile_name(m)
+            for m in LanguageModelId
+        ]
+        assert len(set(names)) == len(names)
+        assert (
+            BedrockCrossRegionModelHelper.application_profile_name(
+                LanguageModelId.CLAUDE_V5_5_SONNET
+            )
+            == "tech-digest-dev-anthropic-claude-sonnet-5-5"
+        )
+
 
 class TestResolverPrefersApplicationProfile:
     def test_application_profile_arn_used_when_present(self):

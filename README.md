@@ -100,8 +100,12 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **SES**. newsletter delivery. **SNS** — run/health notifications.
 - **Bedrock (us-west-2)**. Claude Sonnet 5 (filter + summarize), Claude
   Haiku 4.5 (greeting). Any model in the `LanguageModelId` catalog is
-  selectable per stage, including **Claude Opus 5** (`anthropic.claude-opus-5`);
-  `thinking_effort` accepts `xhigh`/`max` on the Opus tier.
+  selectable per stage, including **Claude Opus 5** (`anthropic.claude-opus-5`),
+  **Claude Opus 5.5 / Sonnet 5.5 / Haiku 5.5** (`anthropic.claude-opus-5-5`,
+  `anthropic.claude-sonnet-5-5`, `anthropic.claude-haiku-5-5`) and **Claude
+  Fable 5.1** (`anthropic.claude-fable-5-1`). `thinking_effort` accepts
+  `xhigh`/`max` on the Opus tier and on the 5.5 / Fable 5.1 models, which also
+  think when `*_enable_thinking` is off.
 
 ---
 
@@ -217,7 +221,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (638 tests, 86.0% cov)
+pytest                       # fast, offline unit/integration suite (786 tests, 86.3% cov)
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline
 # and free; --regenerate is the exception and makes real Bedrock calls.

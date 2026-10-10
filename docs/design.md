@@ -262,8 +262,8 @@ tech-digest/
 - `FilteringCriteria`. `ALL` 또는 `AMAZON`. 필터링 프롬프트를 고를 때 씁니다.
 - `Language`. `EN` 또는 `KO`. 요약과 인사말의 언어를 정합니다.
 - `LanguageModelId`. Bedrock Claude 모델 ID 카탈로그입니다. 최신 모델
-  (**Opus 5**, Sonnet 5, Opus 4.6/4.7/4.8, Sonnet 4.6, Haiku 4.5)과 레거시 모델이
-  함께 들어 있으며, 현재 활성 기본값은 Sonnet 5(필터·요약)와 Haiku 4.5(인사말)입니다.
+  (**Opus 5.5**, **Sonnet 5.5**, **Haiku 5.5**, **Fable 5.1**, Opus 5, Sonnet 5,
+  Opus 4.6/4.7/4.8, Sonnet 4.6, Haiku 4.5)과 레거시 모델이 함께 들어 있으며, 현재 활성 기본값은 Sonnet 5(필터·요약)와 Haiku 4.5(인사말)입니다.
   새 모델을 추가할 때는 여기와 `model_factory.py`의 `_LANGUAGE_MODEL_INFO` **양쪽에**
   함께 넣어야 합니다. **이 enum의 모든 멤버는 `_LANGUAGE_MODEL_INFO`에 항목이 있어야
   하고, 테스트가 그걸 검사합니다.** 전에는 "레거시 모델은 정보가 없어도 된다"는
@@ -275,7 +275,9 @@ tech-digest/
   `supports_sampling_params=False` + `uses_adaptive_thinking=True`가 **반드시**
   필요하며(§8), 이를 빠뜨리면 모든 호출이 거부되면서도 실행은 정상 종료해 이메일만
   조용히 누락됩니다. 그래서 이 계약을 테스트로 고정해 두었습니다. 사고 깊이는
-  `thinking_effort`로 조절하고, `xhigh`/`max`는 **Opus 티어 전용**입니다.
+  `thinking_effort`로 조절하고, `xhigh`/`max`는 Opus 티어와 5.5 세대·Fable 5.1만
+  받습니다. 5.5 세대와 Fable 5.1은 여기에 더해 `thinks_when_omitted=True`가, Haiku
+  5.5를 뺀 세 모델은 `supports_forced_tool_choice=False`가 필요합니다(§8).
 - `LocalPaths`. 디렉터리와 파일명 상수(inputs, outputs, logs, templates,
   recipients).
 - `SSMParams` / `S3Paths`: SSM 파라미터 suffix와 S3 프리픽스
@@ -772,6 +774,26 @@ FAILED 종료 상태를 EventBridge 규칙으로 잡아 SNS로 전달, (2) Lambd
   (`thinking.type="adaptive"`)만 허용합니다. 사고 깊이는 토큰 예산이 아니라
   `output_config.effort`로 조절합니다. 이 플래그가 True면 팩토리가 적응형 형식으로
   전환합니다.
+
+5.5 세대(Opus 5.5 / Sonnet 5.5 / Haiku 5.5)와 Fable 5.1에는 플래그가 두 개 더
+붙습니다:
+
+- `thinks_when_omitted`. 이 모델들은 요청에 `thinking`이 없어도 적응형 사고를
+  하고, 끄는 방법(`thinking.type="disabled"`)은 거부되거나(Opus 5.5·Fable 5.1·Sonnet
+  5.5) 일부 effort에서만 허용됩니다(Haiku 5.5). 팩토리는 `disabled`를 보내지 않으므로
+  `*_enable_thinking=False`는 "사고 없음"이 아니라 "`thinking` 필드를 보내지 않음"을
+  뜻합니다. 사고 깊이를 조절할 수단이 effort뿐이라, 이 플래그가 True면
+  `thinking_effort`를 사고 스위치와 상관없이 `output_config.effort`로 보냅니다.
+  effort를 비워 두면 모델 기본값을 쓰는데, Opus 5.5와 Haiku 5.5는 `medium`, 나머지는
+  `high`입니다.
+- `supports_forced_tool_choice`. Opus 5.5, Sonnet 5.5, Fable 5.1은 강제 도구 호출
+  (`tool_choice`의 `any` 또는 특정 도구)을 400으로 거부하고 `auto`/`none`만
+  받습니다. langchain_aws는 Claude 3.7/4.x가 아닌 Claude ID는 강제 호출을 지원한다고
+  가정해 `with_structured_output`에서 도구를 강제하므로, 이 플래그가 False면 팩토리가
+  항상 `ChatBedrockConverse`를 만들고 `supports_tool_choice_values=("auto",)`로
+  고정합니다. `ChatBedrock`(InvokeModel)에는 이 설정이 없어 Converse로 보냅니다. 지금
+  파이프라인은 도구 호출을 쓰지 않지만, 쓰기 시작하는 순간 전량 400이 나는 것을
+  막아 둔 것입니다.
 
 > **회귀 주의:** 이 두 플래그는 Sonnet 5 전환 시 발생한 무증상 발송 실패
 > (필터링 전량 `temperature` 거부 → 통과 글 0건, 그리고 요약 전량
@@ -1867,7 +1889,7 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
 도구 설정은 `pyproject.toml` 한 곳에 모아 두었습니다. pytest(`unit`/`integration`/
 `live` 마커, importlib 임포트 모드), ruff(린트와 포맷), mypy가 전부 여기서 나옵니다.
 
-`tests/`는 638개 테스트에 커버리지 86.0%이고, 네트워크를 타지 않아 몇 초면 끝납니다.
+`tests/`는 786개 테스트에 커버리지 86.3%이고, 네트워크를 타지 않아 몇 초면 끝납니다.
 `conftest.py`가 `sys.path`를 정리하고 공용 픽스처를 제공합니다.
 
 ### 무엇을 왜 테스트하는가
