@@ -22,7 +22,6 @@ from bs4 import BeautifulSoup
 from app.src import feed_parser
 from app.src.feed_parser import (
     AnthropicBlogScraper,
-    GoogleBlogScraper,
     LinkedInBlogScraper,
     MetaAIBlogScraper,
     QwenBlogScraper,
@@ -58,33 +57,6 @@ def _bind(scraper_cls, fixture: str, page_url: str, monkeypatch):
     soup = _load(fixture)
     monkeypatch.setattr(scraper, "_fetch_page", lambda: soup)
     return scraper
-
-
-class TestGoogleScraper:
-    def test_parses_titles_links_dates(self, monkeypatch, window):
-        scraper = _bind(
-            GoogleBlogScraper,
-            "google.html",
-            "https://research.google/blog",
-            monkeypatch,
-        )
-        posts = scraper.fetch(*window)
-        titles = {p.title for p in posts}
-        assert "Scaling Transformers Efficiently" in titles
-        assert "A Post With An Absolute URL" in titles
-        # Out-of-window 2020 post excluded.
-        assert "An Old Post Outside The Window" not in titles
-
-    def test_relative_href_resolved_absolute(self, monkeypatch, window):
-        scraper = _bind(
-            GoogleBlogScraper,
-            "google.html",
-            "https://research.google/blog",
-            monkeypatch,
-        )
-        posts = scraper.fetch(*window)
-        links = {p.link for p in posts}
-        assert "https://research.google/blog/scaling-transformers-efficiently/" in links
 
 
 class TestLinkedInScraper:

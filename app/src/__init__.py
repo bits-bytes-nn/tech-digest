@@ -22,7 +22,6 @@ from .constants import (
 from .feed_parser import (
     AnthropicBlogScraper,
     CrawlReport,
-    GoogleBlogScraper,
     LinkedInBlogScraper,
     MetaAIBlogScraper,
     Post,
@@ -66,7 +65,6 @@ __all__ = [
     "CrawlReport",
     "EnvVars",
     "FilteringCriteria",
-    "GoogleBlogScraper",
     "Greeter",
     "HTMLTagOutputParser",
     "Language",

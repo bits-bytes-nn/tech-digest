@@ -252,15 +252,37 @@ class TestCandidatesComeFromTheFetchers:
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
         return scraper
 
-    def test_index_scraper_reports_matched_link_count(self, monkeypatch):
-        # Two links match LINK_PATTERN but neither carries a parseable date, so the
-        # scraper yields nothing while still having seen candidates.
+    def test_links_with_no_readable_date_count_as_nothing_offered(self, monkeypatch):
+        # Two links match LINK_PATTERN but neither carries a parseable date. That is
+        # a broken scraper, not a quiet blog: nothing could ever pass the window.
+        # Counting matched links reported 2 here, which is how the Google Research
+        # scraper went unflagged with 13 undatable cards.
         scraper = self._meta_scraper(
             monkeypatch,
             '<a href="/blog/one"><h3>One</h3></a><a href="/blog/two"><h3>Two</h3></a>',
         )
         assert scraper.fetch(*self.WINDOW) == []
-        assert scraper.candidates == 2
+        assert scraper.candidates == 0
+
+    def test_dated_posts_outside_the_window_still_count(self, monkeypatch):
+        scraper = self._meta_scraper(
+            monkeypatch,
+            '<div><a href="/blog/old"><h3>An Old Post</h3></a>'
+            "<span>January 5, 2020</span></div>",
+        )
+        assert scraper.fetch(*self.WINDOW) == []
+        assert scraper.candidates == 1
+
+    def test_rss_entries_with_no_readable_date_count_as_nothing_offered(
+        self, monkeypatch
+    ):
+        entry = fp.feedparser.FeedParserDict(
+            title="t", link="https://a.example/1", published="not a date"
+        )
+        monkeypatch.setattr(fp.feedparser, "parse", lambda *a, **k: self._feed([entry]))
+        fetcher = fp.RssFetcher("https://a.example/rss")
+        assert fetcher.fetch(*self.WINDOW) == []
+        assert fetcher.candidates == 0
 
     def test_index_scraper_reports_zero_when_the_selector_stops_matching(
         self, monkeypatch

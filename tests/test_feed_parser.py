@@ -10,7 +10,6 @@ import pytest
 
 from app.src.feed_parser import (
     AnthropicBlogScraper,
-    GoogleBlogScraper,
     MetaAIBlogScraper,
     Post,
     PostCollector,
@@ -213,7 +212,6 @@ class TestScraperRegistry:
         "url,scraper_cls",
         [
             ("https://www.anthropic.com/engineering", AnthropicBlogScraper),
-            ("https://research.google/blog", GoogleBlogScraper),
             ("https://ai.meta.com/blog/", MetaAIBlogScraper),
             ("https://qwenlm.github.io/blog/", QwenBlogScraper),
             ("https://x.ai/news", XAIBlogScraper),

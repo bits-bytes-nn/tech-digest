@@ -322,14 +322,23 @@ tech-digest/
   조용히 빈 결과로 끝나지 않게 하는 게 목적입니다.
 - `GenericPageScraper`는 템플릿 메서드 베이스입니다. 서브클래스는 `ITEM_SELECTOR`를
   정하고 `_parse_item`만 구현하면 됩니다.
-- 사이트별로는 제너릭을 그대로 쓰는 `GoogleBlogScraper`, `LinkedInBlogScraper`,
-  `QwenBlogScraper`가 있고, 구조가 빈약해서 링크와 날짜를 직접 찾아야 하는
+- 사이트별로는 제너릭을 그대로 쓰는 `LinkedInBlogScraper`, `QwenBlogScraper`가
+  있고, 구조가 빈약해서 링크와 날짜를 직접 찾아야 하는
   `AnthropicBlogScraper`, `MetaAIBlogScraper`, `XAIBlogScraper`가 있습니다.
 
 `ScraperRegistry`가 URL 패턴 조각을 스크레이퍼 클래스에 매핑합니다. `get_fetcher`는
 주어진 URL에 맞는 스크레이퍼를 돌려주고, 맞는 게 없으면 `RssFetcher`로 떨어집니다.
 그래서 새 RSS 소스를 추가할 때는 설정에 URL만 넣으면 되고, 피드가 없는 사이트만
-스크레이퍼를 새로 씁니다.
+스크레이퍼를 새로 씁니다. 사이트가 RSS를 내놓으면 스크레이퍼보다 RSS가 낫습니다.
+Google Research는 `research.google/blog/rss/`가 본문 전체를 주므로 스크레이퍼를 지우고
+RSS로 옮겼습니다. 라우팅은 URL 조각 포함 여부로 판정하므로, 스크레이퍼 매핑이 남아
+있으면 RSS 주소도 스크레이퍼로 갔을 것입니다.
+
+**피드가 최신 N건만 주는 경우.** AWS ML 블로그 피드는 최신 20건만 주는데 블로그는 주당
+20\~26건을 냅니다(2026-10-10, 사이트 디렉터리 API로 8주 실측). 토요일 실행 시점에는 그
+주 앞쪽 글이 이미 피드에서 밀려나 있습니다. prod 설정은 Bedrock, AgentCore, SageMaker
+카테고리 피드를 함께 읽어 더 과거까지 닿게 합니다. 수집기가 링크로 중복을 지우므로
+겹치는 글은 비용이 들지 않습니다.
 
 `PostCollector`가 이 모두를 묶습니다. `from_urls`가 페처를 만들고 `collect_posts`가
 차례로 실행하면서 중복을 제거하고, 소스별 헬스를 기록하고, 한 줄 요약을 로그로 남긴 뒤
@@ -647,10 +656,12 @@ nav 단어가 **하나라도** 있으면 버리므로, 그 단어를 정당하�
 것을 하나도 못 내놓습니다(후보 0개). 그래서 `SourceHealth.candidates`를 기록하고,
 `CrawlReport.likely_broken`이 `EMPTY` 중 후보가 0인 것만 골라냅니다.
 
-- 이 숫자는 **원래 모든 fetcher가 계산해서 버리던 것**입니다. `RssFetcher`는
-  `len(feed.entries)`, `GenericPageScraper`는 `len(soup.select(ITEM_SELECTOR))`,
-  인덱스 스크레이퍼는 `LINK_PATTERN`에 매칭된 링크 수입니다. Meta 스크레이퍼는
-  로그에 찍기까지 했습니다.
+- 후보는 **날짜를 읽을 수 있는 항목**만 셉니다. `RssFetcher`는 날짜가 파싱되는
+  엔트리 수, 스크레이퍼는 `BasePageScraper._parse_date`가 성공한 횟수입니다. 예전에는
+  매칭된 링크나 엔트리를 모두 셌는데, 그러면 날짜 추출만 깨진 크롤러를 놓칩니다. 실제로
+  Google Research 스크레이퍼가 카드 13개를 찾고도 날짜를 하나도 읽지 못한 채 1년 가까이
+  "조용한 블로그"로 보였습니다(2026-10-10 발견). 날짜가 없는 항목은 어떤 기간 필터도
+  통과할 수 없으므로, 셀 이유가 없습니다.
 - `PostFetcher` 프로토콜에 선언하되, 수집기는 `source_url`과 마찬가지로 `getattr`로
   방어적으로 읽습니다. 보고하지 않는 fetcher는 `None`이 됩니다.
 - **`None`은 0이 아닙니다.** "보고 안 함"을 "0개"로 취급하면 모르는 경우에 경보가
@@ -2041,7 +2052,7 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
 도구 설정은 `pyproject.toml` 한 곳에 모아 두었습니다. pytest(`unit`/`integration`/
 `live` 마커, importlib 임포트 모드), ruff(린트와 포맷), mypy가 전부 여기서 나옵니다.
 
-`tests/`는 883개 테스트에 커버리지 87.6%이고, 네트워크를 타지 않아 몇 초면 끝납니다.
+`tests/`는 882개 테스트에 커버리지 87.6%이고, 네트워크를 타지 않아 몇 초면 끝납니다.
 `conftest.py`가 `sys.path`를 정리하고 공용 픽스처를 제공합니다.
 
 ### 무엇을 왜 테스트하는가

@@ -798,15 +798,19 @@ class RssFetcher:
                     if not is_encoding_error and not feed.entries:
                         raise SourceFetchError(f"Feed parse error: {bozo_exc}")
 
-                # Entries the feed offered, before the date window. A feed that
-                # parses cleanly but carries none at all has moved or broken; a
-                # quiet blog still lists its back catalogue.
-                self.candidates = len(feed.entries)
+                # Fail closed: an entry whose date cannot be parsed is excluded
+                # rather than dated to "now" and let through.
+                dates = [
+                    try_parse_published_date(entry_date_text(entry))
+                    for entry in feed.entries
+                ]
+                # Entries the feed offered WITH a readable date, before the date
+                # window. A feed that carries none has moved or broken, and so has
+                # one whose dates no longer parse: either way nothing can ever
+                # pass the window. A quiet blog still lists a dated back catalogue.
+                self.candidates = sum(d is not None for d in dates)
 
-                for entry in feed.entries:
-                    # Fail closed: an entry whose date cannot be parsed is
-                    # excluded rather than dated to "now" and let through.
-                    published_date = try_parse_published_date(entry_date_text(entry))
+                for entry, published_date in zip(feed.entries, dates, strict=True):
                     if published_date is not None and is_date_in_range(
                         published_date, start_date, end_date
                     ):
@@ -995,6 +999,20 @@ class BasePageScraper:
         self.page_url = page_url
         self.source_url = page_url
         self.candidates: int | None = None
+        self._dated = 0
+
+    def _parse_date(self, text: str) -> datetime | None:
+        """Parse a candidate's date, counting each success toward ``candidates``.
+
+        ``candidates`` is the number of items that carried a READABLE date,
+        before the window. Counting matched links instead hid a scraper whose
+        date extraction broke: the Google Research scraper matched 13 cards,
+        dated none of them, and read as a quiet blog for most of a year.
+        """
+        parsed = try_parse_published_date(text)
+        if parsed is not None:
+            self._dated += 1
+        return parsed
 
     @property
     def link_pattern(self) -> re.Pattern:
@@ -1075,9 +1093,10 @@ class GenericPageScraper(BasePageScraper):
         soup = self._fetch_page()
         posts = []
         items = soup.select(self.ITEM_SELECTOR)
-        # Zero matches means the selector no longer finds this site's cards, which
-        # is indistinguishable from "no posts this week" without this count.
-        self.candidates = len(items)
+        # Zero dated items means the selector or the date markup no longer
+        # matches this site, which is indistinguishable from "no posts this
+        # week" without this count (see ``_parse_date``).
+        self._dated = 0
         for item in items:
             try:
                 if not (entry_data := self._parse_item(item)):
@@ -1086,13 +1105,14 @@ class GenericPageScraper(BasePageScraper):
                 published_str = (
                     published_value if isinstance(published_value, str) else ""
                 )
-                pub_date = try_parse_published_date(published_str)
+                pub_date = self._parse_date(published_str)
                 if pub_date is not None and is_date_in_range(
                     pub_date, start_date, end_date
                 ):
                     posts.append(Post.from_entry(entry_data))
             except Exception as e:
                 logger.error(f"Error processing item from {self.page_url}: {e}")
+        self.candidates = self._dated
         return posts
 
     def _parse_item(self, item: Tag) -> feedparser.FeedParserDict | None:
@@ -1116,7 +1136,7 @@ class AnthropicBlogScraper(BasePageScraper):
         seen_urls = set()
 
         links = soup.find_all("a", href=self.link_pattern)
-        self.candidates = len(links)
+        self._dated = 0
 
         for link in links:
             post = self._extract_post_from_link(link, start_date, end_date)
@@ -1124,6 +1144,7 @@ class AnthropicBlogScraper(BasePageScraper):
                 posts.append(post)
                 seen_urls.add(post.link)
 
+        self.candidates = self._dated
         return posts
 
     def _extract_post_from_link(
@@ -1147,7 +1168,7 @@ class AnthropicBlogScraper(BasePageScraper):
             if not date_text:
                 return None
 
-            pub_date = try_parse_published_date(date_text)
+            pub_date = self._parse_date(date_text)
             if pub_date is None or not is_date_in_range(pub_date, start_date, end_date):
                 return None
 
@@ -1162,24 +1183,6 @@ class AnthropicBlogScraper(BasePageScraper):
         except Exception as e:
             logger.error(f"Error processing link: {e}")
             return None
-
-
-class GoogleBlogScraper(GenericPageScraper):
-    ITEM_SELECTOR: ClassVar[str] = "a.glue-card"
-
-    def _parse_item(self, item: Tag) -> feedparser.FeedParserDict | None:
-        date_elem = item.select_one("p.glue-label")
-        title_elem = item.select_one("span.headline-5")
-        href = item.get("href")
-
-        if not (date_elem and title_elem and href):
-            return None
-
-        return feedparser.FeedParserDict(
-            title=title_elem.text.strip(),
-            link=urljoin(self.page_url, str(href)),
-            published=date_elem.text.strip(),
-        )
 
 
 class LinkedInBlogScraper(GenericPageScraper):
@@ -1239,7 +1242,7 @@ class MetaAIBlogScraper(BasePageScraper):
         blog_links = soup.find_all("a", href=self.link_pattern)
         # Already logged; now also reported, so a selector that stops matching
         # shows up in the crawl-health alert rather than only in the run log.
-        self.candidates = len(blog_links)
+        self._dated = 0
         logger.info(f"Meta AI: Found {len(blog_links)} potential blog links")
 
         for i, link in enumerate(blog_links):
@@ -1269,7 +1272,7 @@ class MetaAIBlogScraper(BasePageScraper):
                     logger.debug(f"Meta AI: No date found for '{title}' (item {i})")
                     continue
 
-                pub_date = try_parse_published_date(date_text)
+                pub_date = self._parse_date(date_text)
                 if pub_date is None or not is_date_in_range(
                     pub_date, start_date, end_date
                 ):
@@ -1290,6 +1293,7 @@ class MetaAIBlogScraper(BasePageScraper):
                 logger.error(f"Meta AI: Error processing link {i}: {e}")
 
         logger.info(f"Meta AI: Found {len(posts)} unique posts in date range")
+        self.candidates = self._dated
         return posts
 
 
@@ -1352,7 +1356,7 @@ class XAIBlogScraper(BasePageScraper):
         seen_urls = set()
 
         news_links = soup.find_all("a", href=self.link_pattern)
-        self.candidates = len(news_links)
+        self._dated = 0
 
         for link in news_links:
             try:
@@ -1370,7 +1374,7 @@ class XAIBlogScraper(BasePageScraper):
                 if not date_text:
                     continue
 
-                pub_date = try_parse_published_date(date_text)
+                pub_date = self._parse_date(date_text)
                 if pub_date is None or not is_date_in_range(
                     pub_date, start_date, end_date
                 ):
@@ -1393,6 +1397,7 @@ class XAIBlogScraper(BasePageScraper):
             except Exception as e:
                 logger.error(f"XAI: Error processing link: {e}")
 
+        self.candidates = self._dated
         return posts
 
 
@@ -1404,7 +1409,6 @@ class ScraperRegistry:
     # discarded by ``Post.from_entry``.
     _SCRAPER_MAPPING: ClassVar[dict[str, type[BasePageScraper]]] = {
         AppConstants.External.ANTHROPIC_ENGINEERING.value: AnthropicBlogScraper,
-        AppConstants.External.GOOGLE_RESEARCH.value: GoogleBlogScraper,
         AppConstants.External.LINKEDIN_ENGINEERING.value: LinkedInBlogScraper,
         AppConstants.External.META_AI.value: MetaAIBlogScraper,
         AppConstants.External.QWEN.value: QwenBlogScraper,

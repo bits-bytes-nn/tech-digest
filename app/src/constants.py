@@ -119,7 +119,6 @@ class AppConstants:
 
     class External(str, Enum):
         ANTHROPIC_ENGINEERING = "www.anthropic.com/engineering"
-        GOOGLE_RESEARCH = "research.google/blog"
         LINKEDIN_ENGINEERING = "www.linkedin.com/blog/engineering"
         META_AI = "ai.meta.com/blog"
         MEDIUM_DOMAIN = "medium.com"
