@@ -69,20 +69,24 @@ from app.src import AppConstants, EnvVars, SSMParams, get_account_id, logger
 # always reads recipients from S3 at runtime, so nothing needs the local copy.
 IMAGE_ASSET_EXCLUDES: list[str] = [
     "cdk.out",
-    "__pycache__",
-    "*.pyc",
     ".git",
+    # Local recipient lists hold real addresses; the runtime always reads the
+    # list from S3, so no copy may ship in an image.
     "assets/recipients-*.txt",
     # Local tool caches and secrets. `cd app && mypy .` leaves a 154 MB
     # .mypy_cache that shipped in the Batch image, and because it changes on
     # every type-check, the asset hash did too: a no-op deploy rebuilt and
-    # pushed the image and cut a new job-definition revision.
+    # pushed the image and cut a new job-definition revision. The ** forms
+    # matter: a bare pattern only matches at the root of app/, so
+    # src/__pycache__ and configs/.DS_Store were still shipped.
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
-    ".DS_Store",
-    ".env",
-    ".env.*",
+    "**/__pycache__",
+    "**/*.pyc",
+    "**/.DS_Store",
+    "**/.env",
+    "**/.env.*",
 ]
 
 

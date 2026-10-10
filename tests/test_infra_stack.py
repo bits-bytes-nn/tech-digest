@@ -43,6 +43,28 @@ def template(tmp_path_factory) -> dict:
             os.environ["CDK_SYNTH_DUMMY_AZS"] = previous
 
 
+def test_image_assets_never_ship_recipient_lists_or_secrets():
+    from scripts.deploy_infra import IMAGE_ASSET_EXCLUDES
+
+    for pattern in ("assets/recipients-*.txt", "**/.env", "**/.env.*"):
+        assert pattern in IMAGE_ASSET_EXCLUDES, pattern
+
+
+def test_the_staged_image_context_holds_no_recipient_list(template, tmp_path_factory):
+    # The synthesized asset itself: recipients-*.txt exist only on a machine that
+    # has them (they are gitignored), so this bites locally, where they live.
+    staged = [
+        path
+        for root in Path(tmp_path_factory.getbasetemp()).glob("cdk*/asset.*")
+        for path in root.rglob("*")
+    ]
+    assert staged, "no staged asset found"
+    names = {path.name for path in staged}
+    assert not [n for n in names if n.startswith("recipients-")]
+    assert ".env" not in names and ".mypy_cache" not in names
+    assert not [p for p in staged if p.name == "__pycache__"]
+
+
 def _synthesize(outdir: Path) -> dict:
     import aws_cdk as core
     from aws_cdk.assertions import Template
