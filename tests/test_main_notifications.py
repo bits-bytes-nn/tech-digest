@@ -439,8 +439,7 @@ class TestHandlerControlFlow:
         monkeypatch.setattr(main, "is_running_in_aws", lambda: True)
         monkeypatch.setenv(main.EnvVars.TOPIC_ARN.value, "arn:topic")
         session = _FakeSession()
-        monkeypatch.setattr(main, "DEFAULT_BOTO_SESSION", session)
-        monkeypatch.setattr(main, "BEDROCK_BOTO_SESSION", session)
+        monkeypatch.setattr(main, "_boto_sessions", lambda _cfg: (session, session))
         monkeypatch.setattr(main, "_setup_aws_env", lambda *a, **k: None)
 
         from datetime import datetime
@@ -507,8 +506,7 @@ class TestHandlerControlFlow:
         monkeypatch.setattr(main, "is_running_in_aws", lambda: True)
         monkeypatch.setenv(main.EnvVars.TOPIC_ARN.value, "arn:topic")
         session = _FakeSession()
-        monkeypatch.setattr(main, "DEFAULT_BOTO_SESSION", session)
-        monkeypatch.setattr(main, "BEDROCK_BOTO_SESSION", session)
+        monkeypatch.setattr(main, "_boto_sessions", lambda _cfg: (session, session))
         monkeypatch.setattr(main, "_setup_aws_env", lambda *a, **k: None)
         report = CrawlReport(
             sources=[
@@ -538,8 +536,7 @@ class TestHandlerControlFlow:
         monkeypatch.setenv(main.EnvVars.TOPIC_ARN.value, "arn:topic")
         # On AWS the handler uses the module-global session, not boto3.Session().
         session = _FakeSession()
-        monkeypatch.setattr(main, "DEFAULT_BOTO_SESSION", session)
-        monkeypatch.setattr(main, "BEDROCK_BOTO_SESSION", session)
+        monkeypatch.setattr(main, "_boto_sessions", lambda _cfg: (session, session))
 
         def _boom(*a, **k):
             raise RuntimeError("kaboom")

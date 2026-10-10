@@ -4,13 +4,12 @@ import ipaddress
 import re
 import socket
 import time
-from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from html import unescape
-from typing import ClassVar, Literal, Protocol, TypeAlias
+from typing import ClassVar, Protocol, TypeAlias
 from urllib.parse import urljoin, urlparse
 
 import feedparser
@@ -20,7 +19,7 @@ from feedparser.exceptions import CharacterEncodingOverride
 from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import RequestException
 
-from .constants import DEFAULT_TAGS, MAX_TAGS, AppConstants
+from .constants import DEFAULT_TAGS, MAX_TAGS
 from .logger import logger
 
 # Cap on redirects we will follow per request. Bounds redirect-chain abuse and
@@ -123,77 +122,26 @@ def _host_resolves_to_blocked(host: str) -> bool:
     return False
 
 
-# Every member must be a VALUE in ``ScraperConfig.SOURCE_MAPPING`` (or
-# "unknown"), because that map is the only thing that produces a source — see
-# ``Post._determine_source``. "deepmind" used to be listed here and was
-# unreachable: ``deepmind.google`` maps to "google". ``test_feed_parser`` pins
-# the two together now.
-SourceType: TypeAlias = Literal[
-    "airbnb",
-    "amazon",
-    "anthropic",
-    "aws",
-    "eugene_yan",
-    "google",
-    "huggingface",
-    "kakao",
-    "linkedin",
-    "phil_schmid",
-    "meta",
-    "microsoft",
-    "ncsoft",
-    "netflix",
-    "nvidia",
-    "openai",
-    "palantir",
-    "pinterest",
-    "qwen",
-    "sebastian_raschka",
-    "xai",
-    "unknown",
-    # NOTE: add new sources here
-]
-
-
-class HeaderCache:
-    _cache: ClassVar[dict[str, int]] = {}
-
-    @classmethod
-    def get_cached_header_index(cls, domain: str) -> int | None:
-        return cls._cache.get(domain)
-
-    @classmethod
-    def cache_header_index(cls, domain: str, index: int) -> None:
-        cls._cache[domain] = index
-
-    @classmethod
-    def clear(cls) -> None:
-        cls._cache.clear()
+# A value of ``ScraperConfig.SOURCE_MAPPING``, or "unknown". The map is the only
+# thing that produces a source, so it is the list; a Literal restating it was a
+# second copy that needed a test to keep the two in step.
+SourceType: TypeAlias = str
 
 
 class ScraperConfig:
-    CONTENT_SELECTORS: ClassVar[list[str]] = [
-        "article",
-        "main",
-        "div.post-content",
-        "div.entry-content",
-        "div.content",
-        "div.blog-content",
-        "div.article-content",
-    ]
+    # Measured across every configured host: only these two ever held the
+    # article; anything else falls back to <body> via the share rule below.
+    CONTENT_SELECTORS: ClassVar[list[str]] = ["article", "main"]
     # Share of a page's visible text a CONTENT_SELECTORS match must hold before it
     # is preferred over the whole <body>. See ``Post._scrape_full_content``.
     CONTENT_CONTAINER_MIN_SHARE: ClassVar[float] = 0.5
+    # Tried after ``datetime.fromisoformat``, which already covers every ISO
+    # shape: RFC 822 for feeds, "May 29, 2026" for index pages.
     DATE_FORMATS: ClassVar[tuple[str, ...]] = (
         "%a, %d %b %Y %H:%M:%S GMT",
         "%a, %d %b %Y %H:%M:%S %z",
-        "%Y-%m-%dT%H:%M:%S%z",
-        "%Y-%m-%d %H:%M:%S",
         "%b %d, %Y",
         "%B %d, %Y",
-        "%Y-%m-%d",
-        "%m/%d/%Y",
-        "%d.%m.%Y",
     )
     # Visible-text length below which a feed entry is considered a teaser and we
     # go scrape the full article page. Distinct from ``scraping.min_content_length``
@@ -202,54 +150,35 @@ class ScraperConfig:
     # "min content length", which invited confusing one for the other.
     FULL_SCRAPE_TEXT_THRESHOLD: ClassVar[int] = 3000
     MARKDOWN_IMAGE_PATTERN: ClassVar[re.Pattern] = re.compile(r"!\[.*?]\((.*?)\)")
-    # Full, realistic browser header sets. The Sec-Fetch-* / Sec-Ch-Ua and
-    # Upgrade-Insecure-Requests headers materially reduce 403s from anti-bot
-    # filters (e.g. Meta, Medium) that reject bare User-Agent-only requests.
-    REQUEST_HEADERS_OPTIONS: ClassVar[list[dict[str, str]]] = [
-        {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-        },
-        {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Upgrade-Insecure-Requests": "1",
-        },
-        {
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Upgrade-Insecure-Requests": "1",
-        },
-    ]
+    # A full, realistic browser header set. The Sec-Fetch-* / Sec-Ch-Ua and
+    # Upgrade-Insecure-Requests headers reduce 403s from anti-bot filters that
+    # reject bare User-Agent requests. One set: over 90 days of Batch logs, no
+    # second or third set ever rescued a request this one had lost.
+    REQUEST_HEADERS: ClassVar[dict[str, str]] = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+    }
     REQUEST_TIMEOUT: ClassVar[int] = 30
     SOURCE_MAPPING: ClassVar[dict[str, SourceType]] = {
         "airbnb-engineering": "airbnb",
         "amazon.science": "amazon",
-        "anthropic.com": "anthropic",
         "aws.amazon.com": "aws",
         "deepmind.google": "google",
         "research.google": "google",
         "huggingface.co": "huggingface",
-        "tech.kakao.com": "kakao",
         "linkedin.com": "linkedin",
-        "ai.meta.com": "meta",
         "engineering.fb.com": "meta",
         "microsoft.com": "microsoft",
-        "ncsoft.github.io": "ncsoft",
         "netflixtechblog.com": "netflix",
         "netflix-techblog": "netflix",  # Medium publication slug
         "developer.nvidia.com": "nvidia",
@@ -259,7 +188,6 @@ class ScraperConfig:
         "pinterest-engineering": "pinterest",
         "pinterest_engineering": "pinterest",  # Medium @-handle
         "qwenlm.github.io": "qwen",
-        "x.ai": "xai",
         # Independent authors. These three are configured feeds, but were absent
         # from this map, so all of them resolved to "unknown". That cost more than
         # a generic logo: `max_per_source` counts by source, so three different
@@ -302,11 +230,6 @@ def visible_text(html: str) -> str:
         return soup.get_text(separator=" ", strip=True)
     except Exception:
         return html
-
-
-def _visible_text_length(html: str) -> int:
-    """Number of visible-text characters in an HTML string (markup stripped)."""
-    return len(visible_text(html)) if html else 0
 
 
 # Elements that carry site furniture rather than article content. ``noscript`` is
@@ -359,6 +282,19 @@ def content_html(html: str) -> str:
         return html
 
 
+def parse_page(response: requests.Response) -> BeautifulSoup:
+    """Parse a fetched page, decoding it with the charset the page declares.
+
+    Without a charset in Content-Type, ``requests`` assumes ISO-8859-1 for text/*,
+    and ``response.text`` turned every UTF-8 page from deepmind.google and
+    sebastianraschka.com into mojibake ("Xiaomiâs") before the model saw it. Given
+    bytes, BeautifulSoup reads the page's own <meta charset> instead.
+    """
+    if "charset=" in response.headers.get("content-type", "").lower():
+        return BeautifulSoup(response.text, "html.parser")
+    return BeautifulSoup(response.content, "html.parser")
+
+
 def _get_following_redirects(
     session: requests.Session, url: str, headers: dict[str, str]
 ) -> requests.Response | None:
@@ -368,8 +304,7 @@ def _get_following_redirects(
     long. Raises RequestException (via session.get) so the caller's retry
     logic still applies to transient errors.
 
-    ``headers`` is passed per-request rather than written onto the session, so
-    each header set in the fallback ladder is sent exactly as declared.
+    ``headers`` is passed per request rather than written onto the session.
     """
     current = url
     for _ in range(MAX_REDIRECTS + 1):
@@ -396,18 +331,10 @@ def _try_request(
     session: requests.Session, url: str, headers: dict[str, str]
 ) -> requests.Response | None:
     """GET with up to two retries for transient errors (timeout / 5xx / 429).
-    Returns the response on success, or None if this header set fails.
+    Returns the response on success, or None on failure.
 
-    ``headers`` is applied per-request. It used to be written onto the shared
-    session with ``session.headers.update``, which made the sets in the fallback
-    ladder cumulative instead of alternative: after the Chrome set (12 headers)
-    failed, the Safari set (5 headers) was merged on top of it, so the retry went
-    out with a macOS Safari ``User-Agent`` alongside Chrome's
-    ``Sec-Ch-Ua: "Google Chrome";v="131"`` and ``Sec-Ch-Ua-Platform: "Windows"``.
-    Safari sends no client hints at all, so that combination cannot occur in a
-    real browser — and an impossible fingerprint is precisely what the anti-bot
-    filters this ladder exists to get past are looking for. Every attempt after
-    the first was therefore *less* likely to succeed than the first.
+    ``headers`` is passed per request, never written onto the session, so what
+    is sent is exactly what the caller declared.
     """
     max_attempts = 3
     for attempt in range(max_attempts):
@@ -459,32 +386,17 @@ def _retry_delay(response: requests.Response | None, attempt: int) -> float:
 
 
 def _make_robust_request(url: str) -> requests.Response | None:
-    """Fetch a URL trying several realistic browser header sets, remembering the
-    one that works per-domain. Returns None only if every header set fails
-    (network error, persistent anti-bot block, HTTP error)."""
-    parsed = urlparse(url)
-    if _is_blocked_host(parsed.hostname or ""):
+    """GET an article or index page with browser headers, or None if it fails.
+
+    SSRF-checked up front and at every redirect hop; transient errors retried
+    (see ``_try_request``).
+    """
+    if _is_blocked_host(urlparse(url).hostname or ""):
         logger.warning("Refusing request to blocked host: '%s'", url)
         return None
-
-    session = requests.Session()
-    domain = parsed.netloc.lower()
-
-    # Try the header set that previously worked for this domain first.
-    ordered_indices = list(range(len(ScraperConfig.REQUEST_HEADERS_OPTIONS)))
-    cached_index = HeaderCache.get_cached_header_index(domain)
-    if cached_index is not None:
-        ordered_indices.remove(cached_index)
-        ordered_indices.insert(0, cached_index)
-
-    for i in ordered_indices:
-        headers = ScraperConfig.REQUEST_HEADERS_OPTIONS[i]
-        if response := _try_request(session, url, headers):
-            HeaderCache.cache_header_index(domain, i)
-            logger.info("Successfully fetched '%s' with header set %d", url, i + 1)
-            return response
-
-    logger.error("All header attempts failed for '%s'", url)
+    if response := _try_request(requests.Session(), url, ScraperConfig.REQUEST_HEADERS):
+        return response
+    logger.error("Request failed for '%s'", url)
     return None
 
 
@@ -565,7 +477,7 @@ class Post(BaseModel):
         # raw-HTML threshold yet have little readable prose; measuring visible
         # text keeps the scrape decision consistent with the content gate (\u00a711)
         # so we don't skip scraping and then drop the thin post.
-        feed_text_len = _visible_text_length(content)
+        feed_text_len = len(visible_text(content))
         # Only adopt the scrape if it actually has MORE readable prose than the
         # feed content. A JS-rendered/consent-walled page can yield a thin body
         # that, if it blindly replaced a decent feed teaser, would push the post
@@ -573,7 +485,7 @@ class Post(BaseModel):
         if (
             feed_text_len < ScraperConfig.FULL_SCRAPE_TEXT_THRESHOLD
             and (scraped_content := cls._scrape_full_content(link))
-            and _visible_text_length(scraped_content) > feed_text_len
+            and len(visible_text(scraped_content)) > feed_text_len
         ):
             content = scraped_content
         return content.replace("\u202f", " ")
@@ -597,7 +509,7 @@ class Post(BaseModel):
         if not url or not (response := _make_robust_request(url)):
             return ""
         try:
-            soup = BeautifulSoup(response.text, "html.parser")
+            soup = parse_page(response)
             body = soup.find("body")
             # get_text on the parsed element, not visible_text on its string: the
             # latter would re-parse every candidate.
@@ -629,7 +541,7 @@ class Post(BaseModel):
             return "unknown"
         parsed_url = urlparse(url)
         domain = parsed_url.netloc.lower().removeprefix("www.")
-        if domain == AppConstants.External.MEDIUM_DOMAIN.value:
+        if domain == "medium.com":
             path_parts = parsed_url.path.strip("/").split("/")
             if path_parts and path_parts[0]:
                 # Medium slugs/handles are case-insensitive (e.g. the feed
@@ -648,7 +560,7 @@ class Post(BaseModel):
         readable prose is thin should not reach the summarizer, where it would
         otherwise produce an empty or low-quality summary.
         """
-        return _visible_text_length(self.content)
+        return len(visible_text(self.content))
 
     @staticmethod
     def _extract_images(content_html: str, base_url: str) -> list[str]:
@@ -877,156 +789,15 @@ class RssFetcher:
         return feedparser.parse(response.content, response_headers=headers)
 
 
-class BasePageScraper:
-    # Regex matching the hrefs of THIS site's post links. Index-page scrapers set
-    # it so date attribution can tell "my post's date" from "a neighbour's date".
-    LINK_PATTERN: ClassVar[re.Pattern | None] = None
-    # Date formats to look for near a post link, most specific first.
-    DATE_PATTERNS: ClassVar[tuple[re.Pattern, ...]] = ()
-    # How far up the tree to look before giving up.
-    DATE_SEARCH_DEPTH: ClassVar[int] = 5
-    # How far up the tree to look for a heading when the card has none inside.
-    TITLE_ANCESTOR_DEPTH: ClassVar[int] = 3
-    # A candidate longer than this is not a title. Index pages that nest a whole
-    # card inside the <a> concatenate heading, date and teaser into one string;
-    # preferring the heading is the real defense and this is only a backstop, so
-    # the bound is generous — the longest title ever published here is 103 chars.
-    TITLE_MAX_CHARS: ClassVar[int] = 250
-    # Words that make up navigation chrome ("Read more", "Next Page"). Used to
-    # reject a link whose text contains NOTHING BUT these — see ``is_nav_text``.
-    NAV_WORDS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "all",
-            "archive",
-            "back",
-            "blog",
-            "continue",
-            "featured",
-            "first",
-            "home",
-            "index",
-            "last",
-            "latest",
-            "learn",
-            "more",
-            "new",
-            "newer",
-            "news",
-            "next",
-            "older",
-            "page",
-            "pages",
-            "post",
-            "posts",
-            "prev",
-            "previous",
-            "read",
-            "reading",
-            "see",
-            "start",
-            "view",
-        }
-    )
-    # Function words: they neither identify chrome nor count as subject matter,
-    # so "The Latest" is still chrome while "Read more About Llama" is not.
-    TITLE_STOPWORDS: ClassVar[frozenset[str]] = frozenset(
-        {"a", "an", "and", "at", "by", "for", "in", "of", "on", "the", "to", "with"}
-    )
+class GenericPageScraper:
+    """Base for a site with no feed: fetch its index page and parse each card.
 
-    def is_nav_text(self, text: str) -> bool:
-        """True when ``text`` is navigation chrome rather than a post title.
+    Subclasses set ``ITEM_SELECTOR`` and implement ``_parse_item``. A feed is
+    always the better choice (RssFetcher needs no code), so this exists only for
+    sites that offer none.
+    """
 
-        The rule is "nothing here names a subject": tokenize, then reject only if
-        NO token is substantive (outside ``NAV_WORDS`` and ``TITLE_STOPWORDS``).
-
-        Rejecting on the mere PRESENCE of a nav word — which the Qwen scraper did
-        before this moved to the base class — throws away real posts, because
-        those words also occur in real titles: "Next Generation Reasoning Models",
-        "More Efficient Attention", "Page-Level Retrieval" were all dropped. An
-        earlier version matched substrings rather than words, which additionally
-        lost "Preventing..." (contains "prev") and "PageRank" (contains "page").
-        """
-        lowered = text.replace("\xa0", " ").casefold()
-        # Pagination arrows carry no word characters, so they need their own test.
-        if "«" in lowered or "»" in lowered:
-            return True
-        words = re.findall(r"[^\W\d_]+", lowered, flags=re.UNICODE)
-        if not words:
-            return True
-        return not any(
-            word not in self.NAV_WORDS and word not in self.TITLE_STOPWORDS
-            for word in words
-        )
-
-    def _extract_title(self, link: Tag) -> str:
-        """The post title for an index-page link, or "" if none is credible.
-
-        Returning "" rather than a best guess is deliberate: every caller skips
-        the link, which is the same fail-closed stance the date gate takes.
-
-        The three index scrapers each had their own version of this, and they
-        disagreed on both strategy and thresholds. The x.ai one was fixed to
-        prefer the heading inside the card after it emitted titles like
-        "Grok 4.6Aug 12, 2026Introducing Grok 4.6Aug 12, 2026Introducing..."; the
-        Meta one still read the card's full text first and so still had that bug,
-        and the Anthropic one filtered candidates with English content tests
-        (``startswith("This is")``, ``"blog post" not in ...``) that meant nothing
-        on any other site. One implementation, ordered by how reliably each signal
-        names the post, is both shorter and less wrong.
-        """
-        for candidate in self._title_candidates(link):
-            title = " ".join(candidate.split())
-            if not title or len(title) > self.TITLE_MAX_CHARS:
-                continue
-            if self.is_nav_text(title):
-                continue
-            return title
-        return ""
-
-    def _title_candidates(self, link: Tag) -> Iterator[str]:
-        """Title candidates for ``link``, most trustworthy first."""
-        # A heading inside the card: the site's own markup saying "this is the
-        # title", and the only signal that survives a card with a nested teaser.
-        for heading in link.select("h1, h2, h3, h4, h5, h6"):
-            yield heading.get_text(strip=True)
-        # An element the site labels as the title by class name.
-        for element in link.select(
-            '[class*="title"], [class*="heading"], [class*="headline"]'
-        ):
-            yield element.get_text(strip=True)
-        # The link's own text, before the accessible name — see below for why.
-        yield link.get_text(strip=True)
-        # A heading just outside the link, for markup that puts the <a> inside
-        # the heading's sibling rather than the other way round.
-        parent = link.parent
-        for _ in range(self.TITLE_ANCESTOR_DEPTH):
-            if parent is None:
-                break
-            if heading := parent.select_one("h1, h2, h3, h4, h5, h6"):
-                yield heading.get_text(strip=True)
-            parent = parent.parent
-        # The accessible name, last. It is the only signal an image-only card
-        # link has, but it is written for screen readers and so normally carries a
-        # call-to-action in front of the title, which is why the visible text is
-        # preferred when there is any.
-        for attribute in ("aria-label", "title"):
-            value = link.get(attribute)
-            if isinstance(value, str):
-                yield self._strip_call_to_action(value)
-
-    # Leading call-to-action in an accessible name, e.g. Meta's "Read <title>"
-    # and Qwen's "post link to <title>". Matched only at the START, so unlike a
-    # content blacklist it cannot reject or truncate a real title — "Reading
-    # Comprehension in LLMs" keeps its first word because "reading" is not
-    # followed by more text here, it IS the text.
-    TITLE_CALL_TO_ACTION: ClassVar[re.Pattern] = re.compile(
-        r"^\s*(?:read|view|see|open|go\s+to|learn\s+more\s+about|"
-        r"(?:blog\s+)?post\s+link\s+to)\s+(?=\S)",
-        re.IGNORECASE,
-    )
-
-    def _strip_call_to_action(self, accessible_name: str) -> str:
-        return self.TITLE_CALL_TO_ACTION.sub("", accessible_name, count=1)
+    ITEM_SELECTOR: ClassVar[str] = ""
 
     def __init__(self, page_url: str):
         self.page_url = page_url
@@ -1035,92 +806,24 @@ class BasePageScraper:
         self._dated = 0
 
     def _parse_date(self, text: str) -> datetime | None:
-        """Parse a candidate's date, counting each success toward ``candidates``.
+        """Parse a card's date, counting each success toward ``candidates``.
 
-        ``candidates`` is the number of items that carried a READABLE date,
-        before the window. Counting matched links instead hid a scraper whose
-        date extraction broke: the Google Research scraper matched 13 cards,
-        dated none of them, and read as a quiet blog for most of a year.
+        ``candidates`` is the number of cards with a READABLE date, before the
+        window: a scraper whose date markup broke reports 0 and is flagged as
+        likely broken, instead of reading as a quiet blog.
         """
         parsed = try_parse_published_date(text)
         if parsed is not None:
             self._dated += 1
         return parsed
 
-    @property
-    def link_pattern(self) -> re.Pattern:
-        """``LINK_PATTERN``, asserted present.
-
-        The base class leaves it optional because feed-based fetchers have no
-        index page to scan; every index-page scraper must set it.
-        """
-        if self.LINK_PATTERN is None:
-            raise NotImplementedError(
-                f"{type(self).__name__} must set LINK_PATTERN to find its posts"
-            )
-        return self.LINK_PATTERN
-
-    def _find_date_near_element(self, element: Tag) -> str | None:
-        """The publication date belonging to ``element``, or None.
-
-        Walks from the link outward. The subtle part is what to do once the walk
-        reaches an ancestor holding SEVERAL posts: a plain regex over that
-        ancestor returns the first date in document order, which belongs to
-        whichever post happens to come first. An undated post therefore inherited
-        its neighbour's date and slipped into the weekly window with a date the
-        site never gave it — defeating the fail-closed date gate that
-        ``try_parse_published_date`` exists to provide.
-
-        So at every level the OTHER post links are removed before searching. A
-        date that survives is either inside our own link or in shared chrome (a
-        "Published May 30, 2026" section heading legitimately covers every post
-        under it), and both of those are correctly ours. A date that only existed
-        inside a sibling post is not ours, and we keep looking or give up.
-        """
-        current: Tag | None = element
-        for _ in range(self.DATE_SEARCH_DEPTH):
-            if current is None:
-                break
-            if found := self._search_dates(self._without_other_posts(current, element)):
-                return found
-            current = current.parent
-        return None
-
-    def _without_other_posts(self, scope: Tag, keep: Tag) -> str:
-        """``scope``'s HTML with every post link other than ``keep`` removed."""
-        if self.LINK_PATTERN is None or scope is keep:
-            return str(scope)
-        # Work on a copy: the live tree is reused for the remaining posts.
-        clone = BeautifulSoup(str(scope), "html.parser")
-        keep_html = str(keep)
-        removed_self = False
-        for link in clone.find_all("a", href=self.LINK_PATTERN):
-            if not removed_self and str(link) == keep_html:
-                removed_self = True  # this is us; leave our own date in place
-                continue
-            link.decompose()
-        return str(clone)
-
-    def _search_dates(self, html: str) -> str | None:
-        for pattern in self.DATE_PATTERNS:
-            if match := pattern.search(html):
-                return match.group(1)
-        return None
-
     def _fetch_page(self) -> BeautifulSoup:
         if response := _make_robust_request(self.page_url):
-            return BeautifulSoup(response.text, "html.parser")
+            return parse_page(response)
         raise SourceFetchError(
             f"All request attempts failed for '{self.page_url}' "
             f"(likely anti-bot block, datacenter-IP block, or network error)"
         )
-
-    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
-        raise NotImplementedError
-
-
-class GenericPageScraper(BasePageScraper):
-    ITEM_SELECTOR: ClassVar[str] = ""
 
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
         soup = self._fetch_page()
@@ -1150,72 +853,6 @@ class GenericPageScraper(BasePageScraper):
 
     def _parse_item(self, item: Tag) -> feedparser.FeedParserDict | None:
         raise NotImplementedError
-
-
-class AnthropicBlogScraper(BasePageScraper):
-    LINK_PATTERN: ClassVar[re.Pattern | None] = re.compile(r"/engineering/")
-    DATE_PATTERNS: ClassVar[tuple[re.Pattern, ...]] = (
-        re.compile(r"\b([A-Z][a-z]{2,8} \d{1,2}, \d{4})\b"),
-    )
-
-    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
-        logger.info(
-            f"Anthropic: Fetching posts from '{start_date.date()}' to '{end_date.date()}'"
-        )
-
-        soup = self._fetch_page()
-
-        posts = []
-        seen_urls = set()
-
-        links = soup.find_all("a", href=self.link_pattern)
-        self._dated = 0
-
-        for link in links:
-            post = self._extract_post_from_link(link, start_date, end_date)
-            if post and post.link not in seen_urls:
-                posts.append(post)
-                seen_urls.add(post.link)
-
-        self.candidates = self._dated
-        return posts
-
-    def _extract_post_from_link(
-        self, link: Tag, start_date: datetime, end_date: datetime
-    ) -> Post | None:
-        try:
-            href = link.get("href")
-            if not href:
-                return None
-
-            if isinstance(href, list):
-                href = href[0] if href else None
-            if not href:
-                return None
-
-            title = self._extract_title(link)
-            if not title:
-                return None
-
-            date_text = self._find_date_near_element(link)
-            if not date_text:
-                return None
-
-            pub_date = self._parse_date(date_text)
-            if pub_date is None or not is_date_in_range(pub_date, start_date, end_date):
-                return None
-
-            return Post.from_entry(
-                feedparser.FeedParserDict(
-                    title=title.strip(),
-                    link=urljoin(self.page_url, href),
-                    published=pub_date.isoformat(),
-                )
-            )
-
-        except Exception as e:
-            logger.error(f"Error processing link: {e}")
-            return None
 
 
 class LinkedInBlogScraper(GenericPageScraper):
@@ -1249,204 +886,15 @@ class LinkedInBlogScraper(GenericPageScraper):
         )
 
 
-class MetaAIBlogScraper(BasePageScraper):
-    LINK_PATTERN: ClassVar[re.Pattern | None] = re.compile(r"/blog/[^/]+/?$")
-    DATE_PATTERNS: ClassVar[tuple[re.Pattern, ...]] = (
-        re.compile(r"\b([A-Z][a-z]{2,8} \d{1,2}, \d{4})\b"),
-        re.compile(r"\b([A-Z][a-z]{2} \d{1,2}, \d{4})\b"),
-        re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b"),
-        re.compile(r"\b(\d{4}-\d{2}-\d{2})\b"),
-    )
-
-    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
-        logger.info(
-            f"Meta AI: Fetching posts from '{start_date.date()}' to '{end_date.date()}'"
-        )
-
-        soup = self._fetch_page()
-
-        posts = []
-        # Deduplicate on the RESOLVED url, not the raw href: an index page can
-        # link the same post both relatively ("/blog/x") and absolutely, which a
-        # raw-href set treats as two posts. This used to be a raw-href set
-        # followed by a second, resolved-url pass over the finished list — two
-        # passes to express one rule.
-        seen_urls: set[str] = set()
-        blog_links = soup.find_all("a", href=self.link_pattern)
-        # Already logged; now also reported, so a selector that stops matching
-        # shows up in the crawl-health alert rather than only in the run log.
-        self._dated = 0
-        logger.info(f"Meta AI: Found {len(blog_links)} potential blog links")
-
-        for i, link in enumerate(blog_links):
-            try:
-                href = link.get("href", "")
-                if not href:
-                    continue
-
-                if href.endswith("/blog/") or "?page=" in href:
-                    continue
-
-                # urljoin handles both relative ("/blog/x") and absolute hrefs
-                # against the scraper's own page_url, so the host is never
-                # hardcoded here (single source of truth: the configured URL).
-                full_url = urljoin(self.page_url, str(href))
-                if full_url in seen_urls:
-                    continue
-                seen_urls.add(full_url)
-
-                title = self._extract_title(link)
-                if not title:
-                    logger.debug(f"Meta AI: no usable title for link {i}")
-                    continue
-
-                date_text = self._find_date_near_element(link)
-                if not date_text:
-                    logger.debug(f"Meta AI: No date found for '{title}' (item {i})")
-                    continue
-
-                pub_date = self._parse_date(date_text)
-                if pub_date is None or not is_date_in_range(
-                    pub_date, start_date, end_date
-                ):
-                    logger.debug(f"Meta AI: '{title}' date unparseable or out of range")
-                    continue
-
-                post = Post.from_entry(
-                    feedparser.FeedParserDict(
-                        title=title.strip(),
-                        link=full_url,
-                        published=pub_date.isoformat(),
-                    )
-                )
-                posts.append(post)
-                logger.info(f"Meta AI: Added '{title}' ({pub_date.date()})")
-
-            except Exception as e:
-                logger.error(f"Meta AI: Error processing link {i}: {e}")
-
-        logger.info(f"Meta AI: Found {len(posts)} unique posts in date range")
-        self.candidates = self._dated
-        return posts
-
-
-class QwenBlogScraper(GenericPageScraper):
-    ITEM_SELECTOR: ClassVar[str] = "a[href*='/blog/']"
-
-    def _parse_item(self, item: Tag) -> feedparser.FeedParserDict | None:
-        href = item.get("href")
-        if not href:
-            return None
-
-        if isinstance(href, list):
-            if not href:
-                return None
-            href = href[0]
-
-        if href.endswith("/blog/") or href == "/blog" or "/page/" in href:
-            return None
-
-        # Shared extractor: heading first, then labelled elements, then the
-        # link's own text — and it applies the shared nav-chrome test, so the
-        # per-scraper nav word list this used to carry is gone.
-        title = self._extract_title(item)
-        if not title:
-            return None
-        title = title.replace("| Qwen", "").replace("- Qwen", "").strip()
-
-        page_text = str(item.parent) if item.parent else ""
-        date_match = re.search(r"\b([A-Z][a-z]+ \d{1,2}, \d{4})\b", page_text)
-        if not date_match:
-            # Fail closed: without a parseable date we cannot place the post in a
-            # weekly window, so drop it rather than stamping it with "now" (which
-            # would force every undated Qwen post into the current digest).
-            return None
-
-        return feedparser.FeedParserDict(
-            title=title.strip(),
-            link=urljoin(self.page_url, href) if href.startswith("/") else href,
-            published=date_match.group(1),
-        )
-
-
-class XAIBlogScraper(BasePageScraper):
-    LINK_PATTERN: ClassVar[re.Pattern | None] = re.compile(r"/news/[^/]+/?$")
-    DATE_PATTERNS: ClassVar[tuple[re.Pattern, ...]] = (
-        re.compile(r"\b([A-Z][a-z]+ \d{1,2}, \d{4})\b"),
-        re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b"),
-        re.compile(r"\b(\d{4}-\d{2}-\d{2})\b"),
-    )
-    DATE_SEARCH_DEPTH: ClassVar[int] = 4
-
-    def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
-        logger.info(
-            f"XAI: Fetching posts from '{start_date.date()}' to '{end_date.date()}'"
-        )
-
-        soup = self._fetch_page()
-
-        posts = []
-        seen_urls = set()
-
-        news_links = soup.find_all("a", href=self.link_pattern)
-        self._dated = 0
-
-        for link in news_links:
-            try:
-                href = link.get("href")
-                if not href or href in seen_urls or href.endswith("/news/"):
-                    continue
-
-                seen_urls.add(href)
-
-                title = self._extract_title(link)
-                if not title or len(title) < 5:
-                    continue
-
-                date_text = self._find_date_near_element(link)
-                if not date_text:
-                    continue
-
-                pub_date = self._parse_date(date_text)
-                if pub_date is None or not is_date_in_range(
-                    pub_date, start_date, end_date
-                ):
-                    continue
-
-                # urljoin resolves relative/absolute hrefs against page_url, so
-                # the host stays a single source of truth (the configured URL).
-                full_url = urljoin(self.page_url, href)
-
-                post = Post.from_entry(
-                    feedparser.FeedParserDict(
-                        title=title.strip(),
-                        link=full_url,
-                        published=pub_date.isoformat(),
-                    )
-                )
-                posts.append(post)
-                logger.info(f"XAI: Added '{title}' ({pub_date.date()})")
-
-            except Exception as e:
-                logger.error(f"XAI: Error processing link: {e}")
-
-        self.candidates = self._dated
-        return posts
-
-
 class ScraperRegistry:
     # URL fragment -> scraper. No source is recorded alongside the class: the
     # source comes from ``SOURCE_MAPPING`` via the post's link, so pairing one
     # here would be a second copy of that map. The entries used to be
     # ``(class, source)`` tuples whose source was threaded down and then
     # discarded by ``Post.from_entry``.
-    _SCRAPER_MAPPING: ClassVar[dict[str, type[BasePageScraper]]] = {
-        AppConstants.External.ANTHROPIC_ENGINEERING.value: AnthropicBlogScraper,
-        AppConstants.External.LINKEDIN_ENGINEERING.value: LinkedInBlogScraper,
-        AppConstants.External.META_AI.value: MetaAIBlogScraper,
-        AppConstants.External.QWEN.value: QwenBlogScraper,
-        AppConstants.External.XAI.value: XAIBlogScraper,
-        # NOTE: add new scrapers here
+    _SCRAPER_MAPPING: ClassVar[dict[str, type[GenericPageScraper]]] = {
+        "www.linkedin.com/blog/engineering": LinkedInBlogScraper,
+        # NOTE: add new scrapers here (only for sites with no feed)
     }
 
     @classmethod

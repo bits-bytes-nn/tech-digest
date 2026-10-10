@@ -65,35 +65,29 @@ FALLBACK_INTRO: Final[dict[Language, str]] = {
 ROOT_DIR: Path = (
     Path("/tmp") if is_running_in_aws() else Path(__file__).resolve().parent.parent
 )
-DEFAULT_BOTO_SESSION: boto3.Session = boto3.Session(
-    region_name=os.environ.get(EnvVars.DEFAULT_REGION_NAME.value)
-)
-BEDROCK_BOTO_SESSION: boto3.Session = boto3.Session(
-    region_name=os.environ.get(EnvVars.BEDROCK_REGION_NAME.value)
-)
+
+
+def _boto_sessions(config: Config) -> tuple[boto3.Session, boto3.Session]:
+    """(default-region session, Bedrock-region session) for this run.
+
+    In AWS the container's job role supplies credentials, so no profile is named:
+    the stage configs set ``profile_name`` for local runs, and that profile does
+    not exist inside the container.
+    """
+    profile = None if is_running_in_aws() else config.resources.profile_name
+    return (
+        boto3.Session(
+            region_name=config.resources.default_region_name, profile_name=profile
+        ),
+        boto3.Session(
+            region_name=config.resources.bedrock_region_name, profile_name=profile
+        ),
+    )
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
     config = Config.load()
-    profile_name = (
-        os.environ.get(EnvVars.AWS_PROFILE_NAME.value)
-        if is_running_in_aws()
-        else config.resources.profile_name
-    )
-    default_boto_session = (
-        DEFAULT_BOTO_SESSION
-        if is_running_in_aws()
-        else boto3.Session(
-            region_name=config.resources.default_region_name, profile_name=profile_name
-        )
-    )
-    bedrock_boto_session = (
-        BEDROCK_BOTO_SESSION
-        if is_running_in_aws()
-        else boto3.Session(
-            region_name=config.resources.bedrock_region_name, profile_name=profile_name
-        )
-    )
+    default_boto_session, bedrock_boto_session = _boto_sessions(config)
     try:
         _setup_aws_env(config, default_boto_session)
         end_date_str = event.get("END_DATE")
@@ -469,12 +463,9 @@ def _build_newsletter(
         Path(__file__).resolve().parent / LocalPaths.TEMPLATES_DIR.value,
         logos=config.newsletter.logos,
     )
-    # Only pass the chrome fields the config actually sets, so an unset one falls
-    # through to BuildConfiguration's default. Coercing None to "" (as this used
-    # to) overrode those defaults with the empty string, which made every entry in
-    # NewsletterConfig.DEFAULT_STYLES unreachable — and, for the one field the
-    # renderer requires to be non-empty, turned "no header_title configured" into
-    # a Header validation error that fails the whole build.
+    # Only the chrome fields the config sets are passed, so an unset one falls
+    # through to BuildConfiguration's default rather than becoming "" (which the
+    # renderer rejects for the title).
     chrome = {
         "header_title": config.newsletter.header_title,
         "header_description": config.newsletter.header_description,

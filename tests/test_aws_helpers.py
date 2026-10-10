@@ -263,15 +263,21 @@ class TestWaitForBatchJob:
 
         assert wait_for_batch_job_completion(_FakeSession(_Batch()), "job-1") is False
 
-    def test_waiter_outlasts_the_job_definition_timeout(self):
-        """The waiter must not give up before the job it waits on can. At the
-        previous 1 hour against the job definition's 3-hour timeout, a long but
-        healthy run was reported as "failed or timed out" and exited non-zero
-        while the job went on to succeed."""
+    def test_waiter_outlasts_the_longest_possible_job(self):
+        """The waiter must not give up before the job it waits on can, or a long
+        but healthy run is reported as failed and exits non-zero."""
         from app.src.aws_helpers import DEFAULT_BATCH_TIMEOUT
+        from app.src.constants import (
+            BATCH_ATTEMPT_TIMEOUT_MINUTES,
+            BATCH_ATTEMPTS,
+            BATCH_RUNNABLE_LIMIT_MINUTES,
+        )
 
-        job_definition_timeout_seconds = 3 * 3600  # deploy_infra job definition
-        assert DEFAULT_BATCH_TIMEOUT > job_definition_timeout_seconds
+        longest_job_seconds = 60 * (
+            BATCH_RUNNABLE_LIMIT_MINUTES
+            + BATCH_ATTEMPTS * BATCH_ATTEMPT_TIMEOUT_MINUTES
+        )
+        assert DEFAULT_BATCH_TIMEOUT > longest_job_seconds
 
 
 # --------------------------------------------------------------------------- #

@@ -10,7 +10,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader, Template
@@ -18,7 +18,7 @@ from markupsafe import escape
 from pydantic import BaseModel, Field, computed_field, field_validator
 
 from .constants import Language, LocalPaths
-from .feed_parser import is_safe_url
+from .feed_parser import is_safe_url, try_parse_published_date
 from .logger import logger
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -94,50 +94,14 @@ def estimate_reading_minutes(html: str, language: Language) -> int:
     return max(1, round(amount / per_minute)) if amount else 1
 
 
-class NewsletterConfig:
-    DATE_FORMATS: ClassVar[tuple[str, ...]] = (
-        "%Y-%m-%d",
-        "%a, %d %b %Y %H:%M:%S %z",
-        "%a, %d %b %Y %H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S%z",
-        "%Y-%m-%dT%H:%M:%S",
-        "%a, %d %b %Y %H:%M:%S GMT",
-    )
-    DEFAULT_STYLES: ClassVar[dict[str, str]] = {
-        "header_title": "Weekly AI Tech Blog Digest",
-        "header_description": "Stay ahead of the curve with our curated digest of the most impactful AI developments, research breakthroughs, and industry updates from leading tech companies and research institutions.",
-        "header_thumbnail": "peccy.png",
-        "first_section_intro": "This week's highlights showcase groundbreaking AI innovations and developments that are shaping the future of technology. We've carefully selected and summarized the most relevant articles to keep you informed of the latest advancements in artificial intelligence.",
-        "footer_title": "Thank you for reading! Stay tuned for next week's AI insights and discoveries.",
-    }
-
-
 def normalize_date(v: str) -> str:
-    """A date string as ``YYYY-MM-DD``, falling back to today (UTC).
+    """A date string as ``YYYY-MM-DD`` in UTC, falling back to today (UTC).
 
-    Named ``validate_date`` before, which collided with a same-named predicate in
-    ``run_batch`` that answers a different question (is this string a valid date?)
-    with a different type. This one normalizes and always returns a date.
-
-    The fallback is UTC because the rest of the pipeline is: the Batch image sets
-    TZ=Asia/Seoul, so a naive ``now()`` here dated an issue up to nine hours ahead
-    of the window it was actually built for.
+    The same parser the crawler gates on, so a date that got a post into the
+    issue always renders; UTC because the Batch image runs with TZ=Asia/Seoul.
     """
-    if not isinstance(v, str):
-        v = str(v)
-    # ISO first: it is how a Post's date is serialized, and the strptime formats
-    # below have no fractional seconds, so "2026-05-30T12:00:00.123000Z" from a
-    # feed that carries them fell through every one of them to today's date.
-    try:
-        return datetime.fromisoformat(v.replace("Z", "+00:00")).strftime("%Y-%m-%d")
-    except ValueError:
-        pass
-    for fmt in NewsletterConfig.DATE_FORMATS:
-        try:
-            return datetime.strptime(v, fmt).strftime("%Y-%m-%d")
-        except (ValueError, TypeError):
-            continue
-    return datetime.now(UTC).strftime("%Y-%m-%d")
+    parsed = try_parse_published_date(v if isinstance(v, str) else str(v))
+    return (parsed or datetime.now(UTC)).strftime("%Y-%m-%d")
 
 
 class Article(BaseModel):
@@ -431,11 +395,18 @@ class BuildConfiguration(BaseModel):
         default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%d")
     )
     language: Language = Language.KO
-    header_title: str = NewsletterConfig.DEFAULT_STYLES["header_title"]
-    header_description: str = NewsletterConfig.DEFAULT_STYLES["header_description"]
-    header_thumbnail: str = NewsletterConfig.DEFAULT_STYLES["header_thumbnail"]
-    first_section_intro: str = NewsletterConfig.DEFAULT_STYLES["first_section_intro"]
-    footer_title: str = NewsletterConfig.DEFAULT_STYLES["footer_title"]
+    # Used when the stage config leaves a chrome field unset. The intro has no
+    # default: main always supplies the greeting or its fixed fallback.
+    header_title: str = "Weekly AI Tech Blog Digest"
+    header_description: str = (
+        "A curated digest of the most impactful AI developments, research and "
+        "engineering from leading tech companies and research institutions."
+    )
+    header_thumbnail: str = "peccy.png"
+    first_section_intro: str
+    footer_title: str = (
+        "Thank you for reading! Stay tuned for next week's AI insights and discoveries."
+    )
     save_individual_articles: bool = False
     convert_to_images: bool = False
 

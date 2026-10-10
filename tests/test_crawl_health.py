@@ -244,35 +244,6 @@ class TestCandidatesComeFromTheFetchers:
             fetcher.fetch(*self.WINDOW)
         assert fetcher.candidates is None
 
-    def _meta_scraper(self, monkeypatch, html: str):
-        scraper = fp.MetaAIBlogScraper(page_url="https://ai.meta.com/blog")
-        monkeypatch.setattr(
-            scraper, "_fetch_page", lambda: BeautifulSoup(html, "html.parser")
-        )
-        monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
-        return scraper
-
-    def test_links_with_no_readable_date_count_as_nothing_offered(self, monkeypatch):
-        # Two links match LINK_PATTERN but neither carries a parseable date. That is
-        # a broken scraper, not a quiet blog: nothing could ever pass the window.
-        # Counting matched links reported 2 here, which is how the Google Research
-        # scraper went unflagged with 13 undatable cards.
-        scraper = self._meta_scraper(
-            monkeypatch,
-            '<a href="/blog/one"><h3>One</h3></a><a href="/blog/two"><h3>Two</h3></a>',
-        )
-        assert scraper.fetch(*self.WINDOW) == []
-        assert scraper.candidates == 0
-
-    def test_dated_posts_outside_the_window_still_count(self, monkeypatch):
-        scraper = self._meta_scraper(
-            monkeypatch,
-            '<div><a href="/blog/old"><h3>An Old Post</h3></a>'
-            "<span>January 5, 2020</span></div>",
-        )
-        assert scraper.fetch(*self.WINDOW) == []
-        assert scraper.candidates == 1
-
     @staticmethod
     def _bound(monkeypatch, scraper, html):
         monkeypatch.setattr(
@@ -305,23 +276,16 @@ class TestCandidatesComeFromTheFetchers:
         assert scraper.fetch(*self.WINDOW) == []
         assert scraper.candidates == expected
 
-    @pytest.mark.parametrize(
-        ("date_text", "expected"), [("Smarch 40, 2026", 0), ("June 6, 2016", 1)]
-    )
-    def test_anthropic_scraper_counts_only_links_it_could_date(
-        self, monkeypatch, date_text, expected
-    ):
-        html = (
-            '<div><a href="/engineering/x"><h3>A Long Enough Title</h3>'
-            f"<span>{date_text}</span></a></div>"
-        )
+    def test_a_page_whose_cards_stopped_matching_offers_nothing(self, monkeypatch):
         scraper = self._bound(
             monkeypatch,
-            fp.AnthropicBlogScraper(page_url="https://www.anthropic.com/engineering"),
-            html,
+            fp.LinkedInBlogScraper(
+                page_url="https://www.linkedin.com/blog/engineering"
+            ),
+            "<div>redesigned</div>",
         )
         assert scraper.fetch(*self.WINDOW) == []
-        assert scraper.candidates == expected
+        assert scraper.candidates == 0
 
     def test_rss_entries_with_no_readable_date_count_as_nothing_offered(
         self, monkeypatch
@@ -333,13 +297,6 @@ class TestCandidatesComeFromTheFetchers:
         fetcher = fp.RssFetcher("https://a.example/rss")
         assert fetcher.fetch(*self.WINDOW) == []
         assert fetcher.candidates == 0
-
-    def test_index_scraper_reports_zero_when_the_selector_stops_matching(
-        self, monkeypatch
-    ):
-        scraper = self._meta_scraper(monkeypatch, "<div>redesigned</div>")
-        assert scraper.fetch(*self.WINDOW) == []
-        assert scraper.candidates == 0
 
     def test_the_collector_records_what_the_fetcher_reported(self):
         class _Fetcher:

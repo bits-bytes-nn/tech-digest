@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from pydantic_core import PydanticUndefined
 
-from app.src import EnvVars, FilteringCriteria, LanguageModelId
+from app.src import EnvVars, LanguageModelId
+from app.src.summarizer import SummarizationOptions
 
 # AWS EventBridge cron has exactly six fields:
 #   cron(minutes hours day-of-month month day-of-week year)
@@ -105,67 +106,11 @@ class Scraping(BaseModelWithDefaults):
     expected_flaky_urls: list[str] = Field(default_factory=list)
 
 
-class Summarization(BaseModelWithDefaults):
-    use_filtering: bool = Field(default=True)
-    filtering_criteria: FilteringCriteria
-    included_topics: list[str] = Field(default_factory=list)
-    excluded_topics: list[str] = Field(default_factory=list)
-    filtering_model_id: LanguageModelId
-    filtering_enable_thinking: bool = Field(default=False)
-    summarization_model_id: LanguageModelId
-    summarization_enable_thinking: bool = Field(default=False)
+class Summarization(SummarizationOptions, BaseModelWithDefaults):
+    """The ``summarization`` section: the Summarizer's options plus the greeting
+    model. Field documentation lives on ``SummarizationOptions``."""
+
     greeting_model_id: LanguageModelId
-    max_concurrency: int = Field(default=10, ge=1)
-    min_score: float = Field(default=0.7, ge=0.0, le=1.0)
-    max_posts: int | None = Field(default=None, ge=1)
-    # Optional cap on how many articles one source may contribute to an issue.
-    # Applied AFTER score ranking, and any slots the cap leaves empty are
-    # backfilled in rank order — so the cap changes *which* posts fill the issue,
-    # never *how many*. Leave unset (the default) for a single-vendor digest
-    # (`filtering_criteria: amazon`), where source concentration is the point;
-    # set it to 2 for a broad digest, where three cards from the same blog in one
-    # issue reads like that vendor's release notes rather than a curated digest.
-    max_per_source: int | None = Field(default=None, ge=1)
-    # Send the relevance filter the article's visible TEXT rather than its raw
-    # HTML. The rubric scores topic and quality, both of which live in the prose,
-    # while markup measured ~87% of filtering input tokens on a real run — and
-    # filtering is ~74% of Bedrock spend. Set False to restore the raw-HTML
-    # behaviour.
-    #
-    # Both this and the field below were DOCUMENTED here and in the template but
-    # never declared on this model, so pydantic's ignore-extras dropped them and
-    # the YAML value never reached SummarizerSettings. Their defaults happened to
-    # match, so the pipeline behaved as documented while the switches did nothing:
-    # setting either to False changed no behaviour at all.
-    filter_on_visible_text: bool = Field(default=True)
-    # Strip site furniture (scripts, nav, footers) and decorative attributes from
-    # the HTML the summarizer receives. It still gets HTML — code blocks, tables
-    # and image URLs are markup — just not the parts that are not the article.
-    # Measured -37% on summarization input tokens. Set False to send the raw page.
-    summarize_on_cleaned_html: bool = Field(default=True)
-    # Extended-thinking budget (tokens) for the filtering/summarization models
-    # when *_enable_thinking is on. The model factory's hardcoded 2048 default
-    # is too small to meaningfully reason over a full article; expose it so it
-    # can be tuned per stage. Must be < the model's max output tokens.
-    #
-    # NOTE: adaptive-thinking models (Sonnet 5+) IGNORE the token budget and are
-    # steered by `thinking_effort` below instead. The budget applies only to the
-    # legacy budget-thinking models (Sonnet 4.x / older).
-    filtering_thinking_budget_tokens: int = Field(default=4096, ge=1024)
-    summarization_thinking_budget_tokens: int = Field(default=8192, ge=1024)
-    # Adaptive-thinking depth for newer models (Sonnet 5+), passed as
-    # output_config.effort. None uses the model default, which is "medium" on
-    # Opus 5.5 and Haiku 5.5 and "high" on the others. Ignored by legacy
-    # budget-thinking models (which use *_thinking_budget_tokens instead).
-    # Every adaptive-thinking model in the registry accepts all five values
-    # (checked against Bedrock on 2026-10-10). Effort rides on thinking: with
-    # *_enable_thinking off it is dropped, except on Opus 5.5 and Fable 5.1,
-    # which have no off switch, so effort is the only depth control they have.
-    thinking_effort: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
-        default=None
-    )
-    # Optional cap on summary output tokens (None = use the model's maximum).
-    summarization_max_tokens: int | None = Field(default=None, ge=256)
 
 
 class Newsletter(BaseModelWithDefaults):
@@ -191,18 +136,12 @@ class Newsletter(BaseModelWithDefaults):
 
 
 class Config(BaseModelWithDefaults):
-    resources: Resources = Field(
-        default_factory=lambda: Resources(project_name="tech-digest", s3_bucket_name="")
-    )
-    scraping: Scraping = Field(default_factory=lambda: Scraping(rss_urls=[]))
-    summarization: Summarization = Field(
-        default_factory=lambda: Summarization(
-            filtering_criteria=FilteringCriteria.ALL,
-            filtering_model_id=LanguageModelId.CLAUDE_V5_5_SONNET,
-            summarization_model_id=LanguageModelId.CLAUDE_V5_5_SONNET,
-            greeting_model_id=LanguageModelId.CLAUDE_V5_5_HAIKU,
-        )
-    )
+    # Required: a stage config missing one of these is a mistake, not a request
+    # for defaults (an absent `scraping` used to mean rss_urls=[] and an empty
+    # issue). The template is the reference for every section's values.
+    resources: Resources
+    scraping: Scraping
+    summarization: Summarization
     newsletter: Newsletter = Field(default_factory=Newsletter)
 
     @classmethod

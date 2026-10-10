@@ -83,7 +83,7 @@ KO_LEDE_BAND: tuple[int, int] = (40, 100)
 # unfairly penalises number-dense sources — one article reports 107 figures, and
 # carrying all of them would be worse writing, not better. Counting summary
 # figures ABSENT from the source looked like a hallucination check, but
-# ``visible_text`` strips code blocks, so figures legitimately taken from a config
+# ``prose_text`` strips code blocks, so figures legitimately taken from a config
 # snippet count as unsourced.
 SPECIFICITY_SATURATION: float = 6.0
 
@@ -275,7 +275,7 @@ def _density_score(hits: int, length: int, band: tuple[float, float]) -> float:
     return max(0.0, 1.0 - (rate - free) / (zero - free))
 
 
-def visible_text(html: str) -> str:
+def prose_text(html: str) -> str:
     """Readable prose in a summary, markup stripped, code blocks removed.
 
     Code is excluded because it is not prose: its identifiers would otherwise
@@ -302,7 +302,7 @@ def split_sections(html: str) -> dict[str, str]:
             current = next((m for m in SECTION_MARKERS if m in heading), None)
             buffer = []
         elif current:
-            buffer.append(visible_text(str(element)))
+            buffer.append(prose_text(str(element)))
     if current:
         sections[current] = " ".join(buffer).strip()
     return sections
@@ -487,7 +487,7 @@ def evaluate_summary(
     article_id: str, summary_html: str, one_liner: str = ""
 ) -> SummaryQuality:
     """Score one article's summary against the rubric."""
-    text = visible_text(summary_html)
+    text = prose_text(summary_html)
     sections = split_sections(summary_html)
     soup = BeautifulSoup(summary_html or "", "html.parser")
 

@@ -1,5 +1,5 @@
-"""Tests for the resilient HTTP request layer: header-set rotation, per-domain
-caching of the working header set, and transient-error retry."""
+"""Tests for the HTTP request layer: transient-error retry, the SSRF guard, and
+the headers actually sent."""
 
 from __future__ import annotations
 
@@ -7,14 +7,7 @@ import pytest
 import requests
 
 from app.src import feed_parser
-from app.src.feed_parser import HeaderCache, _make_robust_request
-
-
-@pytest.fixture(autouse=True)
-def clear_header_cache():
-    HeaderCache.clear()
-    yield
-    HeaderCache.clear()
+from app.src.feed_parser import _make_robust_request
 
 
 @pytest.fixture(autouse=True)
@@ -110,28 +103,12 @@ class TestMakeRobustRequest:
         _make_robust_request("https://example.com")
         assert slept and slept[0] == 5.0
 
-    def test_rotates_header_sets_on_403(self, monkeypatch):
-        # 403 is non-transient -> no retry, move to next header set. Three sets,
-        # first two 403, third 200 => 3 calls total.
-        session = _FakeSession(
-            [_FakeResponse(403), _FakeResponse(403), _FakeResponse(200)]
-        )
-        _patch_session(monkeypatch, session)
-        resp = _make_robust_request("https://example.com")
-        assert resp is not None
-        assert session.calls == 3
-
-    def test_all_fail_returns_none(self, monkeypatch):
-        session = _FakeSession([_FakeResponse(403)] * 3)
+    def test_a_403_is_not_retried(self, monkeypatch):
+        # Non-transient: one call, then give up.
+        session = _FakeSession([_FakeResponse(403)])
         _patch_session(monkeypatch, session)
         assert _make_robust_request("https://example.com") is None
-
-    def test_caches_working_header_index(self, monkeypatch):
-        session = _FakeSession([_FakeResponse(403), _FakeResponse(200)])
-        _patch_session(monkeypatch, session)
-        _make_robust_request("https://example.com")
-        # Header set index 1 (the 2nd) worked -> cached for the domain.
-        assert HeaderCache.get_cached_header_index("example.com") == 1
+        assert session.calls == 1
 
 
 class TestSSRFGuard:
@@ -213,50 +190,12 @@ class TestSSRFGuard:
         assert _make_robust_request("https://example.com") is not None
 
 
-class TestHeaderSetsAreAlternativesNotAccumulated:
-    """Each header set in the fallback ladder must be sent exactly as declared.
-
-    They used to be written onto the shared session with ``headers.update``, which
-    made them cumulative: once the Chrome set (12 headers) failed, the Safari set
-    (5 headers) was merged on top, so the retry went out with a macOS Safari
-    ``User-Agent`` next to Chrome's ``Sec-Ch-Ua`` and ``Sec-Ch-Ua-Platform:
-    "Windows"``. Safari sends no client hints, so no real browser produces that
-    combination — and an impossible fingerprint is what the anti-bot filters this
-    ladder exists to defeat look for. Every attempt after the first was therefore
-    *less* likely to work than the first.
-    """
-
-    def _all_attempts(self, monkeypatch):
-        blocked = [
-            _FakeResponse(403)
-            for _ in feed_parser.ScraperConfig.REQUEST_HEADERS_OPTIONS
-        ]
-        session = _FakeSession(blocked)
-        _patch_session(monkeypatch, session)
-        assert _make_robust_request("https://example.com") is None
-        return session.sent_headers
-
-    def test_every_set_is_sent_verbatim(self, monkeypatch):
-        sent = self._all_attempts(monkeypatch)
-        declared = feed_parser.ScraperConfig.REQUEST_HEADERS_OPTIONS
-        assert len(sent) == len(declared)
-        for actual, expected in zip(sent, declared, strict=True):
-            assert actual == expected
-
-    def test_client_hints_do_not_leak_onto_the_safari_set(self, monkeypatch):
-        sent = self._all_attempts(monkeypatch)
-        safari = next(h for h in sent if "Safari/605" in h.get("User-Agent", ""))
-        assert "Sec-Ch-Ua" not in safari
-        assert "Sec-Ch-Ua-Platform" not in safari
-        assert "Sec-Fetch-User" not in safari
-
-    def test_the_session_itself_is_never_mutated(self, monkeypatch):
-        """Per-request headers, so nothing carries over between attempts."""
-        blocked = [
-            _FakeResponse(403)
-            for _ in feed_parser.ScraperConfig.REQUEST_HEADERS_OPTIONS
-        ]
-        session = _FakeSession(blocked)
+class TestHeadersAreSentAsDeclared:
+    def test_the_declared_set_is_sent_verbatim_and_the_session_untouched(
+        self, monkeypatch
+    ):
+        session = _FakeSession([_FakeResponse(200)])
         _patch_session(monkeypatch, session)
         _make_robust_request("https://example.com")
+        assert session.sent_headers == [feed_parser.ScraperConfig.REQUEST_HEADERS]
         assert session.headers == {}

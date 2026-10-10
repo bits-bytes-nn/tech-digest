@@ -403,7 +403,7 @@ class TestArticleSourceLabel:
 
 class TestBuildConfiguration:
     def test_defaults(self):
-        config = BuildConfiguration()
+        config = BuildConfiguration(first_section_intro="hi")
         assert config.language == Language.KO
         assert config.stage == "dev"
         assert config.save_individual_articles is False

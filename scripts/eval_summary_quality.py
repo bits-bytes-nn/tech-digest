@@ -35,7 +35,7 @@ from app.src.quality_metrics import (
     SummaryQuality,
     evaluate_summary,
     is_korean,
-    visible_text,
+    prose_text,
 )
 
 INPUTS_DIR = Path(__file__).resolve().parent.parent / "inputs"
@@ -67,7 +67,7 @@ def load_report(date: str) -> QualityReport:
         # and return full marks on English prose for want of anything to match,
         # so an English issue would produce a number that looks like a mediocre
         # pass while measuring nothing. See the note in ``quality_metrics``.
-        if not is_korean(visible_text(data["summary"])):
+        if not is_korean(prose_text(data["summary"])):
             non_korean.append(data.get("title", path.stem))
             continue
         results.append(

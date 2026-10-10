@@ -184,16 +184,26 @@ class TestChromeDefaultsAreReachable:
 
     main.py coerced each config value with ``or ""``, which overrode
     BuildConfiguration's defaults with the empty string — making every entry in
-    NewsletterConfig.DEFAULT_STYLES dead, and turning "no header_title configured"
+    the declared defaults dead, and turning "no header_title configured"
     into a Header validation error that failed the whole build.
     """
 
-    def test_unset_fields_use_default_styles(self):
-        from app.src.newsletter_renderer import BuildConfiguration, NewsletterConfig
+    def test_unset_fields_use_the_declared_defaults(self):
+        from app.src.newsletter_renderer import BuildConfiguration
 
-        config = BuildConfiguration(stage="dev", date_suffix="2026-08-19")
-        for field, expected in NewsletterConfig.DEFAULT_STYLES.items():
-            assert getattr(config, field) == expected, field
+        config = BuildConfiguration(
+            stage="dev", date_suffix="2026-08-19", first_section_intro="hi"
+        )
+        for field in (
+            "header_title",
+            "header_description",
+            "header_thumbnail",
+            "footer_title",
+        ):
+            assert (
+                getattr(config, field) == BuildConfiguration.model_fields[field].default
+            )
+            assert getattr(config, field)
 
     def test_empty_header_title_is_rejected_not_silently_shipped(self):
         from pydantic import ValidationError
@@ -206,7 +216,7 @@ class TestChromeDefaultsAreReachable:
     def test_main_omits_unset_chrome_so_defaults_apply(self, tmp_path, monkeypatch):
         """The composition root must not pass "" for an unset field."""
         import app.main as main
-        from app.src.newsletter_renderer import NewsletterConfig
+        from app.src.newsletter_renderer import BuildConfiguration
 
         captured = {}
 
@@ -242,7 +252,7 @@ class TestChromeDefaultsAreReachable:
         )
         assert (
             captured["config"].header_title
-            == NewsletterConfig.DEFAULT_STYLES["header_title"]
+            == BuildConfiguration.model_fields["header_title"].default
         )
         assert captured["config"].first_section_intro == "intro"
 

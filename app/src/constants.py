@@ -22,11 +22,20 @@ class AutoNamedEnum(str, Enum):
         return name.lower()
 
 
+# Batch job lifetime limits. deploy_infra configures them on the queue and the
+# job definition; run_batch's waiter derives how long to wait from them.
+# The longest run seen is under 7 minutes; 90 per attempt leaves room for a week
+# of heavy Bedrock throttling while a hung attempt still alerts the same morning.
+BATCH_ATTEMPT_TIMEOUT_MINUTES: int = 90
+# Two attempts = one retry, for infrastructure deaths (Spot reclaim, OOM).
+BATCH_ATTEMPTS: int = 2
+# A job that cannot be placed is cancelled after this long in RUNNABLE.
+BATCH_RUNNABLE_LIMIT_MINUTES: int = 120
+
+
 class EnvVars(str, Enum):
     AWS_PROFILE_NAME = "AWS_PROFILE_NAME"
-    BEDROCK_REGION_NAME = "BEDROCK_REGION_NAME"
     CONFIG_FILE_SUFFIX = "CONFIG_FILE_SUFFIX"
-    DEFAULT_REGION_NAME = "DEFAULT_REGION_NAME"
     LANGCHAIN_API_KEY = "LANGCHAIN_API_KEY"
     LANGCHAIN_TRACING_V2 = "LANGCHAIN_TRACING_V2"
     LANGCHAIN_ENDPOINT = "LANGCHAIN_ENDPOINT"
@@ -116,11 +125,3 @@ class S3Paths(AutoNamedEnum):
 
 class AppConstants:
     NULL_STRING: str = "null"
-
-    class External(str, Enum):
-        ANTHROPIC_ENGINEERING = "www.anthropic.com/engineering"
-        LINKEDIN_ENGINEERING = "www.linkedin.com/blog/engineering"
-        META_AI = "ai.meta.com/blog"
-        MEDIUM_DOMAIN = "medium.com"
-        QWEN = "qwenlm.github.io/blog"
-        XAI = "x.ai/news"

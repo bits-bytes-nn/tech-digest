@@ -133,8 +133,10 @@ def test_bedrock_invoke_covers_every_resource_type_the_runtime_resolves(template
 
 def test_a_failed_run_is_not_retried_but_an_infrastructure_death_is(template):
     [job_definition] = _resources(template, "AWS::Batch::JobDefinition")
+    from app.src.constants import BATCH_ATTEMPTS
+
     assert job_definition["Properties"]["RetryStrategy"] == {
-        "Attempts": 2,
+        "Attempts": BATCH_ATTEMPTS,
         "EvaluateOnExit": [{"Action": "EXIT", "OnExitCode": "1"}],
     }
 
@@ -250,4 +252,15 @@ def test_job_logs_expire_and_jobs_time_out(template):
     groups = _resources(template, "AWS::Logs::LogGroup")
     assert groups and all(g["Properties"].get("RetentionInDays") for g in groups)
     [job_definition] = _resources(template, "AWS::Batch::JobDefinition")
-    assert job_definition["Properties"]["Timeout"] == {"AttemptDurationSeconds": 10800}
+    from app.src.constants import BATCH_ATTEMPT_TIMEOUT_MINUTES
+
+    assert job_definition["Properties"]["Timeout"] == {
+        "AttemptDurationSeconds": BATCH_ATTEMPT_TIMEOUT_MINUTES * 60
+    }
+
+
+def test_compute_environments_use_a_supported_ami(template):
+    # Batch's ECS Amazon Linux 2 AMI reached end of support on 2026-06-30.
+    for env in _resources(template, "AWS::Batch::ComputeEnvironment"):
+        images = env["Properties"]["ComputeResources"]["Ec2Configuration"]
+        assert [i["ImageType"] for i in images] == ["ECS_AL2023"]

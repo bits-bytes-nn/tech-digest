@@ -238,28 +238,38 @@ class TestNewestModelsAreSelectable:
         assert s.greeting_model_id.value == model_value
         assert s.thinking_effort == effort
 
-    def test_code_defaults_are_the_latest_claude(self):
-        s = Config.model_fields["summarization"].default_factory()
-        assert s.filtering_model_id is LanguageModelId.CLAUDE_V5_5_SONNET
-        assert s.summarization_model_id is LanguageModelId.CLAUDE_V5_5_SONNET
-        assert s.greeting_model_id is LanguageModelId.CLAUDE_V5_5_HAIKU
-        assert s.thinking_effort is None
-
-    @pytest.mark.parametrize(
-        "name", ["config-template.yaml", "config-ci.yaml", "config-ci-batch.yaml"]
-    )
-    def test_shipped_configs_match_the_code_defaults(self, name):
+    @staticmethod
+    def _summarization(name: str) -> dict:
         import yaml
 
-        defaults = Config.model_fields["summarization"].default_factory()
         path = Path(__file__).resolve().parent.parent / "app" / "configs" / name
-        section = yaml.safe_load(path.read_text(encoding="utf-8"))["summarization"]
+        return yaml.safe_load(path.read_text(encoding="utf-8"))["summarization"]
+
+    def test_the_template_defaults_to_the_latest_claude(self):
+        section = self._summarization("config-template.yaml")
+        assert section["filtering_model_id"] == LanguageModelId.CLAUDE_V5_5_SONNET.value
+        assert (
+            section["summarization_model_id"]
+            == LanguageModelId.CLAUDE_V5_5_SONNET.value
+        )
+        assert section["greeting_model_id"] == LanguageModelId.CLAUDE_V5_5_HAIKU.value
+
+    @pytest.mark.parametrize("name", ["config-ci.yaml", "config-ci-batch.yaml"])
+    def test_ci_configs_use_the_template_models(self, name):
+        template = self._summarization("config-template.yaml")
+        section = self._summarization(name)
         for key in (
             "filtering_model_id",
             "summarization_model_id",
             "greeting_model_id",
         ):
-            assert section[key] == getattr(defaults, key).value, (name, key)
+            assert section[key] == template[key], (name, key)
+
+    def test_a_config_missing_a_section_is_rejected(self):
+        with pytest.raises(ValidationError):
+            Config.model_validate(
+                {"resources": {"project_name": "p", "s3_bucket_name": "b"}}
+            )
 
 
 class TestCommittedSourcesReachTheirScraper:

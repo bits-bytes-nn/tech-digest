@@ -9,14 +9,21 @@ from typing import Any
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from .constants import (
+    BATCH_ATTEMPT_TIMEOUT_MINUTES,
+    BATCH_ATTEMPTS,
+    BATCH_RUNNABLE_LIMIT_MINUTES,
+)
 from .logger import logger
 
 DEFAULT_BATCH_POLL_INTERVAL: int = 30
-# Must not be shorter than the Batch job definition's own timeout (3 hours, see
-# deploy_infra._create_job_definition). At the previous 1 hour, a long-but-healthy
-# run made run_batch.py give up and report "failed or timed out" while the job was
-# still going — and then exit non-zero on a run that went on to succeed.
-DEFAULT_BATCH_TIMEOUT: int = 3 * 3600 + 300
+# The longest a submitted job can live: queued in RUNNABLE until the queue cancels
+# it, then every attempt running to its timeout. The waiter must outlast that, or
+# run_batch.py reports "failed or timed out" for a job that later succeeds. The
+# three limits are the ones deploy_infra configures, so they live in constants.
+DEFAULT_BATCH_TIMEOUT: int = (
+    BATCH_RUNNABLE_LIMIT_MINUTES + BATCH_ATTEMPTS * BATCH_ATTEMPT_TIMEOUT_MINUTES
+) * 60 + 300
 
 
 def check_and_download_from_s3(

@@ -17,10 +17,10 @@ from app.src.quality_metrics import (
     cliche_hits,
     evaluate_summary,
     han_da_sentences,
+    prose_text,
     quantities,
     split_sections,
     translationese_hits,
-    visible_text,
 )
 
 
@@ -58,7 +58,7 @@ class TestRegister:
         """Code is stripped before the prose checks, so an identifier ending in
         "다" inside a snippet is not a register violation."""
         html = "<p>정상 문장입니다.</p><pre><code>x = 계산한다</code></pre>"
-        assert han_da_sentences(visible_text(html)) == []
+        assert han_da_sentences(prose_text(html)) == []
 
 
 class TestSectionSplitting:

@@ -15,14 +15,11 @@ scraping:
   rss_urls:
     - "https://medium.com/feed/airbnb-engineering"
     - "https://www.amazon.science/index.rss"
-    - "https://www.anthropic.com/engineering"
     - "https://aws.amazon.com/blogs/amazon-ai/feed/"
     - "https://deepmind.google/blog/rss.xml" # was www.deepmind.com/blog/rss.xml (302 redirect)
     - "https://research.google/blog/rss/" # the index-page scraper stopped dating posts; the article body is fetched from each post page
     - "https://huggingface.co/blog/feed.xml"
-    - "https://tech.kakao.com/feed/"
     - "https://www.linkedin.com/blog/engineering"
-    - "https://ai.meta.com/blog/"
     - "https://engineering.fb.com/feed/" # was code.facebook.com/posts/rss (301 redirect)
     - "https://www.microsoft.com/en-us/research/blog/feed/" # was research.microsoft.com/rss/news.xml (301 redirect)
     - "https://medium.com/feed/netflix-techblog" # was techblog.netflix.com (301 redirect to Medium)
@@ -30,8 +27,7 @@ scraping:
     - "https://openai.com/news/rss.xml"
     - "https://medium.com/feed/@palantir"
     - "https://medium.com/feed/@Pinterest_Engineering"
-    - "https://qwenlm.github.io/blog/"
-    - "https://x.ai/news"
+    - "https://qwenlm.github.io/blog/index.xml"
     - "https://eugeneyan.com/rss/"
     - "https://sebastianraschka.com/rss_feed.xml"
     - "https://www.philschmid.de/rss"
@@ -39,25 +35,9 @@ scraping:
   # Minimum visible-text length (markup stripped) for a post to be summarized.
   # Posts below this are reported as filtered-out, not summarized.
   min_content_length: 600
-  # Sources whose failure is KNOWN and expected, matched as a substring of the
-  # configured URL. They still appear in the crawl-health report and in the run log
-  # but do not raise the SNS alert. All three below are bot-protected and
-  # unreachable from AWS datacenter egress IPs on essentially every run; alerting
-  # weekly on something nobody can act on trains you to ignore the alarm, which
-  # then hides a source that broke for real.
-  #
-  # They fail in two different SHAPES, and both alert triggers must be suppressed:
-  #   x.ai           — errors outright, so the source is FAILED.
-  #   ai.meta.com    — returns HTTP 200 with ZERO matching post links, so it is
-  #                    EMPTY-with-nothing-to-filter rather than FAILED.
-  #   anthropic.com  — same shape as ai.meta.com.
-  # Measured 2026-08-19 from a non-datacenter IP: Meta 21 candidates, Anthropic 25;
-  # from AWS both 0. Headers cannot fix an ASN block — the request ladder already
-  # sends three realistic browser fingerprints.
-  expected_flaky_urls:
-    - "x.ai/news"
-    - "ai.meta.com"
-    - "anthropic.com"
+  # Substrings of source URLs whose failure is expected (e.g. a site that blocks
+  # AWS IPs): still reported in the crawl-health summary, but no SNS alert.
+  expected_flaky_urls: []
 
 summarization:
   use_filtering: True
@@ -124,22 +104,18 @@ newsletter:
   logos:
     airbnb: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/airbnb.png"
     amazon: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/amazon.png"
-    anthropic: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/anthropic.png"
     aws: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/aws.png"
     google: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/google.png"
     huggingface: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/huggingface.png"
-    kakao: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/kakao.png"
     linkedin: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/linkedin.png"
     meta: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/meta.png"
     microsoft: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/microsoft.png"
-    ncsoft: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/ncsoft.png"
     netflix: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/netflix.png"
     nvidia: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/nvidia.png"
     openai: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/openai.png"
     palantir: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/palantir.png"
     pinterest: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/pinterest.png"
     qwen: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/qwen.png"
-    xai: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/xai.png"
     unknown: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/unknown.png"
     # A source with no entry here falls back to `unknown` automatically, so a
     # newly mapped source (e.g. eugene_yan, phil_schmid, sebastian_raschka)

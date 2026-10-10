@@ -1,6 +1,6 @@
 import re
 from html import escape, unescape
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import boto3
 import markdown
@@ -366,51 +366,59 @@ class SummaryOutput(BaseModel):
         return _normalize_urls(v)
 
 
-class SummarizerSettings(BaseModel):
-    """Everything the Summarizer needs to run, as one validated object.
+class SummarizationOptions(BaseModel):
+    """The settings the ``summarization`` config section and the Summarizer share.
 
-    Replaces a 14-positional-parameter constructor plus four more arguments on
-    ``process_posts``. Field names deliberately mirror the ``summarization``
-    config section so the composition root can build this straight from config
-    (``SummarizerSettings.model_validate(cfg.summarization.model_dump() | ...)``)
-    without restating every key — and without ``src`` importing ``configs``,
-    which would invert the dependency direction.
+    Declared once: the config model (``configs.Summarization``) extends this with
+    the greeting model, and ``SummarizerSettings`` with what only the run knows.
+    Two hand-kept copies drifted before — two switches documented in the template
+    were never declared on the config side, so setting them did nothing.
     """
 
+    use_filtering: bool = True
+    filtering_criteria: FilteringCriteria = FilteringCriteria.ALL
+    included_topics: list[str] = Field(default_factory=list)
+    excluded_topics: list[str] = Field(default_factory=list)
     filtering_model_id: LanguageModelId
+    filtering_enable_thinking: bool = False
     summarization_model_id: LanguageModelId
+    summarization_enable_thinking: bool = False
+    max_concurrency: int = Field(default=10, ge=1)
+    min_score: float = Field(default=0.7, ge=0.0, le=1.0)
+    max_posts: int | None = Field(default=None, ge=1)
+    # Cap on articles from one source, applied after ranking; freed slots are
+    # backfilled in rank order, so it changes which posts ship, never how many.
+    # Leave unset for a single-vendor digest, where concentration is the point.
+    max_per_source: int | None = Field(default=None, ge=1)
+    # The filter scores prose, so it gets visible text rather than HTML (§10).
+    filter_on_visible_text: bool = True
+    # The summarizer needs markup (code, tables, images) but not site furniture.
+    summarize_on_cleaned_html: bool = True
+    # Thinking budgets for budget-thinking models (Claude 4.x and older) only;
+    # adaptive-thinking models ignore them and use thinking_effort.
+    filtering_thinking_budget_tokens: int = Field(default=4096, ge=1024)
+    summarization_thinking_budget_tokens: int = Field(default=8192, ge=1024)
+    # Depth for adaptive-thinking models (output_config.effort) and GPT models
+    # (reasoning.effort). None = the model's default. Sent only while thinking is
+    # on, except on models that cannot stop thinking (§8).
+    thinking_effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+    # Cap on summary output tokens; None = the model's maximum.
+    summarization_max_tokens: int | None = Field(default=None, ge=256)
+
+
+class SummarizerSettings(SummarizationOptions):
+    """Everything the Summarizer needs, as one validated object.
+
+    The composition root builds it from config
+    (``model_validate(cfg.summarization.model_dump() | {...})``), adding the
+    values only the run knows: the issue's language and the content gate.
+    """
+
     # The output-repair model. Not a config key; scripts/put_inference_profiles.py
     # reads this default so the profile it provisions matches the model used.
     fixing_model_id: LanguageModelId = LanguageModelId.CLAUDE_V5_5_HAIKU
-    filtering_criteria: FilteringCriteria = FilteringCriteria.ALL
-    filtering_enable_thinking: bool = False
-    summarization_enable_thinking: bool = False
     language: Language = Language.KO
-    use_filtering: bool = True
-    included_topics: list[str] = Field(default_factory=list)
-    excluded_topics: list[str] = Field(default_factory=list)
-    max_concurrency: int = Field(default=10, ge=1)
-    min_score: float = Field(default=0.7, ge=0.0, le=1.0)
     min_content_length: int = Field(default=600, ge=0)
-    max_posts: int | None = Field(default=None, ge=1)
-    max_per_source: int | None = Field(default=None, ge=1)
-    # Send the filter the article's visible text rather than its raw HTML. The
-    # rubric scores topic and quality, which live in the prose, while markup was
-    # measured at ~87% of filtering input tokens on a real run. Filtering is ~74%
-    # of Bedrock spend, so this is the single largest cost lever. Set False to
-    # restore the previous raw-HTML behaviour.
-    filter_on_visible_text: bool = True
-    # Strip site furniture (scripts, nav, footers) and decorative attributes from
-    # the HTML the summarizer receives. It still gets HTML — code blocks, tables
-    # and image URLs are all markup, so the filter's visible-text shortcut is not
-    # available here — just not the parts that are not the article. Measured -37%
-    # on summarization input tokens with every <pre>, <table> and article <img>
-    # preserved. Set False to send the raw page as before.
-    summarize_on_cleaned_html: bool = True
-    filtering_thinking_budget_tokens: int = Field(default=4096, ge=1024)
-    summarization_thinking_budget_tokens: int = Field(default=8192, ge=1024)
-    summarization_max_tokens: int | None = Field(default=None, ge=256)
-    thinking_effort: str | None = None
 
 
 class Summarizer:

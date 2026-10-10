@@ -1,5 +1,4 @@
 import argparse
-import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,7 +10,6 @@ sys.path.append(str(Path(__file__).parent.parent))
 from configs import Config
 from src import (
     AppConstants,
-    EnvVars,
     SSMParams,
     get_ssm_param_value,
     is_running_in_aws,
@@ -24,11 +22,7 @@ from src import (
 
 def main(job_prefix: str, **kwargs: Any) -> None:
     config = Config.load()
-    profile_name = (
-        os.environ.get(EnvVars.AWS_PROFILE_NAME.value)
-        if is_running_in_aws()
-        else config.resources.profile_name
-    )
+    profile_name = None if is_running_in_aws() else config.resources.profile_name
     boto_session = boto3.Session(
         region_name=config.resources.default_region_name, profile_name=profile_name
     )

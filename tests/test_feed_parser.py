@@ -4,19 +4,17 @@ extraction, and the scraper registry routing. No network access."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import ClassVar
 
 import feedparser
 import pytest
 
 from app.src.feed_parser import (
-    AnthropicBlogScraper,
-    MetaAIBlogScraper,
+    LinkedInBlogScraper,
     Post,
     PostCollector,
-    QwenBlogScraper,
     RssFetcher,
     ScraperRegistry,
-    XAIBlogScraper,
     is_date_in_range,
     parse_published_date,
     try_parse_published_date,
@@ -118,9 +116,7 @@ class TestSourceDetection:
         "url,expected",
         [
             ("https://aws.amazon.com/blogs/ml/post", "aws"),
-            ("https://www.anthropic.com/engineering/x", "anthropic"),
             ("https://openai.com/news/foo", "openai"),
-            ("https://x.ai/news/grok", "xai"),
             ("https://qwenlm.github.io/blog/qwen3", "qwen"),
             ("https://unknown-blog.example.com/post", "unknown"),
             ("", "unknown"),
@@ -208,17 +204,11 @@ class TestPostModel:
 
 
 class TestScraperRegistry:
-    @pytest.mark.parametrize(
-        "url,scraper_cls",
-        [
-            ("https://www.anthropic.com/engineering", AnthropicBlogScraper),
-            ("https://ai.meta.com/blog/", MetaAIBlogScraper),
-            ("https://qwenlm.github.io/blog/", QwenBlogScraper),
-            ("https://x.ai/news", XAIBlogScraper),
-        ],
-    )
-    def test_routes_to_custom_scraper(self, url, scraper_cls):
-        assert isinstance(ScraperRegistry.get_fetcher(url), scraper_cls)
+    def test_routes_to_the_scraper_for_a_feedless_site(self):
+        fetcher = ScraperRegistry.get_fetcher(
+            "https://www.linkedin.com/blog/engineering"
+        )
+        assert isinstance(fetcher, LinkedInBlogScraper)
 
     def test_falls_back_to_rss(self):
         fetcher = ScraperRegistry.get_fetcher("https://example.com/feed.xml")
@@ -315,28 +305,6 @@ class TestPostFromEntry:
         assert post.content == rich
 
 
-class TestSourceTypeMatchesTheMapping:
-    """Every ``SourceType`` member must be producible by ``_determine_source``.
-
-    ``_determine_source`` resolves a source purely from ``SOURCE_MAPPING``, so a
-    literal absent from that map's values can never be assigned. "deepmind" was
-    exactly that: ``deepmind.google`` maps to "google", so the member was
-    unreachable while reading as a supported source.
-    """
-
-    def test_every_literal_is_reachable(self):
-        from typing import get_args
-
-        from app.src.feed_parser import ScraperConfig, SourceType
-
-        declared = set(get_args(SourceType))
-        producible = set(ScraperConfig.SOURCE_MAPPING.values()) | {"unknown"}
-        assert declared == producible, (
-            f"unreachable literals: {sorted(declared - producible)}; "
-            f"unmapped values: {sorted(producible - declared)}"
-        )
-
-
 class TestRegisteredScrapersResolveToAMappedSource:
     """Each index-page scraper's own URL must resolve to a real source.
 
@@ -373,6 +341,9 @@ class TestContentContainerSelection:
 
         class _Response:
             text = html
+            headers: ClassVar[dict[str, str]] = {
+                "content-type": "text/html; charset=utf-8"
+            }
 
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: _Response())
         return fp.Post._scrape_full_content("https://x.example/post")
@@ -443,3 +414,30 @@ class TestFeedTitles:
             summary="body " * 400,
         )
         assert Post.from_entry(entry).title == "Why don\u2019t models generalize?"
+
+
+class TestPageCharset:
+    @staticmethod
+    def _response(content_type: str, body: bytes):
+        import requests
+
+        response = requests.Response()
+        response._content = body
+        response.headers["Content-Type"] = content_type
+        response.encoding = requests.utils.get_encoding_from_headers(response.headers)
+        return response
+
+    def test_meta_charset_is_honoured_when_the_header_has_none(self):
+        from app.src.feed_parser import parse_page
+
+        text = "Xiaomi\u2019s \u201csimply\u201d"
+        body = f'<html><head><meta charset="utf-8"></head><p>{text}</p>'
+        page = parse_page(self._response("text/html", body.encode("utf-8")))
+        assert page.p.get_text() == text
+
+    def test_a_header_charset_still_wins(self):
+        from app.src.feed_parser import parse_page
+
+        body = "<p>caf\xe9</p>".encode("latin-1")
+        page = parse_page(self._response("text/html; charset=iso-8859-1", body))
+        assert page.p.get_text() == "café"

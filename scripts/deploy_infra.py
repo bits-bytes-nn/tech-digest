@@ -57,6 +57,11 @@ from constructs import Construct
 sys.path.append(str(Path(__file__).parent.parent))
 from app.configs import Config
 from app.src import AppConstants, EnvVars, SSMParams, get_account_id, logger
+from app.src.constants import (
+    BATCH_ATTEMPT_TIMEOUT_MINUTES,
+    BATCH_ATTEMPTS,
+    BATCH_RUNNABLE_LIMIT_MINUTES,
+)
 
 # Paths kept out of the image build context, shared by both image assets so they
 # cannot drift apart. Patterns are relative to the context directory (``app/``).
@@ -110,8 +115,6 @@ class NewsletterStack(Stack):
         lambda_or_batch: str = "lambda",
         cron_expression: str | None = None,
         email_addresses: list[str] | None = None,
-        default_region_name: str | None = None,
-        bedrock_region_name: str | None = None,
         environment_vars: dict[str, str] | None = None,
         parameters: dict[str, str] | None = None,
         **kwargs,
@@ -136,7 +139,6 @@ class NewsletterStack(Stack):
                 "s3_prefix is required to scope the S3 IAM policy; "
                 "set resources.s3_prefix in the config."
             )
-        self._bedrock_region = bedrock_region_name or "us-west-2"
         # The SES sender identity to scope send permissions to (operator email).
         self._sender = (email_addresses or [None])[0]
         self.lambda_or_batch = lambda_or_batch
@@ -152,8 +154,6 @@ class NewsletterStack(Stack):
         self.schedule_dlq = self._create_schedule_dlq()
 
         common_env_vars = self._get_common_environment_vars(
-            default_region_name,
-            bedrock_region_name,
             self.topic.topic_arn,
             **(environment_vars or {}),
         )
@@ -464,16 +464,12 @@ class NewsletterStack(Stack):
         return dlq
 
     def _get_common_environment_vars(
-        self,
-        default_region_name: str | None,
-        bedrock_region_name: str | None,
-        topic_arn: str,
-        **kwargs,
+        self, topic_arn: str, **kwargs: str
     ) -> dict[str, str]:
+        # Regions are not passed: the container loads the same stage config
+        # (CONFIG_FILE_SUFFIX) and reads them from there.
         env_vars = {
-            EnvVars.BEDROCK_REGION_NAME.value: bedrock_region_name or "us-west-2",
             EnvVars.CONFIG_FILE_SUFFIX.value: self.stage,
-            EnvVars.DEFAULT_REGION_NAME.value: default_region_name or "ap-northeast-2",
             EnvVars.LOG_LEVEL.value: "INFO",
             # Name this project's Bedrock application inference profiles, which is
             # what carries the cost-allocation tags.
@@ -598,7 +594,7 @@ class NewsletterStack(Stack):
             compute_environments=[],
             job_state_time_limit_actions=[
                 batch.JobStateTimeLimitAction(
-                    max_time=Duration.hours(2),
+                    max_time=Duration.minutes(BATCH_RUNNABLE_LIMIT_MINUTES),
                     reason=reason,
                     action=batch.JobStateTimeLimitActionsAction.CANCEL,
                     state=batch.JobStateTimeLimitActionsState.RUNNABLE,
@@ -633,6 +629,12 @@ class NewsletterStack(Stack):
             # InstanceType("optimal") is rejected as a malformed identifier by
             # current aws-cdk-lib.
             "use_optimal_instance_classes": True,
+            # Pinned: Batch's ECS-optimized Amazon Linux 2 AMI reached end of
+            # support on 2026-06-30, and an environment keeps the image type it
+            # was created with unless one is named here.
+            "images": [
+                batch.EcsMachineImage(image_type=batch.EcsMachineImageType.ECS_AL2023)
+            ],
             "launch_template": launch_template,
             "vpc": self.vpc,
             "security_groups": [self.security_group],
@@ -732,7 +734,7 @@ class NewsletterStack(Stack):
             "NewsletterJobDefinition",
             container=container_definition,
             job_definition_name=self._get_resource_name("newsletter"),
-            retry_attempts=2,
+            retry_attempts=BATCH_ATTEMPTS,
             # main.py exits 1 when the run itself failed. It has already retried
             # what can be retried (throttling, timeouts) and sent its own failure
             # alert, so a fresh attempt would repeat the same error and pay for
@@ -744,7 +746,7 @@ class NewsletterStack(Stack):
                     batch.Action.EXIT, batch.Reason.custom(on_exit_code="1")
                 ),
             ],
-            timeout=core.Duration.hours(3),
+            timeout=core.Duration.minutes(BATCH_ATTEMPT_TIMEOUT_MINUTES),
         )
 
     def _create_event_rule(
@@ -909,8 +911,6 @@ def main() -> None:
             email_addresses=(
                 [str(config.newsletter.sender)] if config.newsletter.sender else []
             ),
-            default_region_name=config.resources.default_region_name,
-            bedrock_region_name=config.resources.bedrock_region_name,
             environment_vars=env_vars,
             parameters=parameters,
             env=env,
