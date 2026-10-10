@@ -1008,7 +1008,7 @@ def cli(argv: list[str] | None = None) -> int:
     # passes back but a process does not: exiting 0 here made Batch record every
     # failed run as SUCCEEDED, so neither the job's retries nor the FAILED-state
     # alarm ever saw one. The in-app failure alert has already gone out.
-    return 0 if result["statusCode"] < 400 else 1
+    return 0 if int(result["statusCode"]) < 400 else 1
 
 
 if __name__ == "__main__":
