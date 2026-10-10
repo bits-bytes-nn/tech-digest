@@ -32,6 +32,9 @@ class EnvVars(str, Enum):
     LANGCHAIN_ENDPOINT = "LANGCHAIN_ENDPOINT"
     LANGCHAIN_PROJECT = "LANGCHAIN_PROJECT"
     LOG_LEVEL = "LOG_LEVEL"
+    # "false" skips the dated log file outside AWS. The test suite sets it, so a
+    # test run no longer appends fake entries to the same file as real local runs.
+    LOG_TO_FILE = "LOG_TO_FILE"
     # Identify the deployment for Bedrock cost attribution: they name this
     # project/stage's application inference profiles, which are what carry the
     # cost-allocation tags (see model_factory.application_profile_name).

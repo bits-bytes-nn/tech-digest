@@ -125,6 +125,13 @@ def normalize_date(v: str) -> str:
     """
     if not isinstance(v, str):
         v = str(v)
+    # ISO first: it is how a Post's date is serialized, and the strptime formats
+    # below have no fractional seconds, so "2026-05-30T12:00:00.123000Z" from a
+    # feed that carries them fell through every one of them to today's date.
+    try:
+        return datetime.fromisoformat(v.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+    except ValueError:
+        pass
     for fmt in NewsletterConfig.DATE_FORMATS:
         try:
             return datetime.strptime(v, fmt).strftime("%Y-%m-%d")
@@ -446,7 +453,6 @@ class NewsletterBuilder:
         self.renderer = NewsletterRenderer(templates_dir)
         self.articles_dir = self.outputs_dir / LocalPaths.ARTICLES_DIR.value
         self.logos = logos
-        self.newsletter_filename: str | None = None
         self.article_filenames: list[str] = []
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
         self.articles_dir.mkdir(parents=True, exist_ok=True)
@@ -465,7 +471,6 @@ class NewsletterBuilder:
             newsletter_data = self._prepare_data(config)
             html_content = self.renderer.render_newsletter(newsletter_data)
             newsletter_path = self._save_html(html_content, "newsletter", config)
-            self.newsletter_filename = newsletter_path.name
             logger.info("Newsletter successfully saved to '%s'", newsletter_path)
             if config.save_individual_articles:
                 self._save_individual_articles(newsletter_data.articles, config)
@@ -484,6 +489,14 @@ class NewsletterBuilder:
         section = Section(introduction=config.first_section_intro)
         footer = Footer(title=config.footer_title)
         articles = self._load_articles(config.date_suffix, config.language)
+        if not articles:
+            # Every article file failed to load (each failure is logged above).
+            # Rendering anyway produced a header and footer around nothing and
+            # mailed it to every reader as this week's issue.
+            raise ValueError(
+                f"No article could be loaded for {config.date_suffix}; "
+                "refusing to build an empty newsletter."
+            )
         return NewsletterData(
             header=header,
             section=section,

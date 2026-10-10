@@ -148,12 +148,15 @@ if __name__ == "__main__":
                 "Filtered out %d invalid email addresses",
                 len(args.recipients) - len(valid_emails),
             )
-        if valid_emails:
-            recipients_str = " ".join(valid_emails)
-        else:
-            logger.warning(
-                "No valid email addresses provided, setting recipients to null."
+        if not valid_emails:
+            # Falling back to null here meant "use the S3 recipients list": a test
+            # send to one mistyped address went to every subscriber instead.
+            logger.error(
+                "--recipients was given but none of the addresses is valid; "
+                "refusing to fall back to the full recipients list."
             )
+            sys.exit(1)
+        recipients_str = " ".join(valid_emails)
 
     try:
         main(

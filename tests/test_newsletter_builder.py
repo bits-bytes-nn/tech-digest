@@ -245,3 +245,13 @@ class TestChromeDefaultsAreReachable:
             == NewsletterConfig.DEFAULT_STYLES["header_title"]
         )
         assert captured["config"].first_section_intro == "intro"
+
+
+class TestNothingToRender:
+    def test_no_loadable_article_fails_the_build(self, digest_dirs, templates_dir):
+        # Every article file is invalid: the build must fail rather than mail a
+        # header and a footer around nothing.
+        inputs, outputs = digest_dirs
+        (inputs / "2026-06-01" / "broken.json").write_text("{not json", "utf-8")
+        with pytest.raises(ValueError, match="empty newsletter"):
+            _builder(inputs, outputs, templates_dir).build(_config())

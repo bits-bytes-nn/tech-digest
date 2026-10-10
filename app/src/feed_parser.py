@@ -385,8 +385,8 @@ def _get_following_redirects(
 def _try_request(
     session: requests.Session, url: str, headers: dict[str, str]
 ) -> requests.Response | None:
-    """Single GET attempt with one retry for transient errors (timeout / 5xx /
-    429). Returns the response on success, or None if this header set fails.
+    """GET with up to two retries for transient errors (timeout / 5xx / 429).
+    Returns the response on success, or None if this header set fails.
 
     ``headers`` is applied per-request. It used to be written onto the shared
     session with ``session.headers.update``, which made the sets in the fallback
@@ -399,7 +399,6 @@ def _try_request(
     filters this ladder exists to get past are looking for. Every attempt after
     the first was therefore *less* likely to succeed than the first.
     """
-    session.max_redirects = MAX_REDIRECTS
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
@@ -682,12 +681,14 @@ def force_ipv4():
 def is_date_in_range(
     target_date: datetime, start_date: datetime, end_date: datetime
 ) -> bool:
+    """``start <= target < end``: half-open, so a post dated exactly on a
+    boundary belongs to one weekly window, not two (see ``get_date_range``)."""
     target_utc = (
         target_date.astimezone(UTC)
         if target_date.tzinfo
         else target_date.replace(tzinfo=UTC)
     )
-    return start_date.astimezone(UTC) <= target_utc <= end_date.astimezone(UTC)
+    return start_date.astimezone(UTC) <= target_utc < end_date.astimezone(UTC)
 
 
 def try_parse_published_date(date_str: str) -> datetime | None:
@@ -702,7 +703,12 @@ def try_parse_published_date(date_str: str) -> datetime | None:
     if not isinstance(date_str, str) or not date_str:
         return None
     try:
-        return datetime.fromisoformat(date_str.replace("Z", "+00:00")).astimezone(UTC)
+        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        # An offset-less ISO date is UTC, as in the strptime branch below.
+        # ``astimezone`` would read it as the container's local time instead, and
+        # the Batch image sets TZ=Asia/Seoul: "2026-10-04" became 10-03 15:00 UTC
+        # and fell out of a window starting on 10-04.
+        return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         pass
     for fmt in ScraperConfig.DATE_FORMATS:
@@ -760,6 +766,11 @@ class PostFetcher(Protocol):
 
 
 class RssFetcher:
+    FEED_HEADERS: ClassVar[dict[str, str]] = {
+        "User-Agent": feedparser.USER_AGENT,
+        "Accept": "application/xml, application/rss+xml",
+    }
+
     def __init__(self, rss_url: str):
         self.rss_url = rss_url
         self.source_url = rss_url
@@ -773,10 +784,7 @@ class RssFetcher:
         posts = []
         try:
             with force_ipv4():
-                feed = feedparser.parse(
-                    self.rss_url,
-                    request_headers={"Accept": "application/xml, application/rss+xml"},
-                )
+                feed = self._fetch_feed()
 
                 if feed.bozo:
                     bozo_exc = feed.get("bozo_exception")
@@ -812,6 +820,24 @@ class RssFetcher:
             ) from e
 
         return posts
+
+    def _fetch_feed(self) -> feedparser.FeedParserDict:
+        """Download the feed through the request layer, then parse the bytes.
+
+        ``feedparser.parse(url)`` fetches with urllib and sets no socket timeout,
+        so a feed host that accepted the connection and then stalled held the job
+        until the 3-hour Batch timeout — and Batch then retried it twice. The
+        request layer adds the timeout, the transient-error retry and the per-hop
+        SSRF check every other fetch already had. The headers are the ones
+        feedparser sent itself, so feed hosts see the same client as before.
+        """
+        response = _try_request(requests.Session(), self.rss_url, self.FEED_HEADERS)
+        if response is None:
+            raise SourceFetchError(f"Could not fetch feed '{self.rss_url}'")
+        headers = {key.lower(): value for key, value in response.headers.items()}
+        # Relative links in the feed resolve against where it was actually served.
+        headers["content-location"] = response.url
+        return feedparser.parse(response.content, response_headers=headers)
 
 
 class BasePageScraper:

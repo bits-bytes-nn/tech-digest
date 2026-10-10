@@ -12,6 +12,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import tenacity
+from botocore.exceptions import ClientError, HTTPClientError
+from botocore.exceptions import ConnectionError as BotoConnectionError
 from bs4 import BeautifulSoup
 from email_validator import EmailNotValidError
 from email_validator import validate_email as _validate_email
@@ -30,6 +32,51 @@ from .logger import logger
 MAX_RETRIES: int = 5
 RETRY_MAX_WAIT: int = 120
 RETRY_MULTIPLIER: float = 30.0
+
+# Bedrock error codes that can succeed on a later attempt: throttling and
+# server-side faults. Every other code a ClientError carries — ValidationException,
+# AccessDeniedException, ResourceNotFoundException — fails identically every time.
+RETRYABLE_ERROR_CODES: frozenset[str] = frozenset(
+    {
+        "InternalServerException",
+        "ModelErrorException",
+        "ModelNotReadyException",
+        "ModelTimeoutException",
+        "ServiceUnavailableException",
+        "ThrottlingException",
+        "TooManyRequestsException",
+    }
+)
+
+
+def is_retryable(error: BaseException) -> bool:
+    """Whether another attempt at the call that raised ``error`` could succeed.
+
+    Throttling, server faults, dropped connections and timeouts can; so can
+    malformed model output (``OutputParserException``), which gets the same
+    bounded attempts. Anything else is permanent: a 400 for a bad request shape
+    or a missing permission, or a bug in this code. Retrying those used to cost
+    up to five attempts and ~330s of backoff per item, so one bad config on the
+    filter (one call per collected post) held the run for well over an hour
+    before the empty-digest alert could say anything.
+
+    The cause chain is walked because a wrapper may raise its own exception
+    ``from`` the botocore one.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ClientError):
+            code = current.response.get("Error", {}).get("Code", "")
+            return code in RETRYABLE_ERROR_CODES
+        if isinstance(
+            current,
+            (BotoConnectionError, HTTPClientError, TimeoutError, OutputParserException),
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _retry_log_callback(operation_name: str) -> Callable:
@@ -57,6 +104,7 @@ def retry_with_backoff(
     state, where a plain function does the same job without implying a hierarchy.
     """
     return tenacity.retry(
+        retry=tenacity.retry_if_exception(is_retryable),
         wait=tenacity.wait_exponential(multiplier=multiplier, max=max_wait),
         stop=tenacity.stop_after_attempt(attempts),
         before_sleep=_retry_log_callback(operation_name),
@@ -124,21 +172,53 @@ class BatchProcessor(BaseModel):
             try:
                 logger.debug("Attempting batch processing for chunk %d", chunk_num)
                 chunk_results = prepared_batch_func(chunk_inputs)
-                all_results.extend(chunk_results)
-                logger.debug("Chunk %d processed successfully in batch mode", chunk_num)
             except Exception as e:
                 logger.warning(
                     "Batch processing failed for chunk %d: %s. Falling back to sequential processing",
                     chunk_num,
                     e,
                 )
-                chunk_results = self._process_sequentially_with_fallback(
-                    chunk_inputs,
+                # The batch call itself broke, not any one item: every item
+                # still gets its own sequential attempt.
+                all_results.extend(
+                    self._process_sequentially_with_fallback(
+                        chunk_inputs,
+                        retrying_sequential_func,
+                        f"{task_name} (chunk {chunk_num})",
+                        show_progress=show_progress,
+                    )
+                )
+                continue
+            # Only the items that failed go to the sequential retry. The batch is
+            # run with return_exceptions, so one failed item no longer discards
+            # the others' results: re-running the whole chunk billed every
+            # successful call a second time (5 items, 1 failing = 9 calls, not 5).
+            failed = [
+                index
+                for index, result in enumerate(chunk_results)
+                if isinstance(result, Exception)
+            ]
+            if failed:
+                logger.warning(
+                    "%d/%d items failed in batch mode for chunk %d; retrying them "
+                    "sequentially",
+                    len(failed),
+                    len(chunk_inputs),
+                    chunk_num,
+                )
+                retried = self._process_sequentially_with_fallback(
+                    [chunk_inputs[index] for index in failed],
                     retrying_sequential_func,
                     f"{task_name} (chunk {chunk_num})",
                     show_progress=show_progress,
+                    first_errors=[chunk_results[index] for index in failed],
                 )
-                all_results.extend(chunk_results)
+                chunk_results = list(chunk_results)
+                for index, result in zip(failed, retried, strict=True):
+                    chunk_results[index] = result
+            else:
+                logger.debug("Chunk %d processed successfully in batch mode", chunk_num)
+            all_results.extend(chunk_results)
         logger.info("Completed '%s': processed %d results", task_name, len(all_results))
         return all_results
 
@@ -148,7 +228,9 @@ class BatchProcessor(BaseModel):
     ) -> Callable:
         def _batch_func(inputs: list[dict[str, Any]]) -> list[Any]:
             return batch_func(
-                inputs, config=RunnableConfig(max_concurrency=max_concurrency)
+                inputs,
+                config=RunnableConfig(max_concurrency=max_concurrency),
+                return_exceptions=True,
             )
 
         return _batch_func
@@ -167,12 +249,27 @@ class BatchProcessor(BaseModel):
         sequential_func: Callable[[dict[str, Any]], Any],
         task_name: str,
         show_progress: bool = True,
+        first_errors: list[Exception] | None = None,
     ) -> list[Any]:
         logger.info("Processing %d items sequentially for '%s'", len(inputs), task_name)
         results: list[Any] = []
         progress_desc = f"Sequential Processing: '{task_name}'"
         successful_count = 0
-        for single_input in tqdm(inputs, desc=progress_desc, disable=not show_progress):
+        errors: list[Exception | None] = (
+            list(first_errors) if first_errors else [None] * len(inputs)
+        )
+        for single_input, first_error in tqdm(
+            list(zip(inputs, errors, strict=True)),
+            desc=progress_desc,
+            disable=not show_progress,
+        ):
+            # The batch attempt already failed this item permanently (a 400, a
+            # missing permission): another call would fail the same way and be
+            # billed or throttled for nothing.
+            if first_error is not None and not is_retryable(first_error):
+                logger.error("Not retrying an item in '%s': %s", task_name, first_error)
+                results.append(None)
+                continue
             try:
                 results.append(sequential_func(single_input))
                 successful_count += 1
@@ -231,6 +328,32 @@ class HTMLTagOutputParser(BaseOutputParser):
         if isinstance(self.tag_names, list):
             return parsed
         return next(iter(parsed.values()), "")
+
+    def get_format_instructions(self) -> str:
+        """The tag contract, for ``OutputFixingParser``'s repair prompt.
+
+        Without this method the repair never ran: the fixing parser falls back to
+        a prompt with no ``instructions`` slot filled, and langchain_classic's
+        template requires one, so every repair attempt raised ``KeyError`` before
+        the fixing model was called — and the whole summarization was retried
+        instead.
+        """
+        tags = self.tag_names if isinstance(self.tag_names, list) else [self.tag_names]
+        lines = [
+            "Return the content wrapped in these XML-style tags, each opened and "
+            "closed exactly once: " + ", ".join(f"<{t}>...</{t}>" for t in tags) + "."
+        ]
+        if self.required_tags:
+            lines.append(
+                "These tags must be present and non-empty: "
+                + ", ".join(f"<{t}>" for t in self.required_tags)
+                + "."
+            )
+        lines.append(
+            "Keep the original wording and markup inside the tags; only fix the "
+            "structure."
+        )
+        return " ".join(lines)
 
     @property
     def _type(self) -> str:
@@ -319,11 +442,23 @@ def format_alarm(
 def get_date_range(
     end_date_str: str | None, days_back: int
 ) -> tuple[datetime, datetime]:
+    """The half-open window ``[start, end)`` an issue dated ``end`` covers.
+
+    ``end`` is midnight UTC at the START of the issue date (today when no date is
+    given), and the issue covers the ``days_back`` full days before it. Gates
+    compare with ``start <= t < end`` (see ``is_date_in_range``), so the windows
+    of consecutive weekly runs abut exactly, whatever hour the job runs at.
+
+    The window used to END at 23:59:59 on the run day. A scheduled run at 01:00
+    UTC cannot see posts published later that day, and the next run's window
+    started at that same 23:59:59 — so everything published on a run day after
+    the job ran (23 of every 168 hours) was never collected by any issue.
+    """
     if end_date_str:
-        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+        day = datetime.strptime(end_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
     else:
-        end_date = datetime.now(UTC)
-    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        day = datetime.now(UTC)
+    end_date = day.replace(hour=0, minute=0, second=0, microsecond=0)
     start_date = end_date - timedelta(days=days_back)
     return start_date, end_date
 

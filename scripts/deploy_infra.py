@@ -595,9 +595,9 @@ class NewsletterStack(Stack):
         # capacity is unavailable the job stays RUNNABLE and Batch places it there
         # instead. TRADE-OFF: a Spot reclaim mid-run is now the likelier way for a
         # run to be retried, and the job definition's `retry_attempts=2` re-runs
-        # main.py from the start — so a reclaim after the send loop would re-send
-        # the issue. That duplicate-send-on-retry exposure already existed for any
-        # post-send failure (see design.md §23); this raises its probability.
+        # main.py from the start. The delivery ledger (design.md §16) keeps that
+        # from re-sending to anyone already served; what a retry still costs is
+        # the crawl and the Bedrock calls, paid again.
         spot_env = batch.ManagedEc2EcsComputeEnvironment(
             self,
             "NewsletterSpotEnv",
@@ -677,6 +677,17 @@ class NewsletterStack(Stack):
             container=container_definition,
             job_definition_name=self._get_resource_name("newsletter"),
             retry_attempts=2,
+            # main.py exits 1 when the run itself failed. It has already retried
+            # what can be retried (throttling, timeouts) and sent its own failure
+            # alert, so a fresh attempt would repeat the same error and pay for
+            # the crawl and every Bedrock call again. Any other exit — a Spot
+            # reclaim, an OOM kill (137), a host failure — matches no rule below
+            # and Batch retries it, which is what the attempts above are for.
+            retry_strategies=[
+                batch.RetryStrategy.of(
+                    batch.Action.EXIT, batch.Reason.custom(on_exit_code="1")
+                ),
+            ],
             timeout=core.Duration.hours(3),
         )
 
@@ -764,7 +775,14 @@ def _put_secure_ssm_parameter(
 def main() -> None:
     try:
         config = Config.load()
-        profile_name = os.environ.get(EnvVars.AWS_PROFILE_NAME.value)
+        # Same precedence as main.py, run_batch.py and the other scripts. Reading
+        # only the env var sent the account lookup and the SecureString write
+        # through the default credential chain whenever the config named a
+        # profile, which can be a different account from the one CDK deploys to.
+        profile_name = (
+            os.environ.get(EnvVars.AWS_PROFILE_NAME.value)
+            or config.resources.profile_name
+        )
 
         logger.info(
             "Deploying infrastructure for '%s' in '%s' stage",

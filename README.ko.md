@@ -92,7 +92,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 ### 인프라
 
 - **Lambda / Batch**. `lambda_or_batch` 설정으로 실행 환경을 고릅니다.
-- **EventBridge**. 정해진 일정에 실행합니다(기본: 토요일 01:00 UTC).
+- **EventBridge**. 정해진 일정에 실행합니다(템플릿 기본값: 금요일 01:00 UTC, prod는 토요일).
 - **S3**. 설정, 수신자 목록, 생성된 뉴스레터, 글 HTML을 보관합니다.
 - **SSM Parameter Store**. LangChain API 키와 Batch 큐/정의 이름을 저장합니다.
 - **SES**로 뉴스레터를 전달하고, **SNS**로 실행·헬스 알림을 보냅니다.
@@ -101,9 +101,10 @@ collect → gate → filter → rank → summarize → greet → render → deli
   Opus 5**(`anthropic.claude-opus-5`), **Claude Opus 5.5 / Sonnet 5.5 / Haiku
   5.5**(`anthropic.claude-opus-5-5`, `anthropic.claude-sonnet-5-5`,
   `anthropic.claude-haiku-5-5`), **Claude Fable 5.1**(`anthropic.claude-fable-5-1`)도
-  포함됩니다. `thinking_effort`는 Opus 티어와 5.5·Fable 5.1 모델에서
-  `xhigh`/`max`까지 받습니다. 5.5·Fable 5.1 모델은 `*_enable_thinking`을 꺼도 사고를
-  합니다.
+  포함됩니다. Fable 5.1은 계정의 Bedrock 데이터 보존 모드를 `aws_review`로 바꾸기
+  전에는 모든 요청을 거부합니다. Claude 5 모델은 따로 끄지 않으면 사고하므로
+  `*_enable_thinking: False`는 모델마다 다른 끄기 값을 보냅니다. Opus 5.5와 Fable
+  5.1은 끌 방법이 없어 `thinking_effort`만으로 깊이를 조절합니다.
 
 ---
 
@@ -127,7 +128,7 @@ resources:
   project_name: tech-digest
   stage: dev
   lambda_or_batch: batch
-  cron_expression: "cron(0 1 ? * 6 *)"   # 토요일 01:00 UTC
+  cron_expression: "cron(0 1 ? * 6 *)"   # 금요일 01:00 UTC(EventBridge는 1 = 일요일)
 
 scraping:
   min_content_length: 600                # 이보다 빈약한 글은 제외(가시 텍스트 문자 수)
@@ -208,6 +209,9 @@ python app/main.py --end-date 2026-06-03 --recipients you@example.com
 python app/run_batch.py --end-date 2026-06-03 --language ko --recipients you@example.com
 ```
 
+`--recipients`는 지정한 주소로만 보내고 전달 원장을 읽지도 쓰지도 않습니다. 유효한 주소가
+하나도 없으면 `run_batch.py`는 전체 수신자 목록으로 넘어가지 않고 오류로 종료합니다.
+
 ### 테스트 & 품질 게이트
 
 ```bash
@@ -219,7 +223,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
                              # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
-pytest                       # 빠른 오프라인 단위/통합 스위트(786개 테스트, 커버리지 86.3%)
+pytest                       # 빠른 오프라인 단위/통합 스위트(822개 테스트, 커버리지 87.5%)
 
 # 생성된 실행 결과에 대한 출력 품질 루빅스. 채점은 결정적이고 오프라인이며 무료입니다.
 # --regenerate만 예외로 실제 Bedrock을 호출합니다.

@@ -56,11 +56,17 @@ def configure_logger(
     logger_obj = logging.getLogger(name)
     logger_obj.setLevel(level)
     formatter = logging.Formatter(LOG_FORMAT)
+    # Close before dropping: the dual import layout (``src`` and ``app.src``)
+    # configures this logger twice, and clearing the list alone leaked the first
+    # file handle.
+    for handler in logger_obj.handlers:
+        handler.close()
     logger_obj.handlers.clear()
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     logger_obj.addHandler(console_handler)
-    if not is_running_in_aws():
+    log_to_file = os.getenv(EnvVars.LOG_TO_FILE.value, "true").lower() != "false"
+    if log_to_file and not is_running_in_aws():
         logger_obj.addHandler(_file_handler(formatter))
     logger_obj.propagate = False
     return logger_obj

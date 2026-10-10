@@ -254,3 +254,35 @@ class TestNewestModelsAreSelectable:
         assert (
             section["greeting_model_id"] == "anthropic.claude-haiku-4-5-20251001-v1:0"
         )
+
+
+class TestCommittedSourcesReachTheirScraper:
+    """A URL on a host that has a hand-written scraper must be routed to it.
+
+    The template listed ``https://www.anthropic.com/news`` while the scraper is
+    registered for ``/engineering``, so the URL fell through to the RSS fetcher,
+    which found no entries in an HTML page — and ``expected_flaky_urls`` then
+    muted the resulting "likely broken" alert. Anyone copying the template got a
+    dead source that could never report itself.
+    """
+
+    @pytest.mark.parametrize(
+        "config_file",
+        ["config-template.yaml", "config-ci.yaml", "config-ci-batch.yaml"],
+    )
+    def test_no_scraper_host_falls_through_to_rss(self, config_file):
+        from urllib.parse import urlparse
+
+        import yaml
+
+        from app.src.feed_parser import RssFetcher, ScraperRegistry
+
+        path = Path(__file__).resolve().parent.parent / "app" / "configs" / config_file
+        urls = yaml.safe_load(path.read_text())["scraping"]["rss_urls"]
+        scraper_hosts = {
+            pattern.split("/", 1)[0] for pattern in ScraperRegistry._SCRAPER_MAPPING
+        }
+        for url in urls:
+            if urlparse(url).netloc in scraper_hosts:
+                fetcher = ScraperRegistry.get_fetcher(url)
+                assert not isinstance(fetcher, RssFetcher), url

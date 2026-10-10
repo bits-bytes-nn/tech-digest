@@ -94,7 +94,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 ### Infrastructure
 
 - **Lambda / Batch**. execution environment selected by `lambda_or_batch`.
-- **EventBridge**. scheduled execution (default: Saturdays 01:00 UTC).
+- **EventBridge**. scheduled execution (template default: Fridays 01:00 UTC; prod runs Saturdays).
 - **S3**. config, recipients, generated newsletters, and article HTML.
 - **SSM Parameter Store**. LangChain API key and Batch queue/definition names.
 - **SES**. newsletter delivery. **SNS** — run/health notifications.
@@ -103,9 +103,11 @@ collect → gate → filter → rank → summarize → greet → render → deli
   selectable per stage, including **Claude Opus 5** (`anthropic.claude-opus-5`),
   **Claude Opus 5.5 / Sonnet 5.5 / Haiku 5.5** (`anthropic.claude-opus-5-5`,
   `anthropic.claude-sonnet-5-5`, `anthropic.claude-haiku-5-5`) and **Claude
-  Fable 5.1** (`anthropic.claude-fable-5-1`). `thinking_effort` accepts
-  `xhigh`/`max` on the Opus tier and on the 5.5 / Fable 5.1 models, which also
-  think when `*_enable_thinking` is off.
+  Fable 5.1** (`anthropic.claude-fable-5-1`). Fable 5.1 refuses every request
+  until the account's Bedrock data retention mode is set to `aws_review`.
+  Claude 5 models think unless told not to, so `*_enable_thinking: False` sends
+  each model's own off switch; Opus 5.5 and Fable 5.1 have none, and
+  `thinking_effort` is their only depth control.
 
 ---
 
@@ -129,7 +131,7 @@ resources:
   project_name: tech-digest
   stage: dev
   lambda_or_batch: batch
-  cron_expression: "cron(0 1 ? * 6 *)"   # Saturdays 01:00 UTC
+  cron_expression: "cron(0 1 ? * 6 *)"   # Fridays 01:00 UTC (EventBridge: 1 = SUN)
 
 scraping:
   min_content_length: 600                # drop posts thinner than this (visible chars)
@@ -210,6 +212,10 @@ python app/main.py --end-date 2026-06-03 --recipients you@example.com
 python app/run_batch.py --end-date 2026-06-03 --language ko --recipients you@example.com
 ```
 
+`--recipients` sends only to the addresses given and neither reads nor writes the
+delivery ledger. If none of them is a valid address, `run_batch.py` exits with an
+error rather than falling back to the full recipients list.
+
 ### Test & quality gates
 
 ```bash
@@ -221,7 +227,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (786 tests, 86.3% cov)
+pytest                       # fast, offline unit/integration suite (822 tests, 87.5% cov)
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline
 # and free; --regenerate is the exception and makes real Bedrock calls.

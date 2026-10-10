@@ -4,8 +4,8 @@ Holds the per-model capability registry and the factory that turns a
 ``LanguageModelId`` into a configured LangChain chat model, including the
 backend-specific differences (ChatBedrock vs ChatBedrockConverse), cross-region
 inference-profile resolution, and the thinking/sampling parameter rules that
-changed with Sonnet 5 (plus the forced-tool-choice rule that changed with the
-5.5 generation).
+changed with Sonnet 5 (plus the thinking off-switch rule that changed with the
+Claude 5 generation).
 
 Split out of ``utils`` so that module is once again a small set of unrelated
 helpers rather than the project's largest file.
@@ -13,7 +13,7 @@ helpers rather than the project's largest file.
 
 import os
 import re
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -92,18 +92,18 @@ class LanguageModelInfo(BaseModel):
     # (thinking.type="adaptive"); the old form is rejected. Depth is instead
     # controlled by output_config.effort. Set True for those models.
     uses_adaptive_thinking: bool = False
-    # Opus 5.5, Sonnet 5.5 and Fable 5.1 reject forced tool use (tool_choice
-    # "any" or a named tool) with a 400; only "auto"/"none" are accepted.
-    # langchain_aws (1.7.x) assumes any Claude id outside 3.7/4.x accepts all
-    # three and forces the tool in with_structured_output, so the factory pins
-    # these models to "auto".
-    supports_forced_tool_choice: bool = True
-    # The model runs adaptive thinking even when the request carries no
-    # ``thinking`` field, and its off switch is either rejected outright or only
-    # valid at some effort levels. The factory never sends thinking.type
-    # "disabled", so enable_thinking=False means "send no thinking field", not
-    # "no thinking" — and output_config.effort stays the only depth control.
+    # The model runs adaptive thinking when the request carries no ``thinking``
+    # field, so leaving the field out is NOT how thinking is turned off. True for
+    # the whole Claude 5 generation (Sonnet 5 and Opus 5 included); False for 4.x,
+    # where omission still means "no thinking" even on the adaptive-only Opus
+    # 4.7/4.8. Measured against Bedrock on 2026-10-10 (see design.md §8).
     thinks_when_omitted: bool = False
+    # What turns thinking off on a ``thinks_when_omitted`` model, because it is
+    # not the same everywhere: Sonnet 5, Opus 5 and Haiku 5.5 take
+    # thinking.type="disabled", Sonnet 5.5 rejects that and takes "between_tools"
+    # instead, and Opus 5.5 and Fable 5.1 have no off switch at all (None) — for
+    # those, output_config.effort is the only depth control left.
+    thinking_off_type: Literal["disabled", "between_tools"] | None = None
 
 
 _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
@@ -160,6 +160,8 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
+        thinks_when_omitted=True,
+        thinking_off_type="disabled",
     ),
     LanguageModelId.CLAUDE_V4_OPUS: LanguageModelInfo(
         context_window_size=200000,
@@ -202,8 +204,7 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         uses_adaptive_thinking=True,
     ),
     # Claude 5 generation: same request contract as Sonnet 5 — no sampling
-    # parameters, adaptive thinking only, depth steered by output_config.effort
-    # (Opus tier additionally accepts "xhigh" and "max").
+    # parameters, adaptive thinking only, depth steered by output_config.effort.
     LanguageModelId.CLAUDE_V5_OPUS: LanguageModelInfo(
         context_window_size=1000000,
         max_output_tokens=64000,
@@ -211,12 +212,20 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
+        thinks_when_omitted=True,
+        thinking_off_type="disabled",
     ),
-    # Claude 5.5 generation and Fable 5.1: the Claude 5 request contract, plus
-    # thinking that runs when omitted, and (except Haiku 5.5) no forced tool use.
-    # The API allows 128K output; the cap stays at 64K like every other entry,
-    # because these calls are not streamed. Effort defaults to "medium" on Opus 5.5
-    # and Haiku 5.5 ("high" on the others) when thinking_effort is left unset.
+    # Claude 5.5 generation and Fable 5.1: the Claude 5 request contract with a
+    # different off switch per model (see ``thinking_off_type``). The API allows
+    # 128K output; the cap stays at 64K like every other entry, because these
+    # calls are not streamed. Effort defaults to "medium" on Opus 5.5 and Haiku
+    # 5.5 ("high" on the others) when thinking_effort is left unset.
+    #
+    # Fable 5.1 additionally refuses EVERY request with a ValidationException
+    # ("data retention mode 'default' is not available for this model") until
+    # the account's Bedrock data retention mode is set to aws_review. That is an
+    # account-level data-handling decision, not something a request can carry,
+    # so the registry entry exists but the model is unusable by default.
     LanguageModelId.CLAUDE_V5_5_HAIKU: LanguageModelInfo(
         context_window_size=1000000,
         max_output_tokens=64000,
@@ -225,6 +234,7 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
         thinks_when_omitted=True,
+        thinking_off_type="disabled",
     ),
     LanguageModelId.CLAUDE_V5_5_SONNET: LanguageModelInfo(
         context_window_size=1000000,
@@ -233,8 +243,8 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
-        supports_forced_tool_choice=False,
         thinks_when_omitted=True,
+        thinking_off_type="between_tools",
     ),
     LanguageModelId.CLAUDE_V5_5_OPUS: LanguageModelInfo(
         context_window_size=1000000,
@@ -243,7 +253,6 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
-        supports_forced_tool_choice=False,
         thinks_when_omitted=True,
     ),
     LanguageModelId.CLAUDE_V5_1_FABLE: LanguageModelInfo(
@@ -253,7 +262,6 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
         supports_sampling_params=False,
         uses_adaptive_thinking=True,
-        supports_forced_tool_choice=False,
         thinks_when_omitted=True,
     ),
     # NOTE: add new models here
@@ -475,16 +483,10 @@ class BedrockLanguageModelFactory:
         # as ``use_converse``; they previously named the same argument
         # ``is_cross_region``, which read as if thinking-on-a-plain-model took the
         # ChatBedrock path when it does not.
-        #
-        # Models that reject forced tool use also always take Converse: only
-        # ChatBedrockConverse can be told which tool_choice values are allowed,
-        # while ChatBedrock's with_structured_output forces the tool for them.
         is_cross_region = resolved_model_id != model_id.value
         enable_thinking = kwargs.get("enable_thinking", False)
-        use_converse = (
-            is_cross_region
-            or (enable_thinking and model_info.supports_thinking)
-            or not model_info.supports_forced_tool_choice
+        use_converse = is_cross_region or (
+            enable_thinking and model_info.supports_thinking
         )
         model_config = self._build_model_config(
             model_info, resolved_model_id, use_converse, model_id=model_id, **kwargs
@@ -576,8 +578,6 @@ class BedrockLanguageModelFactory:
         }
         if use_converse:
             config.update(common_params)
-            if not model_info.supports_forced_tool_choice:
-                config["supports_tool_choice_values"] = ("auto",)
         else:
             model_kwargs: dict[str, Any] = {**common_params}
             # top_k is a sampling param; newer models (Sonnet 5+) reject it.
@@ -603,12 +603,34 @@ class BedrockLanguageModelFactory:
                 self._apply_adaptive_thinking(config, use_converse, **kwargs)
             else:
                 self._apply_budget_thinking(config, model_info, use_converse, **kwargs)
-        elif model_info.thinks_when_omitted and (effort := kwargs.get("effort")):
-            # Thinking runs anyway on these models, so effort is still the depth
-            # control; send it without a thinking field (never type="disabled").
-            key = "additional_model_request_fields" if use_converse else "model_kwargs"
+        elif model_info.thinks_when_omitted:
+            self._apply_thinking_off(config, model_info, use_converse, **kwargs)
+
+    @staticmethod
+    def _apply_thinking_off(
+        config: dict[str, Any],
+        model_info: LanguageModelInfo,
+        use_converse: bool,
+        **kwargs: Any,
+    ) -> None:
+        # Thinking was not requested, but on this model omitting the field does
+        # not turn it off. Send the model's own off switch where it has one; the
+        # effort is dropped then, since there is no thinking left for it to steer
+        # (and Haiku 5.5 rejects effort "max" alongside type="disabled"). Without
+        # an off switch, effort is the only depth control, so send it if set.
+        key = "additional_model_request_fields" if use_converse else "model_kwargs"
+        if model_info.thinking_off_type:
+            config.setdefault(key, {})["thinking"] = {
+                "type": model_info.thinking_off_type
+            }
+            logger.debug(
+                "Turned thinking off (type='%s')", model_info.thinking_off_type
+            )
+        elif effort := kwargs.get("effort"):
             config.setdefault(key, {})["output_config"] = {"effort": effort}
-            logger.debug("Applied effort='%s' without a thinking field", effort)
+            logger.debug(
+                "Applied effort='%s' to a model that cannot stop thinking", effort
+            )
 
     def _apply_adaptive_thinking(
         self, config: dict[str, Any], use_converse: bool, **kwargs: Any

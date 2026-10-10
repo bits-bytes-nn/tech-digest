@@ -15,7 +15,7 @@ scraping:
   rss_urls:
     - "https://medium.com/feed/airbnb-engineering"
     - "https://www.amazon.science/index.rss"
-    - "https://www.anthropic.com/news"
+    - "https://www.anthropic.com/engineering"
     - "https://aws.amazon.com/blogs/amazon-ai/feed/"
     - "https://deepmind.google/blog/rss.xml" # was www.deepmind.com/blog/rss.xml (302 redirect)
     - "https://research.google/blog"
@@ -105,10 +105,9 @@ summarization:
   # Adaptive-thinking depth for newer models (Sonnet 5+ / Opus 5 / 5.5 / Fable 5.1):
   #   low | medium | high | xhigh | max
   # Blank = model default ("medium" on Opus 5.5 and Haiku 5.5, "high" elsewhere).
-  # "xhigh" and "max" need the Opus tier, Sonnet 5.5, Haiku 5.5 or Fable 5.1.
-  # The 5.5 generation and Fable 5.1 think even with *_enable_thinking False, so
-  # this applies to them either way. Ignored by legacy budget-thinking models
-  # (Sonnet 4.x and older).
+  # Applies only while thinking is on — except on Opus 5.5 and Fable 5.1, which
+  # cannot stop thinking, so it is sent with *_enable_thinking False too.
+  # Ignored by legacy budget-thinking models (Sonnet 4.x and older).
   thinking_effort:
   # Optional cap on summary output tokens (blank = use the model's maximum).
   summarization_max_tokens:

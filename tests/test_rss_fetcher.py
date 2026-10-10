@@ -45,6 +45,21 @@ def _entry(published: str) -> feedparser.FeedParserDict:
 
 
 @pytest.fixture(autouse=True)
+def offline_feed_download(monkeypatch):
+    # RssFetcher downloads through the request layer before parsing; serve an
+    # empty body so the stubbed feedparser.parse decides what the feed holds.
+    from types import SimpleNamespace
+
+    from app.src import feed_parser as _fp
+
+    monkeypatch.setattr(
+        _fp,
+        "_try_request",
+        lambda session, url, headers: SimpleNamespace(content=b"", headers={}, url=url),
+    )
+
+
+@pytest.fixture(autouse=True)
 def no_scrape(monkeypatch):
     # Post.from_entry may scrape when feed content is thin; neutralize network.
     monkeypatch.setattr(feed_parser, "_make_robust_request", lambda url: None)
@@ -133,3 +148,37 @@ class TestAtomEntriesWithoutPublished:
         assert [p.title for p in posts] == ["Only Updated"]
         # And the Post carries the feed's date, not "now".
         assert posts[0].published_date.date().isoformat() == "2026-08-05"
+
+
+class TestFeedDownload:
+    """The feed is downloaded by the request layer, which carries the timeout."""
+
+    def test_an_unreachable_feed_is_a_source_failure(self, monkeypatch, window):
+        monkeypatch.setattr(feed_parser, "_try_request", lambda *a, **k: None)
+        with pytest.raises(SourceFetchError):
+            RssFetcher("https://openai.com/news/rss.xml").fetch(*window)
+
+    def test_bytes_and_headers_reach_feedparser(self, monkeypatch, window):
+        from types import SimpleNamespace
+
+        seen = {}
+        monkeypatch.setattr(
+            feed_parser,
+            "_try_request",
+            lambda session, url, headers: SimpleNamespace(
+                content=b"<rss/>",
+                headers={"Content-Type": "application/rss+xml; charset=utf-8"},
+                url="https://openai.com/news/rss.xml",
+            ),
+        )
+
+        def parse(content, response_headers):
+            seen["content"] = content
+            seen["headers"] = response_headers
+            return _FakeFeed(entries=[], bozo=False)
+
+        monkeypatch.setattr(feed_parser.feedparser, "parse", parse)
+        RssFetcher("https://openai.com/news/rss.xml").fetch(*window)
+        assert seen["content"] == b"<rss/>"
+        assert seen["headers"]["content-type"].startswith("application/rss+xml")
+        assert seen["headers"]["content-location"] == "https://openai.com/news/rss.xml"

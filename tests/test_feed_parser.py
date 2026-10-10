@@ -70,6 +70,20 @@ class TestTryParsePublishedDate:
     def test_empty_returns_none(self):
         assert try_parse_published_date("") is None
 
+    @pytest.mark.parametrize("text", ["2026-10-04", "2026-10-04T00:00:00"])
+    def test_offset_less_iso_is_utc_whatever_the_local_zone(self, monkeypatch, text):
+        # The Batch image runs with TZ=Asia/Seoul; a naive ISO date read as local
+        # time landed nine hours early and outside its window.
+        import time
+
+        monkeypatch.setenv("TZ", "Asia/Seoul")
+        time.tzset()
+        try:
+            assert try_parse_published_date(text) == datetime(2026, 10, 4, tzinfo=UTC)
+        finally:
+            monkeypatch.undo()
+            time.tzset()
+
     def test_unparseable_returns_none(self):
         assert try_parse_published_date("not a date at all") is None
 
@@ -93,6 +107,11 @@ class TestIsDateInRange:
     def test_naive_datetime_treated_as_utc(self, date_range):
         start, end = date_range
         assert is_date_in_range(datetime(2026, 5, 28, 12, 0, 0), start, end)
+
+    def test_end_is_exclusive(self, date_range):
+        start, end = date_range
+        assert is_date_in_range(start, start, end)
+        assert not is_date_in_range(end, start, end)
 
 
 class TestSourceDetection:

@@ -28,15 +28,19 @@ class TestValidateDate:
             ("2026-05-30", "2026-05-30"),
             ("Fri, 30 May 2026 10:00:00 +0000", "2026-05-30"),
             ("2026-05-30T10:00:00", "2026-05-30"),
+            # How a Post's datetime is serialized, with and without fractions.
+            ("2026-05-30T10:00:00Z", "2026-05-30"),
+            ("2026-05-30T12:00:00.123000Z", "2026-05-30"),
+            ("2026-05-30T12:00:00.123000+00:00", "2026-05-30"),
         ],
     )
     def test_known_formats(self, raw, expected):
         assert normalize_date(raw) == expected
 
     def test_unparseable_falls_back_to_today(self):
-        # Should not raise; returns *some* YYYY-MM-DD string.
-        out = normalize_date("garbage")
-        assert len(out) == 10 and out[4] == "-"
+        from datetime import UTC, datetime
+
+        assert normalize_date("garbage") == datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 class TestArticleModel:

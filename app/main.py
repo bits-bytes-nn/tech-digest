@@ -47,6 +47,12 @@ from src import (
 )
 
 SEND_INTERVAL_SECONDS: Final[float] = 0.5
+# The intro used when the greeting model fails, in the issue's own language (the
+# renderer's built-in default is English, which read oddly atop a Korean issue).
+FALLBACK_INTRO: Final[dict[Language, str]] = {
+    Language.KO: "이번 주 AI 기술 블로그에서 눈여겨볼 글을 골라 요약했습니다.",
+    Language.EN: "Here are this week's AI tech blog posts worth your time, summarized.",
+}
 ROOT_DIR: Path = (
     Path("/tmp") if is_running_in_aws() else Path(__file__).resolve().parent.parent
 )
@@ -214,7 +220,11 @@ def _fetch_and_filter_posts(
     language: Language = Language.KO,
 ) -> tuple[list[Post], str, list[tuple[Post, str]], CrawlReport]:
     start_date, end_date = get_date_range(end_date_str, config.scraping.days_back)
-    logger.info("Fetching posts from '%s' to '%s'", start_date.date(), end_date.date())
+    logger.info(
+        "Fetching posts from '%s' up to (not including) '%s'",
+        start_date.date(),
+        end_date.date(),
+    )
 
     collector = PostCollector.from_urls(config.scraping.rss_urls)
     posts = collector.collect_posts(start_date, end_date)
@@ -358,7 +368,14 @@ def _generate_greeting(
     greeter = Greeter(boto_session, config.summarization.greeting_model_id, language)
     titles = [post.title for post in posts]
     context = f"Today is {date_suffix}. Today's articles include: {', '.join(titles)}"
-    greeting = greeter.greet(context=context)
+    try:
+        greeting = greeter.greet(context=context)
+    except Exception as e:
+        # The intro is one paragraph above the articles, and by now every summary
+        # has been paid for. Losing it must not lose the issue: the run used to
+        # fail here, after the greeting's own retries, and send nothing.
+        logger.error("Greeting generation failed (%s); using the fixed intro.", e)
+        return FALLBACK_INTRO[language]
     logger.debug("Generated greeting: %s", greeting)
     _save_greeting_to_file(greeting, date_suffix)
     return greeting
@@ -568,12 +585,31 @@ def _get_recipients(
     config: Config, boto_session: boto3.Session, recipients: list[str] | None = None
 ) -> list[str]:
     if recipients:
-        return validate_emails(recipients)
+        return _unique(validate_emails(recipients))
     filename = _generate_recipients_filename(config)
     recipients_path = ROOT_DIR / LocalPaths.ASSETS_DIR.value / filename
     if _download_recipients_file(boto_session, config, filename, recipients_path):
-        return validate_emails(recipients_path.read_text(encoding="utf-8").splitlines())
+        return _unique(
+            validate_emails(recipients_path.read_text(encoding="utf-8").splitlines())
+        )
     return []
+
+
+def _unique(recipients: list[str]) -> list[str]:
+    """Drop repeated addresses, case-insensitively, keeping the first spelling.
+
+    The ledger is read once before the send loop, so it cannot catch a repeat
+    WITHIN one run: a list holding both ``a@x.com`` and ``A@x.com`` sent that
+    reader the issue twice.
+    """
+    seen: set[str] = set()
+    unique: list[str] = []
+    for address in recipients:
+        key = address.strip().lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(address)
+    return unique
 
 
 def _generate_recipients_filename(config: Config) -> str:
@@ -688,9 +724,15 @@ def _publish_alarm(
     subject, message = format_alarm(
         event=event, status=status, fields=fields, project=project
     )
-    boto_session.client("sns").publish(
-        TopicArn=topic_arn, Subject=subject, Message=message
-    )
+    # An alert is a side channel. Several are published BEFORE the send loop
+    # (crawl health, clipped newsletter), so an SNS error escaping here used to
+    # abort the run with the issue built and nobody sent it.
+    try:
+        boto_session.client("sns").publish(
+            TopicArn=topic_arn, Subject=subject, Message=message
+        )
+    except Exception as e:
+        logger.error("Could not publish the '%s %s' alert: %s", event, status, e)
 
 
 def _maybe_send_partial_delivery_alert(
@@ -921,7 +963,8 @@ def _send_failure_notification(
     )
 
 
-if __name__ == "__main__":
+def cli(argv: list[str] | None = None) -> int:
+    """Parse the container's arguments, run the handler, return the exit code."""
     parser = argparse.ArgumentParser(
         description="Tech Digest: Generate and send AI/ML tech blog digest newsletter"
     )
@@ -938,7 +981,7 @@ if __name__ == "__main__":
         default=None,
         help="List of recipient email addresses",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     event = {
         "END_DATE": (
             args.end_date
@@ -960,4 +1003,13 @@ if __name__ == "__main__":
         event["LANGUAGE"] or "",
         event["RECIPIENTS"] or "",
     )
-    handler(event, None)
+    result = handler(event, None)
+    # The handler reports failure in its return value, which a Lambda invocation
+    # passes back but a process does not: exiting 0 here made Batch record every
+    # failed run as SUCCEEDED, so neither the job's retries nor the FAILED-state
+    # alarm ever saw one. The in-app failure alert has already gone out.
+    return 0 if result["statusCode"] < 400 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(cli())

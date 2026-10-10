@@ -147,12 +147,10 @@ class Summarization(BaseModelWithDefaults):
     # output_config.effort. None uses the model default, which is "medium" on
     # Opus 5.5 and Haiku 5.5 and "high" on the others. Ignored by legacy
     # budget-thinking models (which use *_thinking_budget_tokens instead).
-    # "xhigh" and "max" are accepted by the Opus tier (Opus 4.7+/Opus 5/Opus 5.5)
-    # and by Sonnet 5.5, Haiku 5.5 and Fable 5.1; older Sonnet and Haiku models
-    # reject them, so they are validated as accepted values here but only usable
-    # with a model id that takes them. On models that think even when thinking is
-    # not requested (the 5.5 generation and Fable 5.1), effort is sent with
-    # *_enable_thinking off too, since it is the only depth control they have.
+    # Every adaptive-thinking model in the registry accepts all five values
+    # (checked against Bedrock on 2026-10-10). Effort rides on thinking: with
+    # *_enable_thinking off it is dropped, except on Opus 5.5 and Fable 5.1,
+    # which have no off switch, so effort is the only depth control they have.
     thinking_effort: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
         default=None
     )

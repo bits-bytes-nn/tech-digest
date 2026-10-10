@@ -412,7 +412,7 @@ class Summarizer:
             # score-ranked top-N cut unstable. Acceptable if you want deeper
             # reasoning, but be aware inclusion is no longer reproducible.
             # Models without sampling controls are non-deterministic with or
-            # without this switch (and the 5.5 generation thinks either way), so
+            # without this switch (and Opus 5.5 and Fable 5.1 think either way), so
             # the temperature claim would be false for them.
             if model_info.supports_sampling_params:
                 logger.warning(
@@ -696,8 +696,23 @@ class Summarizer:
                 )
                 logger.warning("No filter response for '%s'; skipping.", post.title)
                 continue
+            if not str(response.get("score") or "").strip():
+                # No score at all is a failed call, not a verdict. Defaulting it
+                # to 0.0 filed a refusal, a truncated answer or a malformed one
+                # under "low relevance", indistinguishable from a real low score
+                # — so a model that declined every post read as a quiet week.
+                logger.error(
+                    "Filter response for '%s' has no score; treating it as a "
+                    "failed call. Response: %s",
+                    post.title,
+                    response,
+                )
+                self.filtered_out_posts.append(
+                    (post, "Filtering failed (no score in model response).")
+                )
+                continue
             try:
-                raw_score = float(response.get("score", 0.0))
+                raw_score = float(response["score"])
                 # Clamp to [0,1]: the model occasionally emits an out-of-range
                 # value (e.g. "8.5" for an intended 0.85), which would both pass
                 # the min_score gate and sort to the top of the rank, evicting

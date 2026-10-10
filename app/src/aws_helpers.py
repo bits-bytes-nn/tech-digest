@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from .logger import logger
 
@@ -31,8 +31,8 @@ def check_and_download_from_s3(
     s3_client = boto_session.client("s3")
     try:
         s3_client.head_object(Bucket=s3_bucket_name, Key=s3_key)
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "404":
+    except (ClientError, BotoCoreError) as e:
+        if isinstance(e, ClientError) and e.response["Error"]["Code"] == "404":
             logger.warning("File not found in S3: s3://%s/%s", s3_bucket_name, s3_key)
         else:
             logger.error("Failed to check S3 object existence: %s", e)
@@ -47,7 +47,7 @@ def check_and_download_from_s3(
             local_path,
         )
         return True
-    except ClientError as e:
+    except (ClientError, BotoCoreError) as e:
         logger.error("Failed to download from S3: %s", e)
         return False
 
@@ -69,8 +69,8 @@ def read_s3_json(
             Bucket=s3_bucket_name, Key=s3_key
         )
         payload = json.loads(response["Body"].read().decode("utf-8"))
-    except ClientError as e:
-        code = e.response["Error"]["Code"]
+    except (ClientError, BotoCoreError) as e:
+        code = e.response["Error"]["Code"] if isinstance(e, ClientError) else ""
         if code in ("NoSuchKey", "404"):
             logger.info("No object at 's3://%s/%s'.", s3_bucket_name, s3_key)
         else:
@@ -107,7 +107,7 @@ def write_s3_json(
             ContentType="application/json",
         )
         return True
-    except ClientError as e:
+    except (ClientError, BotoCoreError) as e:
         logger.error("Failed to write 's3://%s/%s': %s", s3_bucket_name, s3_key, e)
         return False
 
@@ -173,7 +173,7 @@ def send_email(
             response["MessageId"],
         )
         return True
-    except ClientError as e:
+    except (ClientError, BotoCoreError) as e:
         logger.error("Failed to send email via SES: %s", e)
         return False
 
@@ -227,7 +227,7 @@ def upload_to_s3(
             s3_key,
         )
         return True
-    except ClientError as e:
+    except (ClientError, BotoCoreError) as e:
         logger.error("Failed to upload to S3: %s", e)
         return False
 

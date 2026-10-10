@@ -198,6 +198,16 @@ class TestCandidatesComeFromTheFetchers:
     """Each fetcher must report its own pre-filter count, or the discriminator is
     silently unavailable for that source (it reads as "unknown")."""
 
+    @pytest.fixture(autouse=True)
+    def offline_feed_download(self, monkeypatch):
+        monkeypatch.setattr(
+            fp,
+            "_try_request",
+            lambda session, url, headers: SimpleNamespace(
+                content=b"", headers={}, url=url
+            ),
+        )
+
     WINDOW = (datetime(2026, 8, 1, tzinfo=UTC), datetime(2026, 8, 8, tzinfo=UTC))
 
     @staticmethod

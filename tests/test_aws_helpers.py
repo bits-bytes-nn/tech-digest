@@ -84,6 +84,19 @@ class TestSendEmail:
         ok = send_email(_FakeSession(_Boom()), "s", "a@b.com", ["c@d.com"], "<p>x</p>")
         assert ok is False
 
+    def test_connection_error_returns_false(self):
+        # Not a ClientError: once botocore's own retries are spent, a dropped
+        # connection surfaces as BotoCoreError, which used to escape and abort
+        # the send loop for every recipient after this one.
+        from botocore.exceptions import EndpointConnectionError
+
+        class _Down:
+            def send_raw_email(self, **kwargs):
+                raise EndpointConnectionError(endpoint_url="https://email")
+
+        ok = send_email(_FakeSession(_Down()), "s", "a@b.com", ["c@d.com"], "<p>x</p>")
+        assert ok is False
+
     def test_list_unsubscribe_header_present(self):
         """Bulk-sender reputation systems expect an opt-out header on newsletter
         mail; without one the reader's only lever is the spam button, which is

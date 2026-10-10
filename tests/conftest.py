@@ -8,11 +8,17 @@ standardise on the ``app.*`` form, so we put the repo root on ``sys.path``.
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+
+# Before any app import: the logger is configured at import time, and outside
+# AWS it would otherwise append every test's log lines to logs/logs_<date>.txt,
+# the same file a real local run writes.
+os.environ.setdefault("LOG_TO_FILE", "false")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -21,9 +27,9 @@ if str(REPO_ROOT) not in sys.path:
 
 @pytest.fixture
 def date_range() -> tuple[datetime, datetime]:
-    """A one-week window ending 2026-06-01 (inclusive of full end day)."""
-    end = datetime(2026, 6, 1, 23, 59, 59, tzinfo=UTC)
-    start = datetime(2026, 5, 25, 23, 59, 59, tzinfo=UTC)
+    """The window ``get_date_range("2026-06-01", 7)`` builds: [05-25, 06-01)."""
+    end = datetime(2026, 6, 1, tzinfo=UTC)
+    start = datetime(2026, 5, 25, tzinfo=UTC)
     return start, end
 
 

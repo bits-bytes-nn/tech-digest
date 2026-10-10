@@ -30,7 +30,7 @@ class _FakeChain:
     def __init__(self, responses):
         self._responses = responses
 
-    def batch(self, inputs, config=None):
+    def batch(self, inputs, config=None, return_exceptions=False):
         return self._responses
 
     def invoke(self, single):  # used only if batch fails; not exercised here
@@ -71,6 +71,17 @@ class TestFilterPosts:
         kept = s._filter_posts(posts)
         assert [p.title for p in kept] == ["a"]
         assert len(s.filtered_out_posts) == 1
+
+    @pytest.mark.parametrize("response", [{}, {"reason": "declined"}, {"score": " "}])
+    def test_a_response_without_a_score_is_a_failure_not_a_zero(self, response):
+        # A refusal or a truncated answer parses to no score. Defaulting it to 0.0
+        # filed it under "low relevance", so a model declining every post read
+        # as a quiet week instead of a failure.
+        s = _summarizer(min_score=0.7)
+        s.filter = _FakeChain([response])
+        assert s._filter_posts([_post("a")]) == []
+        [(_post_a, reason)] = s.filtered_out_posts
+        assert reason.startswith("Filtering failed")
 
     def test_out_of_range_score_clamped(self):
         # A dropped decimal point ('8.5' for 0.85) must be clamped to [0,1] so it
@@ -359,7 +370,7 @@ class TestFilterInputIsProseNotMarkup:
         captured: list[dict] = []
 
         class _Capture(_FakeChain):
-            def batch(self, inputs, config=None):
+            def batch(self, inputs, config=None, return_exceptions=False):
                 captured.extend(inputs)
                 return [{"score": "0.90", "reason": "", "title": ""} for _ in inputs]
 
@@ -383,7 +394,7 @@ class TestFilterInputIsProseNotMarkup:
         captured: list[dict] = []
 
         class _Capture(_FakeChain):
-            def batch(self, inputs, config=None):
+            def batch(self, inputs, config=None, return_exceptions=False):
                 captured.extend(inputs)
                 return [{"summary": "ok", "tags": [], "urls": []}]
 

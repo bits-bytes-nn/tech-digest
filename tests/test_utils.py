@@ -6,15 +6,23 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeoutError
+from langchain_core.exceptions import OutputParserException
 
 from app.src.utils import (
     BatchProcessor,
     HTMLTagOutputParser,
     format_alarm,
     get_date_range,
+    is_retryable,
+    retry_with_backoff,
     validate_email,
     validate_emails,
 )
+
+
+def _client_error(code: str) -> ClientError:
+    return ClientError({"Error": {"Code": code, "Message": code}}, "Converse")
 
 
 class TestEmailValidation:
@@ -90,14 +98,34 @@ class TestFormatAlarm:
 class TestGetDateRange:
     def test_explicit_end_date(self):
         start, end = get_date_range("2026-06-01", days_back=7)
-        assert end.year == 2026 and end.month == 6 and end.day == 1
-        assert end.hour == 23 and end.minute == 59
-        assert (end - start).days == 7
-        assert end.tzinfo == UTC
+        assert end == datetime(2026, 6, 1, tzinfo=UTC)
+        assert start == datetime(2026, 5, 25, tzinfo=UTC)
 
-    def test_none_end_date_uses_now(self):
+    def test_none_end_date_is_midnight_today_utc(self):
         start, end = get_date_range(None, days_back=3)
+        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        assert end == today
         assert (end - start).days == 3
+
+    def test_consecutive_weekly_runs_abut(self):
+        # A post published on a run day after the job ran must land in the next
+        # issue. The old window ended at 23:59:59 on the run day and the next one
+        # started there, so such a post fell between the two.
+        from app.src.feed_parser import is_date_in_range
+
+        this_week = get_date_range("2026-10-10", days_back=7)
+        next_week = get_date_range("2026-10-17", days_back=7)
+        assert this_week[1] == next_week[0]
+        published_after_the_run = datetime(2026, 10, 10, 15, 0, tzinfo=UTC)
+        assert not is_date_in_range(published_after_the_run, *this_week)
+        assert is_date_in_range(published_after_the_run, *next_week)
+
+    def test_a_boundary_post_belongs_to_one_issue(self):
+        from app.src.feed_parser import is_date_in_range
+
+        boundary = datetime(2026, 10, 10, tzinfo=UTC)
+        weeks = [get_date_range(d, days_back=7) for d in ("2026-10-10", "2026-10-17")]
+        assert sum(is_date_in_range(boundary, *w) for w in weeks) == 1
 
 
 class TestHTMLTagOutputParser:
@@ -161,6 +189,80 @@ class TestHTMLTagOutputParser:
         with pytest.raises(OutputParserException):
             parser.parse("")
 
+    def test_output_fixing_parser_actually_repairs(self):
+        # The repair path end to end, through the installed langchain_classic:
+        # without format instructions its prompt raised KeyError before the
+        # fixing model was ever called.
+        from langchain_classic.output_parsers import OutputFixingParser
+        from langchain_core.language_models.fake_chat_models import (
+            FakeListChatModel,
+        )
+
+        fixer = FakeListChatModel(responses=["<summary>repaired</summary>"])
+        parser = OutputFixingParser.from_llm(
+            llm=fixer,
+            parser=HTMLTagOutputParser(
+                tag_names=["summary", "tags"], required_tags=["summary"]
+            ),
+        )
+        assert parser.parse("an answer with no tags")["summary"] == "repaired"
+
+    def test_format_instructions_name_every_tag(self):
+        parser = HTMLTagOutputParser(
+            tag_names=["summary", "tags"], required_tags=["summary"]
+        )
+        text = parser.get_format_instructions()
+        assert "<summary>...</summary>" in text
+        assert "<tags>...</tags>" in text
+
+
+class TestIsRetryable:
+    @pytest.mark.parametrize(
+        "code",
+        ["ThrottlingException", "ServiceUnavailableException", "ModelTimeoutException"],
+    )
+    def test_transient_bedrock_errors_retry(self, code):
+        assert is_retryable(_client_error(code))
+
+    @pytest.mark.parametrize(
+        "code",
+        ["ValidationException", "AccessDeniedException", "ResourceNotFoundException"],
+    )
+    def test_permanent_bedrock_errors_do_not(self, code):
+        assert not is_retryable(_client_error(code))
+
+    def test_connection_and_timeout_errors_retry(self):
+        assert is_retryable(EndpointConnectionError(endpoint_url="https://x"))
+        assert is_retryable(ReadTimeoutError(endpoint_url="https://x"))
+
+    def test_malformed_output_retries(self):
+        assert is_retryable(OutputParserException("no <summary>"))
+
+    @pytest.mark.parametrize("error", [KeyError("x"), TypeError("x"), ValueError("x")])
+    def test_bugs_do_not(self, error):
+        assert not is_retryable(error)
+
+    def test_cause_chain_is_followed(self):
+        try:
+            try:
+                raise _client_error("ThrottlingException")
+            except ClientError as inner:
+                raise RuntimeError("wrapped") from inner
+        except RuntimeError as outer:
+            assert is_retryable(outer)
+
+    def test_decorator_stops_at_a_permanent_error(self):
+        calls = {"n": 0}
+
+        @retry_with_backoff("probe", multiplier=1.0, max_wait=0, attempts=5)
+        def call():
+            calls["n"] += 1
+            raise _client_error("ValidationException")
+
+        with pytest.raises(ClientError):
+            call()
+        assert calls["n"] == 1
+
 
 class TestBatchProcessor:
     def test_empty_input_returns_empty(self):
@@ -168,7 +270,7 @@ class TestBatchProcessor:
         result = bp.execute_with_fallback(
             items_to_process=[],
             prepare_inputs_func=lambda items: [],
-            batch_func=lambda inputs, config=None: [],
+            batch_func=lambda inputs, config=None, return_exceptions=False: [],
             sequential_func=lambda x: x,
             task_name="noop",
         )
@@ -180,7 +282,9 @@ class TestBatchProcessor:
         result = bp.execute_with_fallback(
             items_to_process=items,
             prepare_inputs_func=lambda chunk: [{"v": v} for v in chunk],
-            batch_func=lambda inputs, config=None: [d["v"] * 10 for d in inputs],
+            batch_func=lambda inputs, config=None, return_exceptions=False: [
+                d["v"] * 10 for d in inputs
+            ],
             sequential_func=lambda d: d["v"] * 10,
             task_name="mul",
             show_progress=False,
@@ -191,7 +295,7 @@ class TestBatchProcessor:
         bp = BatchProcessor(max_concurrency=2, batch_size=2, max_retries=1)
         calls = {"batch": 0}
 
-        def failing_batch(inputs, config=None):
+        def failing_batch(inputs, config=None, return_exceptions=False):
             calls["batch"] += 1
             raise RuntimeError("batch broke")
 
@@ -211,7 +315,7 @@ class TestBatchProcessor:
         # callers that zip results back onto inputs stay aligned.
         bp = BatchProcessor(max_concurrency=3, batch_size=3, max_retries=1)
 
-        def failing_batch(inputs, config=None):
+        def failing_batch(inputs, config=None, return_exceptions=False):
             raise RuntimeError("force sequential")
 
         def seq(d):
@@ -229,3 +333,57 @@ class TestBatchProcessor:
         )
         # Same length as input; the failed middle item is None, not dropped.
         assert result == [10, None, 30]
+
+
+class TestPartialBatchFailure:
+    """One failed item in a chunk must not re-bill the items that succeeded."""
+
+    @staticmethod
+    def _batch_with_one_failure(error):
+        def batch(inputs, config=None, return_exceptions=False):
+            assert return_exceptions, "the batch must keep per-item results"
+            return [error if d["v"] == 2 else d["v"] * 10 for d in inputs]
+
+        return batch
+
+    def test_only_the_failed_item_is_called_again(self):
+        bp = BatchProcessor(batch_size=5, max_retries=1)
+        sequential_calls: list[int] = []
+
+        def seq(d):
+            sequential_calls.append(d["v"])
+            return d["v"] * 10
+
+        result = bp.execute_with_fallback(
+            items_to_process=[1, 2, 3, 4, 5],
+            prepare_inputs_func=lambda chunk: [{"v": v} for v in chunk],
+            batch_func=self._batch_with_one_failure(
+                _client_error("ThrottlingException")
+            ),
+            sequential_func=seq,
+            task_name="partial",
+            show_progress=False,
+        )
+        assert result == [10, 20, 30, 40, 50]
+        assert sequential_calls == [2]
+
+    def test_a_permanent_batch_error_is_not_retried(self):
+        bp = BatchProcessor(batch_size=5, max_retries=3)
+        sequential_calls: list[int] = []
+
+        def seq(d):
+            sequential_calls.append(d["v"])
+            return d["v"] * 10
+
+        result = bp.execute_with_fallback(
+            items_to_process=[1, 2, 3],
+            prepare_inputs_func=lambda chunk: [{"v": v} for v in chunk],
+            batch_func=self._batch_with_one_failure(
+                _client_error("ValidationException")
+            ),
+            sequential_func=seq,
+            task_name="permanent",
+            show_progress=False,
+        )
+        assert result == [10, None, 30]
+        assert sequential_calls == []
