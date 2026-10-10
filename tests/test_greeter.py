@@ -72,6 +72,7 @@ class TestLengthEnforcement:
         assert g.reviser.calls[0]["measured"] == measure_greeting(draft, Language.KO)
         assert g.reviser.calls[0]["target_min"] == low
         assert g.reviser.calls[0]["target_max"] == high
+        assert g.reviser.calls[0]["target"] == (low + high) // 2
 
     def test_too_short_draft_is_also_revised(self):
         low, _high = GreetingPrompt.KO_LENGTH_RANGE

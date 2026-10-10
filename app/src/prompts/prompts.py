@@ -401,41 +401,46 @@ going long pushes that article below the fold.
 class GreetingRevisionPrompt(BasePrompt):
     """Ask the model to bring an over/under-length greeting into the window.
 
-    The length rule is the one instruction the greeting model most reliably
-    misses (a real run produced 230 Korean characters against a 100-150 target),
-    and length is something code can measure exactly. So rather than adding more
-    emphasis to the original prompt and hoping, the measured count is fed back
-    once — a generate-then-verify loop, with the verification done arithmetically
-    instead of by another judgement call.
+    Length is the instruction the greeting model misses most, and something code
+    can measure exactly, so the measured count is fed back once with a concrete
+    target (the window's midpoint). A bare "must be 100-150" left most revisions
+    still too long; a single number plus "drop a whole sentence" lands most of them.
     """
 
-    input_variables: list[str] = ["draft", "measured", "target_min", "target_max"]
+    input_variables: list[str] = [
+        "draft",
+        "measured",
+        "target_min",
+        "target_max",
+        "target",
+    ]
     output_variables: list[str] = ["greeting"]
     system_prompt_template: str = GreetingPrompt.system_prompt_template
     human_prompt_template: str = ""
 
     _human_prompt_template: ClassVar[dict[Language, str]] = {
-        Language.EN: """Your draft newsletter introduction is {measured} words, but it must be
-{target_min}-{target_max} words.
+        Language.EN: """Your draft newsletter introduction is {measured} words. It must be
+{target_min}-{target_max} words, so rewrite it to **about {target} words**.
 
 **DRAFT:**
 <draft>{draft}</draft>
 
-Rewrite it to land inside the window. Keep the opener "Hey friends! I'm Peccy 😎", keep the
-specific observation and the hand-off to the articles, and keep the casual confident tone. Cut
-qualifiers, repeated ideas and scene-setting first. Do NOT introduce a "back then X, now Y"
-contrast. Plain text only.
+Count the words rather than estimating. If it is too long, start by dropping a whole sentence
+(three sentences including the opener are enough). Keep the opener "Hey friends! I'm Peccy 😎",
+the specific observation and the hand-off to the articles, and keep the casual confident tone.
+Do NOT introduce a "back then X, now Y" contrast. Plain text only.
 
 **OUTPUT:** The revised introduction only.""",
-        Language.KO: """작성한 뉴스레터 인트로가 {measured}자인데, {target_min}~{target_max}자여야 합니다.
+        Language.KO: """작성한 뉴스레터 인트로가 {measured}자입니다. {target_min}~{target_max}자여야 하니
+**{target}자 안팎**으로 다시 쓰세요.
 
 **DRAFT:**
 <draft>{draft}</draft>
 
-이 범위 안으로 다시 쓰세요. 여는 인사 "안녕 친구들! 난 Peccy야 😎"와 구체적인 관찰,
-아티클로 넘기는 마지막 문장은 유지하고, 반말·자신감 있는 어조도 그대로 두세요. 줄일 때는
-수식어·중복된 이야기·배경 설명을 먼저 버리세요. "예전엔 X였는데 이제 Y야" 같은 과거-현재
-대조는 넣지 마세요. 평문만 출력하세요.
+글자 수는 어림하지 말고 세세요. 너무 길면 문장 하나를 통째로 빼는 것부터 하세요(여는 인사
+포함 3문장이면 충분합니다). 여는 인사 "안녕 친구들! 난 Peccy야 😎"와 구체적인 관찰, 아티클로
+넘기는 마지막 문장은 유지하고, 반말·자신감 있는 어조도 그대로 두세요. "예전엔 X였는데 이제
+Y야" 같은 과거-현재 대조는 넣지 마세요. 평문만 출력하세요.
 
 **OUTPUT:** 수정된 인트로만 출력.""",
     }

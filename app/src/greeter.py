@@ -87,6 +87,7 @@ class Greeter:
                 "measured": measured,
                 "target_min": low,
                 "target_max": high,
+                "target": (low + high) // 2,
             }
         )
 
