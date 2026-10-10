@@ -229,9 +229,17 @@ python scripts/eval_summary_quality.py --compare 2026-08-18 2026-08-19
 # A/B a prompt edit on identical input: re-summarize a past run's stored articles
 # with the current prompt and diff the rubric. COSTS MONEY (one call per article).
 python scripts/eval_summary_quality.py --regenerate 2026-08-19
+
+# Judge a filter-rubric edit on real candidates, without labels: freeze recent
+# weeks' candidates, score them before and after the edit (COSTS MONEY), and list
+# the posts whose line-up changed. The full recipe is in the script's docstring.
+python scripts/replay_filter.py collect --stage prod --weeks 6
+python scripts/replay_filter.py score --stage prod --label before   # then edit
+python scripts/replay_filter.py score --stage prod --label after
+python scripts/replay_filter.py compare --stage prod before after
 ```
 
-CI runs the lint, format, type and test gates on every push and pull request ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
+CI runs the lint, format, type and test gates on pushes and pull requests to `main` ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
 The output-quality rubric needs a generated run, so it is run by hand.
 
 ---
