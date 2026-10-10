@@ -42,6 +42,7 @@ from src import (
     logger,
     read_s3_json,
     send_email,
+    suppressed_destinations,
     upload_to_s3,
     validate_emails,
     write_s3_json,
@@ -523,6 +524,8 @@ class DeliveryOutcome:
     resolved: int = 0
     #: Recipients skipped because the ledger says this issue already reached them.
     skipped: int = 0
+    #: Recipients skipped because SES suppresses them (hard bounce or complaint).
+    suppressed: int = 0
     #: Recipients this run actually tried to send to.
     attempted: int = 0
     succeeded: int = 0
@@ -711,6 +714,7 @@ def _send_emails_to_recipients(
     already = (
         _already_delivered(boto_session, config, ledger_key) if ledger_key else set()
     )
+    blocked = suppressed_destinations(boto_session)
     outcome = DeliveryOutcome(resolved=len(recipients))
     delivered: list[str] = []
 
@@ -720,6 +724,14 @@ def _send_emails_to_recipients(
             delivered.append(recipient)
             logger.info(
                 "Skipping '%s': this issue was already delivered to them.", recipient
+            )
+            continue
+        if recipient.strip().lower() in blocked:
+            outcome.suppressed += 1
+            logger.warning(
+                "Skipping '%s': on the SES suppression list (bounced or "
+                "complained); remove it from the recipients file.",
+                recipient,
             )
             continue
         outcome.attempted += 1

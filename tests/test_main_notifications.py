@@ -19,6 +19,13 @@ import main  # noqa: E402
 
 from src.feed_parser import CrawlReport, SourceHealth, SourceStatus  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def no_suppression_list(monkeypatch):
+    """The send loop reads the SES suppression list; these tests use fake sessions."""
+    monkeypatch.setattr(main, "suppressed_destinations", lambda _session: set())
+
+
 PROJECT = "tech-digest"
 
 
@@ -740,6 +747,18 @@ class TestDuplicateSendGuard:
         assert len(writes) == 2
         assert writes[0]["delivered"] == ["a@example.com"]
         assert writes[1]["delivered"] == ["a@example.com", "b@example.com"]
+
+    def test_a_suppressed_address_is_skipped_not_sent(self, monkeypatch, tmp_path):
+        self._patch_recipients(monkeypatch, ["ok@example.com", "Gone@example.com"])
+        monkeypatch.setattr(
+            main, "suppressed_destinations", lambda _session: {"gone@example.com"}
+        )
+        outcome, sent, writes = self._run(monkeypatch, tmp_path, ledger=None)
+        assert sent == ["ok@example.com"]
+        assert outcome.suppressed == 1
+        assert outcome.attempted == 1
+        assert outcome.failed == []
+        assert writes[-1]["delivered"] == ["ok@example.com"]
 
     def test_a_failed_send_is_not_recorded_as_delivered(self, monkeypatch, tmp_path):
         """Otherwise the retry would skip the reader who never got the issue."""
