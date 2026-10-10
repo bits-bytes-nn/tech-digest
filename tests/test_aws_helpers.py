@@ -372,3 +372,48 @@ class TestWriteS3Json:
     def test_missing_bucket_or_key_returns_false(self, bucket, key):
         client = _FakeS3Objects()
         assert not write_s3_json(_FakeSession(client), bucket, key, {"a": 1})
+
+
+class TestSuppressedDestinations:
+    class _Client:
+        def __init__(self, pages=None, error=None):
+            self.pages, self.error, self.calls = list(pages or []), error, []
+
+        def list_suppressed_destinations(self, **kwargs):
+            self.calls.append(kwargs)
+            if self.error:
+                raise self.error
+            return self.pages.pop(0)
+
+    class _Session:
+        def __init__(self, client):
+            self._client = client
+
+        def client(self, name):
+            assert name == "sesv2"
+            return self._client
+
+    def test_follows_pages_and_lowercases(self):
+        from app.src.aws_helpers import suppressed_destinations
+
+        client = self._Client(
+            [
+                {
+                    "SuppressedDestinationSummaries": [{"EmailAddress": "A@x.com"}],
+                    "NextToken": "t1",
+                },
+                {"SuppressedDestinationSummaries": [{"EmailAddress": "b@x.com"}]},
+            ]
+        )
+        assert suppressed_destinations(self._Session(client)) == {"a@x.com", "b@x.com"}
+        assert client.calls == [{}, {"NextToken": "t1"}]
+
+    def test_a_read_failure_suppresses_nobody(self):
+        from botocore.exceptions import ClientError
+
+        from app.src.aws_helpers import suppressed_destinations
+
+        error = ClientError({"Error": {"Code": "AccessDenied"}}, "List")
+        assert (
+            suppressed_destinations(self._Session(self._Client(error=error))) == set()
+        )

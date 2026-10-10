@@ -213,6 +213,12 @@ def test_ses_send_only_as_the_configured_sender(template):
     }
 
 
+def test_the_suppression_list_is_readable(template):
+    assert any(
+        "ses:ListSuppressedDestinations" in _actions(s) for s in _statements(template)
+    )
+
+
 def test_ssm_reads_only_this_projects_parameters(template):
     [ssm] = [s for s in _statements(template) if "ssm:GetParameter" in _actions(s)]
     assert json.dumps(ssm["Resource"]).endswith(':parameter/tech-digest/dev/*"')

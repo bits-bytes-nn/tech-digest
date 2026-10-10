@@ -341,6 +341,12 @@ class NewsletterStack(Stack):
                 actions=["s3:ListBucket", "s3:GetBucketLocation"],
                 resources=[bucket_arn],
             ),
+            # SES: read the account suppression list so bounced addresses are
+            # skipped. A read-only action without resource-level permissions.
+            iam.PolicyStatement(
+                actions=["ses:ListSuppressedDestinations"],
+                resources=["*"],
+            ),
             # SES: deliver the newsletter, restricted (via FromAddress) to the
             # configured sender so the role cannot send as arbitrary identities.
             # SendRawEmail only — that is the single API aws_helpers.send_email

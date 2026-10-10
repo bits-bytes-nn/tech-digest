@@ -24,6 +24,12 @@ import main  # noqa: E402
 from src.constants import Language  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def no_suppression_list(monkeypatch):
+    """The send loop reads the SES suppression list; these tests use fake sessions."""
+    monkeypatch.setattr(main, "suppressed_destinations", lambda _session: set())
+
+
 class TestRunBatchRecipients:
     def test_only_invalid_addresses_refuse_to_fall_back(self, monkeypatch):
         # "--recipients" with nothing valid used to become "null", which means

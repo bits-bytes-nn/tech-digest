@@ -138,6 +138,32 @@ def get_ssm_param_value(boto_session: boto3.Session, param_name: str) -> str:
         raise
 
 
+def suppressed_destinations(boto_session: boto3.Session) -> set[str]:
+    """Addresses on the SES account suppression list, lowercased.
+
+    SES adds an address after a hard bounce or a complaint and silently drops any
+    later send to it, so sending again only wastes a send slot. An empty set on
+    failure: the list is an optimisation, and not reading it must not stop
+    delivery.
+    """
+    client = boto_session.client("sesv2")
+    found: set[str] = set()
+    kwargs: dict[str, Any] = {}
+    try:
+        while True:
+            page = client.list_suppressed_destinations(**kwargs)
+            found.update(
+                d["EmailAddress"].strip().lower()
+                for d in page.get("SuppressedDestinationSummaries", [])
+            )
+            if not (token := page.get("NextToken")):
+                return found
+            kwargs["NextToken"] = token
+    except (ClientError, BotoCoreError) as e:
+        logger.warning("Could not read the SES suppression list: %s", e)
+        return set()
+
+
 def send_email(
     boto_session: boto3.Session,
     subject: str,
