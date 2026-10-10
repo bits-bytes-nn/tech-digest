@@ -56,6 +56,16 @@ class Resources(BaseModelWithDefaults):
     lambda_or_batch: Literal["lambda", "batch"] = Field(default="lambda")
     cron_expression: str | None = Field(default=None)
 
+    @field_validator("s3_prefix")
+    @classmethod
+    def _normalize_s3_prefix(cls, v: str | None) -> str | None:
+        # Normalised once here: call sites used to strip slashes inconsistently,
+        # so "tech-digest/" read recipients from "tech-digest//recipients/..."
+        # while the alert told the operator to upload to "tech-digest/...".
+        if v is None:
+            return None
+        return v.strip("/") or None
+
     @field_validator("cron_expression")
     @classmethod
     def _validate_cron_expression(cls, v: str | None) -> str | None:

@@ -824,6 +824,7 @@ class RssFetcher:
                 # pass the window. A quiet blog still lists a dated back catalogue.
                 self.candidates = sum(d is not None for d in dates)
 
+                skipped = 0
                 for entry, published_date in zip(feed.entries, dates, strict=True):
                     if published_date is None or not is_date_in_range(
                         published_date, start_date, end_date
@@ -834,11 +835,19 @@ class RssFetcher:
                     try:
                         posts.append(Post.from_entry(entry))
                     except Exception as e:
+                        skipped += 1
                         logger.error(
                             "Skipping an entry of '%s' that could not be read: %s",
                             self.rss_url,
                             e,
                         )
+                # Entries in the window existed and every one failed: that is a
+                # broken source, not a quiet week, and must not read as EMPTY.
+                if skipped and not posts:
+                    raise SourceFetchError(
+                        f"All {skipped} in-window entries of '{self.rss_url}' "
+                        "failed to parse"
+                    )
 
         except SourceFetchError:
             raise

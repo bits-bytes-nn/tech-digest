@@ -115,6 +115,13 @@ class NewsletterStack(Stack):
         self.stage = stage
         self._bucket_name = s3_bucket_name
         self._s3_prefix = (s3_prefix or "").strip("/")
+        if not self._s3_prefix:
+            # Fail closed, as for the bucket name: without a prefix the object
+            # grant below would cover the whole shared SageMaker bucket.
+            raise ValueError(
+                "s3_prefix is required to scope the S3 IAM policy; "
+                "set resources.s3_prefix in the config."
+            )
         self._bedrock_region = bedrock_region_name or "us-west-2"
         # The SES sender identity to scope send permissions to (operator email).
         self._sender = (email_addresses or [None])[0]
@@ -296,11 +303,7 @@ class NewsletterStack(Stack):
         # (recipients/, newsletters/, articles/, deliveries/). The configured
         # bucket is the account's shared SageMaker default bucket, so granting
         # the whole of it let this role read and overwrite other workloads' data.
-        object_arn = (
-            f"{bucket_arn}/{self._s3_prefix}/*"
-            if self._s3_prefix
-            else f"{bucket_arn}/*"
-        )
+        object_arn = f"{bucket_arn}/{self._s3_prefix}/*"
         param_arn = (
             f"arn:aws:ssm:{region}:{account}:parameter/"
             f"{self.project_name}/{self.stage}/*"

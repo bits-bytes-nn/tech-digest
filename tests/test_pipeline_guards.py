@@ -173,7 +173,7 @@ class TestRecipientsOverrideInTheContainer:
         )
 
         def build(*a, **k):
-            seen["test_run"] = k["test_run"]
+            seen["archive_suffix"] = k["archive_suffix"]
             return tmp_path / "n.html"
 
         def send(_path, _date, _cfg, _session, _language, recipients):
@@ -184,4 +184,63 @@ class TestRecipientsOverrideInTheContainer:
         monkeypatch.setattr(main, "_process_newsletter_emails", send)
         result = main.handler({"RECIPIENTS": "me@example.com"}, None)
         assert result["statusCode"] == 200
-        assert seen == {"test_run": True, "recipients": ["me@example.com"]}
+        assert seen == {"archive_suffix": "tests", "recipients": ["me@example.com"]}
+
+
+class TestArchiveKeys:
+    """Only the run that delivers an issue may write its canonical archive key:
+    the bucket keeps no versions, and a rebuild can carry different posts."""
+
+    _Cfg = TestRecipientsOverrideInTheContainer._Cfg
+
+    def _suffix(self, monkeypatch, delivered, recipients=None, attempt=None):
+        monkeypatch.setattr(main, "_already_delivered", lambda *a: set(delivered))
+        if attempt:
+            monkeypatch.setenv("AWS_BATCH_JOB_ATTEMPT", attempt)
+        else:
+            monkeypatch.delenv("AWS_BATCH_JOB_ATTEMPT", raising=False)
+        return main._archive_suffix(
+            self._Cfg(), object(), "2026-10-10", Language.KO, recipients
+        )
+
+    def test_the_scheduled_first_attempt_writes_the_canonical_key(self, monkeypatch):
+        assert self._suffix(monkeypatch, delivered=[]) == ""
+
+    def test_a_test_send_archives_under_tests(self, monkeypatch):
+        assert self._suffix(
+            monkeypatch, delivered=["a@x.com"], recipients="me@x.com"
+        ) == ("tests")
+
+    def test_a_retry_after_sending_does_not_replace_the_delivered_copy(
+        self, monkeypatch
+    ):
+        assert self._suffix(monkeypatch, delivered=["a@x.com"], attempt="2") == (
+            "retries/2"
+        )
+
+    @pytest.mark.parametrize(
+        ("suffix", "expected"),
+        [
+            ("", ["newsletters", "articles"]),
+            ("tests", ["newsletters/tests", "articles/tests"]),
+        ],
+    )
+    def test_uploads_use_the_suffix(self, monkeypatch, tmp_path, suffix, expected):
+        prefixes = []
+        newsletter = tmp_path / "n.html"
+        article = tmp_path / "articles" / "a.html"
+        monkeypatch.setattr(main, "_prepare_and_save_posts", lambda *a: tmp_path)
+        monkeypatch.setattr(main, "_generate_greeting", lambda *a: "hi")
+        monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
+        monkeypatch.setattr(
+            main, "_build_newsletter", lambda *a: (newsletter, [article.name])
+        )
+        monkeypatch.setattr(
+            main,
+            "_upload_files_to_s3",
+            lambda _paths, prefix, *a: prefixes.append(prefix),
+        )
+        main._process_posts_and_create_newsletter(
+            [], "2026-10-10", self._Cfg(), None, None, archive_suffix=suffix
+        )
+        assert prefixes == expected

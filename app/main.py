@@ -53,6 +53,8 @@ SEND_INTERVAL_SECONDS: Final[float] = 1.1
 # Where an explicit --recipients run archives its build, under the newsletters/
 # and articles/ prefixes, so a test send never replaces a delivered issue.
 TEST_RUN_PREFIX: Final[str] = "tests"
+# Where a retry of an already-(partly-)sent issue archives its rebuild.
+RETRY_PREFIX: Final[str] = "retries"
 # The intro used when the greeting model fails, in the issue's own language (the
 # renderer's built-in default is English, which read oddly atop a Korean issue).
 FALLBACK_INTRO: Final[dict[Language, str]] = {
@@ -143,7 +145,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
             default_boto_session,
             bedrock_boto_session,
             language=language,
-            test_run=recipients is not None,
+            archive_suffix=_archive_suffix(
+                config, default_boto_session, date_suffix, language, recipients
+            ),
         )
         if is_running_in_aws() and topic_arn:
             _maybe_send_clipped_newsletter_alert(
@@ -279,16 +283,10 @@ def _process_posts_and_create_newsletter(
     default_boto_session: boto3.Session,
     bedrock_boto_session: boto3.Session,
     language: Language = Language.KO,
-    test_run: bool = False,
+    archive_suffix: str = "",
 ) -> Path:
-    """Build the issue and archive it in S3.
-
-    ``test_run`` (an explicit recipients override) archives under a separate
-    ``tests/`` prefix. The archive key is the issue's stage, date and language,
-    so a test send on an issue date used to replace the record of what every
-    subscriber received with a rebuild that, model output being
-    non-deterministic, can carry different posts.
-    """
+    """Build the issue and archive it in S3, under ``archive_suffix`` if given
+    (see ``_archive_suffix``)."""
     inputs_dir = _prepare_and_save_posts(posts, date_suffix)
     first_section_intro = _generate_greeting(
         posts, date_suffix, config, bedrock_boto_session, language
@@ -298,7 +296,7 @@ def _process_posts_and_create_newsletter(
     newsletter_path, article_filenames = _build_newsletter(
         inputs_dir, outputs_dir, date_suffix, first_section_intro, config, language
     )
-    suffix = f"/{TEST_RUN_PREFIX}" if test_run else ""
+    suffix = f"/{archive_suffix}" if archive_suffix else ""
     _upload_files_to_s3(
         newsletter_path,
         f"{S3Paths.NEWSLETTERS.value}{suffix}",
@@ -317,6 +315,40 @@ def _process_posts_and_create_newsletter(
             default_boto_session,
         )
     return newsletter_path
+
+
+def _archive_suffix(
+    config: Config,
+    boto_session: boto3.Session,
+    date_suffix: str,
+    language: Language,
+    recipients: str | None,
+) -> str:
+    """Where under newsletters/ and articles/ this run's build is archived.
+
+    The archive key is the issue's stage, date and language, and the bucket keeps
+    no versions, so only the run that actually delivers the issue may write the
+    canonical key. Two other runs build the same issue: an explicit --recipients
+    test send, and a retry of a run that had already sent to someone (a Spot
+    reclaim or OOM after the send loop began). Either used to replace the record
+    of what readers received with a rebuild that, model output being
+    non-deterministic, can carry different posts.
+    """
+    if recipients is not None:
+        return TEST_RUN_PREFIX
+    ledger_key = _delivery_ledger_key(config, date_suffix, language)
+    if _already_delivered(boto_session, config, ledger_key):
+        attempt = os.environ.get("AWS_BATCH_JOB_ATTEMPT") or datetime.now(UTC).strftime(
+            "%Y%m%dT%H%M%S"
+        )
+        logger.warning(
+            "This issue was already sent to some readers; archiving this "
+            "rebuild under '%s/%s' instead of replacing the delivered copy.",
+            RETRY_PREFIX,
+            attempt,
+        )
+        return f"{RETRY_PREFIX}/{attempt}"
+    return ""
 
 
 def _log_run_summary(

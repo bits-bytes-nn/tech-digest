@@ -526,7 +526,7 @@ class Summarizer:
             parser=HTMLTagOutputParser(
                 tag_names=SummarizationPrompt.output_variables,
                 required_tags=["summary"],
-                text_tags=["one_liner", "tags"],
+                text_tags=self.SUMMARY_TEXT_TAGS,
             ),
         )
         summarization_llm = self.llm_factory.get_model(
@@ -882,6 +882,10 @@ class Summarizer:
     # 1,300-2,000 words). A refusal, a "too short to summarize" reply or a
     # repair that wrapped either of them in tags is a sentence or two. The floor
     # sits far below the band so a terse but genuine summary still ships.
+    # Summary tags read as plain text. Not one_liner: _clean_one_liner already
+    # decodes it once, and a second decode turned "List&lt;String&gt;" into
+    # "List" on the card.
+    SUMMARY_TEXT_TAGS: ClassVar[list[str]] = ["tags"]
     MIN_SUMMARY_SHARE: ClassVar[float] = 0.3
     EN_MIN_WORDS: ClassVar[int] = 400
 

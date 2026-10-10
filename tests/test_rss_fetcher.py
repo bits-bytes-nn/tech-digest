@@ -182,3 +182,33 @@ class TestFeedDownload:
         assert seen["content"] == b"<rss/>"
         assert seen["headers"]["content-type"].startswith("application/rss+xml")
         assert seen["headers"]["content-location"] == "https://openai.com/news/rss.xml"
+
+
+class TestUnreadableEntries:
+    def _feed(self, links):
+        return _FakeFeed(
+            entries=[
+                feedparser.FeedParserDict(
+                    title=f"t{i}",
+                    link=link,
+                    published="2026-05-28T10:00:00Z",
+                    summary="body " * 400,
+                )
+                for i, link in enumerate(links)
+            ],
+            bozo=False,
+        )
+
+    def test_one_bad_entry_costs_only_that_entry(self, monkeypatch, window):
+        feed = self._feed(["http://[bad/x", "https://openai.com/news/ok"])
+        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
+        posts = RssFetcher("https://openai.com/news/rss.xml").fetch(*window)
+        assert [p.link for p in posts] == ["https://openai.com/news/ok"]
+
+    def test_every_in_window_entry_failing_is_a_source_failure(
+        self, monkeypatch, window
+    ):
+        feed = self._feed(["http://[bad/x", "http://[bad/y"])
+        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
+        with pytest.raises(SourceFetchError):
+            RssFetcher("https://openai.com/news/rss.xml").fetch(*window)

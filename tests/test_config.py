@@ -292,3 +292,18 @@ class TestCommittedSourcesReachTheirScraper:
             if urlparse(url).netloc in scraper_hosts:
                 fetcher = ScraperRegistry.get_fetcher(url)
                 assert not isinstance(fetcher, RssFetcher), url
+
+
+class TestS3PrefixIsNormalisedOnce:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("tech-digest/", "tech-digest"),
+            ("/tech-digest", "tech-digest"),
+            ("/", None),
+            (None, None),
+        ],
+    )
+    def test_slashes_are_stripped(self, raw, expected):
+        r = Resources(project_name="p", s3_bucket_name="b", s3_prefix=raw)
+        assert r.s3_prefix == expected

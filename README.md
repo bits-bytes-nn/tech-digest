@@ -228,7 +228,7 @@ ruff check .
 ruff format --check .
 cd app && mypy .             # run from app/ so the dual import layout resolves;
                              # `.` (not `src`) also checks main.py / run_batch.py
-pytest                       # fast, offline unit/integration suite (898 tests, 87.9% cov)
+pytest                       # fast, offline unit/integration suite (910 tests, 88.4% cov)
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline
 # and free; --regenerate is the exception and makes real Bedrock calls.

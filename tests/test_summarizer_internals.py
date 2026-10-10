@@ -574,3 +574,27 @@ class TestSanitizerDropsComments:
         )
         cleaned = _sanitize_html(html)
         assert cleaned == "<p>ok</p>"
+
+
+class TestOneLinerKeepsAngleBrackets:
+    def test_escaped_generics_survive_the_parse_and_the_cleanup(self):
+        # The parser read one_liner as text (decoding once) and _clean_one_liner
+        # decoded again, so "List&lt;String&gt;" reached the card as "List".
+        from app.src.prompts.prompts import SummarizationPrompt
+        from app.src.summarizer import Summarizer, SummaryOutput
+        from app.src.utils import HTMLTagOutputParser
+
+        parser = HTMLTagOutputParser(
+            tag_names=SummarizationPrompt.output_variables,
+            required_tags=["summary"],
+            text_tags=Summarizer.SUMMARY_TEXT_TAGS,
+        )
+        raw = (
+            f"<summary>{BODY}</summary>"
+            "<one_liner>Java의 List&lt;String&gt; 대신 Stream&lt;T&gt;를 씁니다.</one_liner>"
+            "<tags>C&amp;C++, Streams</tags><urls></urls>"
+        )
+        out = SummaryOutput.model_validate(parser.parse(raw))
+        assert "List<String>" in out.one_liner
+        assert "Stream<T>" in out.one_liner
+        assert out.tags[0] == "C&C++"
