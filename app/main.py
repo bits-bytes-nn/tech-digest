@@ -747,21 +747,15 @@ def _send_emails_to_recipients(
         # Only after a real SES call — a skipped recipient has nothing to pace.
         time.sleep(SEND_INTERVAL_SECONDS)
 
-    if outcome.skipped:
-        logger.info(
-            "Email sending complete: %d/%d successful, %d already delivered "
-            "(skipped) of %d resolved recipients.",
-            outcome.succeeded,
-            outcome.attempted,
-            outcome.skipped,
-            outcome.resolved,
-        )
-    else:
-        logger.info(
-            "Email sending complete: %d/%d successful",
-            outcome.succeeded,
-            outcome.attempted,
-        )
+    logger.info(
+        "Email sending complete: %d/%d successful; of %d resolved recipients, "
+        "%d already delivered and %d suppressed by SES were skipped.",
+        outcome.succeeded,
+        outcome.attempted,
+        outcome.resolved,
+        outcome.skipped,
+        outcome.suppressed,
+    )
     return outcome
 
 

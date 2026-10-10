@@ -5,7 +5,14 @@ from typing import Any, Literal
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 from pydantic_core import PydanticUndefined
 
 from app.src import EnvVars, LanguageModelId
@@ -22,6 +29,10 @@ _CRON_EXPRESSION_RE = re.compile(r"^cron\((?:\S+\s+){5}\S+\)$")
 
 
 class BaseModelWithDefaults(BaseModel):
+    # A misspelt key ("min_scor") would otherwise load silently and leave the
+    # setting at its default.
+    model_config = ConfigDict(extra="forbid")
+
     @model_validator(mode="before")
     def set_defaults_for_none_fields(cls, values: dict[str, Any]) -> dict[str, Any]:
         # Treat an explicit ``null`` in the YAML the same as an omitted key, so a

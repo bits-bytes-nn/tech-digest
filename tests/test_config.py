@@ -335,3 +335,8 @@ class TestS3PrefixIsNormalisedOnce:
     def test_slashes_are_stripped(self, raw, expected):
         r = Resources(project_name="p", s3_bucket_name="b", s3_prefix=raw)
         assert r.s3_prefix == expected
+
+
+def test_a_misspelt_key_is_rejected_not_ignored():
+    with pytest.raises(ValidationError, match="min_scor"):
+        Summarization.model_validate({**_VALID_SUMMARIZATION, "min_scor": 0.9})
