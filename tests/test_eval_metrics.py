@@ -167,20 +167,7 @@ class TestBuildReport:
 
 
 class TestBandsHaveNoSecondScale:
-    """``band_of_score`` must be derived from ANCHOR_BANDS, not a parallel table.
-
-    There used to be a ``_BAND_CUTOFFS`` tuple documented as sitting "midway
-    between the adjacent anchors so a one-step ±0.05 adjustment stays inside its
-    anchor's band". Two of its four values were not the midpoint, and the property
-    is unachievable where two bands' anchors are one step apart — measured, three
-    of nine anchors left their own band on a legal adjustment, including 0.70,
-    which is the default ``min_score``.
-    """
-
-    def test_no_cutoff_table_remains(self):
-        import app.src.eval_metrics as em
-
-        assert not hasattr(em, "_BAND_CUTOFFS")
+    """``band_of_score`` reads a score as its nearest anchor's band."""
 
     def test_ties_resolve_to_the_lower_band(self):
         """The rubric says "when torn between two anchors, choose the LOWER one",

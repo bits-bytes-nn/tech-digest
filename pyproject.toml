@@ -76,11 +76,6 @@ addopts = [
     "--strict-config",
     "--import-mode=importlib",
 ]
-markers = [
-    "unit: fast, isolated tests with no network or AWS access (default)",
-    "integration: tests that exercise multiple components together",
-    "live: tests that hit real external services (skipped in CI; opt-in)",
-]
 filterwarnings = [
     "ignore::DeprecationWarning:botocore.*",
 ]

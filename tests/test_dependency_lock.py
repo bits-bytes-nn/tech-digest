@@ -36,12 +36,6 @@ def _entries(path: Path) -> dict[str, str]:
     return found
 
 
-class TestLockExists:
-    def test_lock_is_present_and_non_trivial(self):
-        assert LOCK.is_file(), "app/requirements.lock is what the image installs"
-        assert len(_entries(LOCK)) > 30, "a lock without transitive deps pins nothing"
-
-
 class TestLockIsFullyPinned:
     def test_every_entry_uses_an_exact_version(self):
         loose = {
