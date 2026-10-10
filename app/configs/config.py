@@ -28,8 +28,7 @@ class BaseModelWithDefaults(BaseModel):
         # field's declared default (or default_factory) takes effect instead of
         # leaking None into a non-Optional field. Handle BOTH default forms:
         # ``field.default`` for plain defaults and ``field.default_factory`` for
-        # factory defaults (e.g. list/dict fields) — the latter was previously
-        # ignored, so ``rss_urls: null`` would surface None instead of [].
+        # factory defaults (e.g. list/dict fields), so ``rss_urls: null`` gives [].
         if not isinstance(values, dict):
             return values
         for field_name, field in cls.model_fields.items():
@@ -60,9 +59,7 @@ class Resources(BaseModelWithDefaults):
     @field_validator("s3_prefix")
     @classmethod
     def _normalize_s3_prefix(cls, v: str | None) -> str | None:
-        # Normalised once here: call sites used to strip slashes inconsistently,
-        # so "tech-digest/" read recipients from "tech-digest//recipients/..."
-        # while the alert told the operator to upload to "tech-digest/...".
+        # Normalised once here so every key built from it agrees.
         if v is None:
             return None
         return v.strip("/") or None
@@ -137,8 +134,7 @@ class Newsletter(BaseModelWithDefaults):
 
 class Config(BaseModelWithDefaults):
     # Required: a stage config missing one of these is a mistake, not a request
-    # for defaults (an absent `scraping` used to mean rss_urls=[] and an empty
-    # issue). The template is the reference for every section's values.
+    # for defaults. The template is the reference for every section's values.
     resources: Resources
     scraping: Scraping
     summarization: Summarization

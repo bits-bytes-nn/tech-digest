@@ -244,10 +244,12 @@ class TestEmptyDigestAlert:
         assert "1x Low relevance score." in msg
 
     def test_no_alert_when_nothing_collected(self):
-        # An empty crawl is covered by crawl-health alerts, not this one.
+        # An empty crawl is covered by crawl-health alerts, not this one — even
+        # if something was recorded as filtered out.
         session = _FakeSession()
+        filtered_out = [(self._post("A"), "Low relevance score.")]
         main._maybe_send_empty_digest_alert(
-            session, "arn:topic", PROJECT, self._report(0), []
+            session, "arn:topic", PROJECT, self._report(0), filtered_out
         )
         assert session.sns.published == []
 

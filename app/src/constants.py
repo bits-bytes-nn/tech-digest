@@ -1,9 +1,7 @@
 from enum import Enum, auto
 
-# Fallback project name for the two places that need one before config is in
-# scope: the alarm subject line and the Bedrock application-inference-profile
-# name. Both used to spell the literal "tech-digest" themselves, which is two
-# copies of a name that also lives in config and in EnvVars.PROJECT_NAME.
+# Fallback project name for the Bedrock application-inference-profile name when
+# EnvVars.PROJECT_NAME is unset (local runs and scripts).
 DEFAULT_PROJECT_NAME: str = "tech-digest"
 
 # Tag policy for an article, applied in two places: the feed parser (tags carried

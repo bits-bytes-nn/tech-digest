@@ -273,9 +273,8 @@ class NewsletterStack(Stack):
             ]
         else:
             # The JOB role: only the container assumes it. The EC2 hosts get their
-            # own instance role (``_create_instance_role``). One role used to serve
-            # both, so every Batch host carried Bedrock, SES, S3 and SSM rights
-            # and every container carried the ECS agent's.
+            # own instance role (``_create_instance_role``), so neither carries
+            # the other's rights.
             service_principal = iam.ServicePrincipal("ecs-tasks.amazonaws.com")
             managed_policies = []
 
@@ -581,7 +580,7 @@ class NewsletterStack(Stack):
 
     def _create_job_queue(self) -> batch.JobQueue:
         # A job that can never be placed sits in RUNNABLE indefinitely: the job
-        # definition's 3-hour timeout only counts RUNNING time, and the FAILED rule
+        # definition's attempt timeout only counts RUNNING time, and the FAILED rule
         # below never fires, so a missed issue raised no signal at all. Batch can
         # cancel such a job for the three reasons it can diagnose; a cancelled job
         # reaches FAILED, which the existing rule forwards to SNS. Two hours is
@@ -903,11 +902,8 @@ def main() -> None:
             subnet_ids=config.resources.subnet_ids,
             lambda_or_batch=config.resources.lambda_or_batch,
             cron_expression=config.resources.cron_expression,
-            # Empty when no sender is configured, never ``["None"]``. The config
-            # model only requires a sender when send_emails is true, so with it
-            # false and no sender set, ``str(None)`` used to subscribe the literal
-            # string "None" to the SNS topic and scope the SES FromAddress
-            # condition to it — an invalid subscription and an always-denied policy.
+            # Empty when no sender is configured, never ``["None"]`` (which would
+            # subscribe "None" to the topic and scope SES to a bogus sender).
             email_addresses=(
                 [str(config.newsletter.sender)] if config.newsletter.sender else []
             ),

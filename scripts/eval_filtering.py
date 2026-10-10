@@ -65,7 +65,7 @@ def _score_live(
     stage: str,
     profile: str | None = None,
     model: str | None = None,
-) -> dict[str, list[float]]:
+) -> tuple[dict[str, list[float]], int]:
     """Build the real filter chain and score each article ``repeats`` times.
 
     Imported lazily so the dry-run path needs no boto3/LangChain/config.
@@ -99,6 +99,7 @@ def _score_live(
     excluded = ", ".join(data.get("excluded_topics", []))
 
     results: dict[str, list[float]] = {}
+    failures = 0
     for article in data["articles"]:
         aid = article["id"]
         results[aid] = []
@@ -111,14 +112,20 @@ def _score_live(
                     "excluded_topics": excluded,
                 }
             )
+            # Same rule as the pipeline: a missing, unparseable or out-of-range
+            # score is a failed call. Scoring it 0.0 would count as on-grid and
+            # as a correct "reject" for half the set.
             try:
-                score = float(response.get("score", 0.0))
-            except (ValueError, TypeError):
-                logger.warning("Unparseable score for '%s' (run %d)", aid, i + 1)
-                score = 0.0
+                score = float(response["score"])
+            except (KeyError, ValueError, TypeError):
+                score = None
+            if score is None or not 0.0 <= score <= 1.0:
+                logger.error("Failed call for '%s' (run %d): %s", aid, i + 1, response)
+                failures += 1
+                continue
             results[aid].append(score)
             logger.info("%s run %d/%d -> %.2f", aid, i + 1, repeats, score)
-    return results
+    return results, failures
 
 
 def main() -> int:
@@ -184,7 +191,12 @@ def main() -> int:
         len(data["articles"]),
         args.repeats,
     )
-    results = _score_live(data, args.repeats, args.stage, args.profile, args.model)
+    results, failures = _score_live(
+        data, args.repeats, args.stage, args.profile, args.model
+    )
+    if failures:
+        logger.error("%d filter call(s) failed; the eval is not valid.", failures)
+        return 1
     report = build_report(results, expected)
     print(report.format_table())
 
@@ -193,20 +205,10 @@ def main() -> int:
     # The gate asserts only the two properties the configured model can actually
     # guarantee, and REPORTS the rest as diagnostics.
     #
-    # Exact determinism used to be gated, and was achievable on Sonnet 4.6
-    # because the factory sent temperature=0. Sonnet 5 removed the sampling
-    # parameters entirely (the API rejects `temperature`), so greedy decoding
-    # cannot be requested and repeated scorings of byte-identical input genuinely
-    # differ. Measured across three consecutive runs of this harness on the
-    # default config: on-grid 100%/100%/100% and band-match 100%/100%/100%, but
-    # determinism 100%/67%/83% with a per-article spread up to 0.25. The same
-    # eval on a temperature-capable model is 100% deterministic with spread 0.00,
-    # which isolates the cause to the model's sampling, not the rubric.
-    #
-    # Gating on a property the default model cannot meet would produce a check
-    # that always fails, which is a check people stop running. So determinism,
-    # band stability and spread are surfaced as warnings instead — they are the
-    # numbers to watch, not a pass/fail contract.
+    # Determinism is not gated: Claude 5 models take no sampling parameters, so
+    # repeated scorings of identical input differ (design.md §9). A gate the
+    # default model cannot meet is a gate people stop running, so determinism,
+    # band stability and spread are reported as warnings.
     ok = report.grid_rate >= 0.99 and report.band_match_rate >= 0.80
     if not ok:
         logger.error(

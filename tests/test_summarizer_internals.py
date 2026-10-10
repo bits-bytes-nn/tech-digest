@@ -4,7 +4,7 @@ and malformed-output handling. Built via __new__ to avoid Bedrock setup."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -69,8 +69,8 @@ class TestFilterPosts:
         posts = [_post("a"), _post("b")]
         s.filter = _FakeChain(
             [
-                {"score": "0.70", "reason": "ok", "title": ""},  # == min: kept
-                {"score": "0.69", "reason": "low", "title": ""},  # < min: dropped
+                {"score": "0.70", "reason": "ok"},  # == min: kept
+                {"score": "0.69", "reason": "low"},  # < min: dropped
             ]
         )
         kept = s._filter_posts(posts)
@@ -93,7 +93,7 @@ class TestFilterPosts:
         # A dropped decimal point ('8.5' for 0.85) used to be clamped to 1.0,
         # which passed min_score and ranked it first — evicting better posts.
         s = _summarizer(min_score=0.0)
-        s.filter = _FakeChain([{"score": raw, "reason": "x", "title": ""}])
+        s.filter = _FakeChain([{"score": raw, "reason": "x"}])
         assert s._filter_posts([_post("a")]) == []
         [(_, reason)] = s.filtered_out_posts
         assert reason.startswith("Filtering failed")
@@ -111,14 +111,14 @@ class TestFilterPosts:
             "title": "Q&A at AT&T",
         }
 
-    def test_title_overwrite_applied(self):
+    def test_the_feed_title_is_kept(self):
+        # The filter judges; it does not retitle. Model titles varied in casing
+        # between runs and mangled "<T>"-style text.
         s = _summarizer(min_score=0.5)
-        posts = [_post("orig")]
-        s.filter = _FakeChain(
-            [{"score": "0.9", "reason": "x", "title": "Better Title"}]
-        )
+        posts = [_post("Using <T> Generics in Practice")]
+        s.filter = _FakeChain([{"score": "0.9", "reason": "x"}])
         kept = s._filter_posts(posts)
-        assert kept[0].title == "Better Title"
+        assert kept[0].title == "Using <T> Generics in Practice"
 
     def test_non_numeric_score_does_not_crash_and_is_recorded(self):
         s = _summarizer(min_score=0.5)
@@ -136,7 +136,7 @@ class TestFilterPosts:
         # item — must not misalign or crash, and the post is recorded.
         s = _summarizer(min_score=0.5)
         posts = [_post("a"), _post("b")]
-        s.filter = _FakeChain([None, {"score": "0.9", "reason": "ok", "title": ""}])
+        s.filter = _FakeChain([None, {"score": "0.9", "reason": "ok"}])
         kept = s._filter_posts(posts)
         assert [p.title for p in kept] == ["b"]
         assert any("failed" in r.lower() for _, r in s.filtered_out_posts)
@@ -144,7 +144,7 @@ class TestFilterPosts:
     def test_skips_posts_without_content(self):
         s = _summarizer(min_score=0.5)
         posts = [_post("a", content=""), _post("b", content="real")]
-        s.filter = _FakeChain([{"score": "0.9", "reason": "ok", "title": ""}])
+        s.filter = _FakeChain([{"score": "0.9", "reason": "ok"}])
         kept = s._filter_posts(posts)
         assert [p.title for p in kept] == ["b"]
 
@@ -226,6 +226,25 @@ class TestSummarizePosts:
         assert real in post.summary
         assert "invented.png" not in post.summary
 
+    def test_a_dropped_image_takes_its_caption_with_it(self):
+        s = _summarizer()
+        post = _post("a", content="<p>text</p>")
+        post.images = []
+        s.summarizer = _FakeChain(
+            [
+                {
+                    "summary": BODY
+                    + '<figure><img src="https://cdn.example.com/invented.png">'
+                    "<figcaption>아키텍처 다이어그램입니다.</figcaption></figure>",
+                    "tags": [],
+                    "urls": [],
+                }
+            ]
+        )
+        s._summarize_posts([post])
+        assert "figcaption" not in post.summary
+        assert "아키텍처 다이어그램" not in post.summary
+
     def test_image_present_only_in_raw_content_is_kept(self):
         """Provenance accepts a src that appears verbatim in the post HTML even
         if our own extractor missed it (lazy-loading, srcset, etc.)."""
@@ -284,9 +303,9 @@ class TestProcessPostsCapBeforeSummarize:
         # Filter assigns distinct scores so ranking is unambiguous.
         s.filter = _FakeChain(
             [
-                {"score": "0.50", "reason": "", "title": ""},
-                {"score": "0.90", "reason": "", "title": ""},
-                {"score": "0.70", "reason": "", "title": ""},
+                {"score": "0.50", "reason": ""},
+                {"score": "0.90", "reason": ""},
+                {"score": "0.70", "reason": ""},
             ]
         )
         result = s.process_posts(posts)
@@ -303,8 +322,8 @@ class TestProcessPostsCapBeforeSummarize:
         posts = [_post("a"), _post("b")]
         s.filter = _FakeChain(
             [
-                {"score": "0.90", "reason": "", "title": ""},
-                {"score": "0.80", "reason": "", "title": ""},
+                {"score": "0.90", "reason": ""},
+                {"score": "0.80", "reason": ""},
             ]
         )
         # Model returns None for every post (call failed even after fallback).
@@ -320,8 +339,8 @@ class TestProcessPostsCapBeforeSummarize:
         posts = [_post("ok"), _post("bad")]
         s.filter = _FakeChain(
             [
-                {"score": "0.90", "reason": "", "title": ""},
-                {"score": "0.80", "reason": "", "title": ""},
+                {"score": "0.90", "reason": ""},
+                {"score": "0.80", "reason": ""},
             ]
         )
         s.summarizer = _FakeChain(
@@ -342,7 +361,7 @@ class TestProcessPostsCapBeforeSummarize:
         s = _summarizer(min_score=0.0)
         post = _post("a")
         post.summary = "Feed teaser text that is not a real summary."
-        s.filter = _FakeChain([{"score": "0.90", "reason": "", "title": ""}])
+        s.filter = _FakeChain([{"score": "0.90", "reason": ""}])
         s.summarizer = _FakeChain([None])
         assert s.process_posts([post]) == []
 
@@ -364,6 +383,12 @@ class TestSelectForDigest:
             [("low", "aws", 0.5), ("top", "meta", 0.9), ("mid", "google", 0.7)]
         )
         assert [p.title for p in s._select_for_digest(posts)] == ["top", "mid", "low"]
+
+    def test_equal_scores_rank_the_newer_post_first(self):
+        s = _summarizer()
+        posts = self._scored([("older", "aws", 0.7), ("newer", "meta", 0.7)])
+        posts[0].published_date -= timedelta(days=2)
+        assert [p.title for p in s._select_for_digest(posts)] == ["newer", "older"]
 
     def test_cap_prefers_diverse_sources(self):
         s = _summarizer(max_posts=3, max_per_source=2)
@@ -408,7 +433,7 @@ class TestFilterInputIsProseNotMarkup:
         class _Capture(_FakeChain):
             def batch(self, inputs, config=None, return_exceptions=False):
                 captured.extend(inputs)
-                return [{"score": "0.90", "reason": "", "title": ""} for _ in inputs]
+                return [{"score": "0.90", "reason": ""} for _ in inputs]
 
         summarizer.filter = _Capture([])
         summarizer._filter_posts(posts)

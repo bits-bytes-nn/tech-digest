@@ -45,14 +45,7 @@ def _file_handler(formatter: logging.Formatter) -> logging.FileHandler:
 def configure_logger(
     name: str = LOGGER_NAME, level: int = logging.INFO
 ) -> logging.Logger:
-    """Console logging, plus a dated file outside AWS (CloudWatch covers it there).
-
-    The two handler builders used to guard against adding a duplicate handler,
-    which could not happen: this function clears the handler list immediately
-    before calling them. The level and name were also wrapped in a ``LoggerConfig``
-    class whose ``log_format`` and ``file_logging_enabled`` parameters no caller
-    ever set.
-    """
+    """Console logging, plus a dated file outside AWS (CloudWatch covers it there)."""
     logger_obj = logging.getLogger(name)
     logger_obj.setLevel(level)
     formatter = logging.Formatter(LOG_FORMAT)

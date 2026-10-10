@@ -30,13 +30,8 @@ from .logger import logger
 from .model_factory import BedrockLanguageModelFactory
 from .prompts.prompts import FilteringPrompt, SummarizationPrompt
 
-# The terminal-colon rule lives in ``quality_metrics`` (which owns the
-# prompt-rule-to-check mapping and pulls in nothing heavier than bs4) so the
-# corrector below and the rubric that scores it cannot disagree — the same
-# reason ``is_on_grid`` is imported from ``eval_metrics`` above. They previously
-# had separate patterns and did disagree: the rubric counted the
-# list-introducing colon this corrector deliberately preserves, and scored a
-# correct summary 0 on that dimension.
+# The terminal-colon rule lives in ``quality_metrics`` so the corrector below and
+# the rubric that scores it share one pattern and cannot disagree.
 from .quality_metrics import KO_LENGTH_BAND, KO_TERMINAL_COLON, is_korean
 from .utils import (
     BatchProcessor,
@@ -138,15 +133,9 @@ def _postprocess_summary(summary: str) -> str:
     """Deterministic corrections to the model's summary HTML.
 
     Only the Korean terminal colon, which is unambiguously wrong and cheap to
-    detect (see ``KO_TERMINAL_COLON``). There used to be a second pass here that
-    rewrote host aliases — ``magazine.sebastianraschka`` ->
-    ``sebastianraschka`` — as a blind whole-document ``str.replace``. It was
-    removed because it did the opposite of what it claimed: the two hosts have
-    different path layouts, so the "normalized" link 404s where the original
-    resolves (verified: ``magazine.sebastianraschka.com/p/<slug>`` is 200,
-    ``sebastianraschka.com/p/<slug>`` is 404). It also fired on the visible
-    prose, not just on hrefs. A per-host rewrite table cannot know a site's URL
-    structure, so there is nothing here to fix.
+    detect (see ``KO_TERMINAL_COLON``). Links are not rewritten: a host-alias
+    table cannot know a site's URL layout (``magazine.sebastianraschka.com/p/x``
+    resolves where ``sebastianraschka.com/p/x`` 404s).
     """
     return KO_TERMINAL_COLON.sub(r"\1.", summary)
 
@@ -191,8 +180,8 @@ def _normalize_urls(urls_input: Any) -> list[str]:
 
 # Prefixes of the filtered-out reasons that mean a model call FAILED, as opposed
 # to a verdict on the post. main's "Model Failures" alert matches on these, so
-# they are defined once here and every failure reason is built from them: a
-# reworded message used to silence the alert without failing a single test.
+# they are defined once here and every failure reason is built from them, so a
+# reworded message cannot silently stop the alert.
 FILTER_FAILED = "Filtering failed"
 FILTER_UNPARSEABLE = "Filter response unparseable"
 SUMMARY_FAILED = "Summarization failed"
@@ -284,7 +273,8 @@ def _strip_unsourced_images(
         if src and (src in allowed or src in source_html or src in decoded_source):
             continue
         dropped.append(src or "(no src)")
-        img.decompose()
+        # The whole figure goes: a caption left behind describes nothing.
+        (img.find_parent("figure") or img).decompose()
     if not dropped:
         return summary_html, []
     return str(soup), dropped
@@ -371,8 +361,6 @@ class SummarizationOptions(BaseModel):
 
     Declared once: the config model (``configs.Summarization``) extends this with
     the greeting model, and ``SummarizerSettings`` with what only the run knows.
-    Two hand-kept copies drifted before — two switches documented in the template
-    were never declared on the config side, so setting them did nothing.
     """
 
     use_filtering: bool = True
@@ -699,10 +687,8 @@ class Summarizer:
     def _gate_by_content_length(self, posts: list[Post]) -> list[Post]:
         """Drop posts whose visible text is too thin to summarize well.
 
-        This is the fix for the recurring "article too short to write about"
-        failure: previously such posts reached the summarizer and produced an
-        empty/garbage summary. Dropped posts are recorded in
-        ``filtered_out_posts`` so they appear in the run notification.
+        A thin post would only produce an empty or invented summary. Dropped
+        posts are recorded in ``filtered_out_posts`` so the run report shows them.
         """
         minimum = self.settings.min_content_length
         substantive: list[Post] = []
@@ -804,12 +790,9 @@ class Summarizer:
                 continue
             try:
                 score = float(response["score"])
-                # Out of [0,1] is a failed call, not a verdict. It used to be
-                # clamped, which turned the model's "8.5" (meant as 0.85) into
-                # 1.0: past min_score and to the top of the rank, evicting
-                # genuinely better posts — what the clamp claimed to prevent.
-                # Off-grid values are logged (not rejected — the rubric allows a
-                # ±0.05 step) for observability.
+                # Out of [0,1] is a failed call, not a verdict: clamping the
+                # model's "8.5" (meant as 0.85) to 1.0 would rank it first.
+                # Off-grid values are only logged.
                 if not 0.0 <= score <= 1.0:
                     logger.error(
                         "Filter score %.3f for '%s' is outside [0,1]; treating it "
@@ -829,8 +812,6 @@ class Summarizer:
                     )
                 reason = response.get("reason", "No reason provided.")
                 post.score = score
-                if title := response.get("title"):
-                    post.title = title
                 if score >= self.settings.min_score:
                     filtered_posts.append(post)
                     logger.info(

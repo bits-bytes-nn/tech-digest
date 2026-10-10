@@ -1,8 +1,4 @@
-"""Small, unrelated helpers shared across the app.
-
-Bedrock model construction used to live here too, which made this the largest
-module in the project; it now lives in ``model_factory``.
-"""
+"""Small, unrelated helpers shared across the app."""
 
 import functools
 import math
@@ -26,9 +22,7 @@ from tqdm import tqdm
 from .logger import logger
 
 # Retry policy for a single Bedrock call, shared by the batch processor's
-# sequential fallback and by ``retry_with_backoff``. One set of numbers: these
-# used to be module constants for one caller and duplicate pydantic field
-# defaults for the other, with nothing keeping the two in step.
+# sequential fallback and by ``retry_with_backoff``.
 MAX_RETRIES: int = 5
 RETRY_MAX_WAIT: int = 120
 RETRY_MULTIPLIER: float = 30.0
@@ -64,11 +58,8 @@ def is_retryable(error: BaseException) -> bool:
     Throttling, server faults, dropped connections and timeouts can. Anything
     else is permanent: a 400 for a bad request shape or a missing permission, a
     bug in this code, or malformed output the repair model already had one try
-    at — regenerating the whole summary for it re-paid the full call up to six
-    times per post. Retrying those used to cost
-    up to five attempts and ~330s of backoff per item, so one bad config on the
-    filter (one call per collected post) held the run for well over an hour
-    before the empty-digest alert could say anything.
+    at. Each retry backs off up to ~330s per item, so retrying a permanent error
+    on the filter (one call per collected post) would hold a run for over an hour.
 
     Only the explicit cause chain (``raise ... from``) is walked. The implicit
     ``__context__`` also links an exception raised while HANDLING another, which
@@ -105,12 +96,8 @@ def retry_with_backoff(
     max_wait: int = RETRY_MAX_WAIT,
     attempts: int = MAX_RETRIES,
 ) -> Callable:
-    """Exponential-backoff retry decorator that logs each attempt.
-
-    Replaces a ``RetryableBase`` class whose only member was this as a static
-    method and which was inherited purely to reach it — a mixin carrying no
-    state, where a plain function does the same job without implying a hierarchy.
-    """
+    """Exponential-backoff retry for errors ``is_retryable`` accepts, logging
+    each attempt."""
     return tenacity.retry(
         retry=tenacity.retry_if_exception(is_retryable),
         wait=tenacity.wait_exponential(multiplier=multiplier, max=max_wait),
@@ -122,8 +109,6 @@ def retry_with_backoff(
 
 class BatchProcessor(BaseModel):
     max_concurrency: int = Field(default=5, ge=1)
-    retry_multiplier: float = Field(default=RETRY_MULTIPLIER, ge=1.0)
-    retry_max_wait: int = Field(default=RETRY_MAX_WAIT, ge=0)
     max_retries: int = Field(default=MAX_RETRIES, ge=1)
     batch_size: int = Field(default=10, ge=1)
 
@@ -136,10 +121,6 @@ class BatchProcessor(BaseModel):
         task_name: str,
         show_progress: bool = True,
     ) -> list[Any]:
-        # Concurrency and chunk size come from the instance, which the composition
-        # root sizes from config. There used to be a ``run_config`` mapping that
-        # could override both per call; no caller ever passed one, so it was two
-        # unreachable branches over a parameter that existed to be ignored.
         if not items_to_process:
             return []
         max_concurrency = self.max_concurrency
@@ -172,11 +153,6 @@ class BatchProcessor(BaseModel):
                 len(chunk_items),
             )
             chunk_inputs = prepare_inputs_func(chunk_items)
-            if not chunk_inputs:
-                logger.warning(
-                    "No valid inputs prepared for chunk %d, skipping", chunk_num
-                )
-                continue
             try:
                 logger.debug("Attempting batch processing for chunk %d", chunk_num)
                 chunk_results = prepared_batch_func(chunk_inputs)
@@ -197,10 +173,9 @@ class BatchProcessor(BaseModel):
                     )
                 )
                 continue
-            # Only the items that failed go to the sequential retry. The batch is
-            # run with return_exceptions, so one failed item no longer discards
-            # the others' results: re-running the whole chunk billed every
-            # successful call a second time (5 items, 1 failing = 9 calls, not 5).
+            # Only the items that failed go to the sequential retry: the batch
+            # runs with return_exceptions, so the others keep their results and
+            # are not billed twice.
             failed = [
                 index
                 for index, result in enumerate(chunk_results)
@@ -244,12 +219,7 @@ class BatchProcessor(BaseModel):
         return _batch_func
 
     def _create_retry_decorator(self, operation_name: str) -> Callable:
-        return retry_with_backoff(
-            operation_name,
-            multiplier=self.retry_multiplier,
-            max_wait=self.retry_max_wait,
-            attempts=self.max_retries,
-        )
+        return retry_with_backoff(operation_name, attempts=self.max_retries)
 
     @staticmethod
     def _process_sequentially_with_fallback(
@@ -431,10 +401,8 @@ def format_alarm(
     multi-line values render under their own ``Key:`` header. Omit a row by leaving
     it out of the dict.
 
-    ``project`` is required rather than defaulted. It used to default to the
-    literal "tech-digest" and no caller passed it, so every alarm subject named
-    that project regardless of ``resources.project_name`` — a deployment under any
-    other name would have paged with the wrong identity in the subject line.
+    ``project`` is required so the subject names the deployment
+    (``resources.project_name``), not a hardcoded default.
     """
     ts = (timestamp or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M:%S")
     subject = f"[{project}] {event} — {status}"
@@ -464,10 +432,8 @@ def get_date_range(
     compare with ``start <= t < end`` (see ``is_date_in_range``), so the windows
     of consecutive weekly runs abut exactly, whatever hour the job runs at.
 
-    The window used to END at 23:59:59 on the run day. A scheduled run at 01:00
-    UTC cannot see posts published later that day, and the next run's window
-    started at that same 23:59:59 — so everything published on a run day after
-    the job ran (23 of every 168 hours) was never collected by any issue.
+    Ending the window at the run hour or at 23:59 instead would leave posts
+    published on a run day after the job ran in no issue at all.
     """
     if end_date_str:
         day = datetime.strptime(end_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
@@ -479,12 +445,7 @@ def get_date_range(
 
 
 def measure_execution_time(func: Callable) -> Callable:
-    """Log how long a synchronous call took.
-
-    There is no async variant: the pipeline is synchronous throughout (LangChain
-    `.batch()` fans out with threads, not a loop), so the coroutine branch this
-    decorator used to carry was never constructed on any code path.
-    """
+    """Log how long a (synchronous) call took."""
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):

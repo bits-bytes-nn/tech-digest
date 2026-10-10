@@ -333,9 +333,8 @@ def _archive_suffix(
     no versions, so only the run that actually delivers the issue may write the
     canonical key. Two other runs build the same issue: an explicit --recipients
     test send, and a retry of a run that had already sent to someone (a Spot
-    reclaim or OOM after the send loop began). Either used to replace the record
-    of what readers received with a rebuild that, model output being
-    non-deterministic, can carry different posts.
+    reclaim or OOM after the send loop began). Either would replace the record of
+    what readers received with a rebuild that can carry different posts.
     """
     if recipients is not None:
         return TEST_RUN_PREFIX
@@ -424,14 +423,15 @@ def _generate_greeting(
     language: Language,
 ) -> str:
     greeter = Greeter(boto_session, config.summarization.greeting_model_id, language)
-    titles = [post.title for post in posts]
-    context = f"Today is {date_suffix}. Today's articles include: {', '.join(titles)}"
+    # Titles alone made the model invent a common theme; the one-liners say what
+    # each article actually covers.
+    lines = "\n".join(f"- {post.title}: {post.one_liner}" for post in posts)
+    context = f"Today is {date_suffix}. This week's articles:\n{lines}"
     try:
         greeting = greeter.greet(context=context)
     except Exception as e:
         # The intro is one paragraph above the articles, and by now every summary
-        # has been paid for. Losing it must not lose the issue: the run used to
-        # fail here, after the greeting's own retries, and send nothing.
+        # has been paid for: losing it must not lose the issue.
         logger.error("Greeting generation failed (%s); using the fixed intro.", e)
         return FALLBACK_INTRO[language]
     logger.debug("Generated greeting: %s", greeting)
@@ -514,9 +514,9 @@ def _upload_files_to_s3(
 class DeliveryOutcome:
     """What one run's send phase actually did.
 
-    ``skipped`` is what distinguishes a retry that had nothing left to do from a
-    run that found nobody to send to — the two used to be indistinguishable at the
-    call site (both produced ``total == 0``), and only one of them is alarm-worthy.
+    ``skipped`` distinguishes a retry that had nothing left to do from a run that
+    found nobody to send to; both attempt zero sends, and only the second is
+    alarm-worthy.
     """
 
     #: Recipients the run resolved, before the already-delivered ledger.
@@ -702,16 +702,10 @@ def _send_emails_to_recipients(
     """Send the issue to each recipient, skipping any the ledger already covers.
 
     The ledger makes the send loop idempotent PER RECIPIENT, which is the unit the
-    harm is measured in. The Batch job definition's ``retry_attempts=2`` (two
-    attempts, one retry) re-runs ``main.py`` from the start, so a job that died
-    anywhere after the first send —
-    a Spot reclaim being the likeliest cause now that Spot is the preferred compute
-    environment — used to deliver the whole issue a second time.
-
-    Recipient-level granularity also makes a mid-loop crash strictly better than
-    before rather than merely not-worse: the retry serves exactly the readers who
-    had not been reached, instead of everyone (duplicate) or nobody (an
-    issue-level marker would have claimed the whole issue was done).
+    harm is measured in. A Batch retry re-runs ``main.py`` from the start, so
+    without it a job that died after the first send (most likely a Spot reclaim)
+    would deliver the issue again; with it, the retry serves exactly the readers
+    not yet reached. An issue-level marker could only say "all" or "none".
     """
     subject = f"[{date_suffix}] {config.newsletter.header_title}"
     already = (
@@ -780,8 +774,8 @@ def _publish_alarm(
         event=event, status=status, fields=fields, project=project
     )
     # An alert is a side channel. Several are published BEFORE the send loop
-    # (crawl health, clipped newsletter), so an SNS error escaping here used to
-    # abort the run with the issue built and nobody sent it.
+    # (crawl health, clipped newsletter), so an SNS error must not escape and
+    # abort the run with the issue built but unsent.
     try:
         boto_session.client("sns").publish(
             TopicArn=topic_arn, Subject=subject, Message=message
@@ -983,9 +977,8 @@ def _send_crawl_health_alert(
 
     Two triggers, and the second one is the point. A FAILED source is loud — the
     fetch itself errored. A source that fetched fine and offered ZERO items is just
-    as broken (a moved feed, a scraper whose selector stopped matching) but used to
-    render as one more line among the ~12 EMPTY sources a normal run has, where
-    nobody would pick it out for weeks. ``CrawlReport.likely_broken`` separates it
+    as broken (a moved feed, a scraper whose selector stopped matching) but would
+    read as one more EMPTY source among many. ``CrawlReport.likely_broken`` separates it
     from a blog that was merely quiet, using evidence from the same run rather than
     cross-run state.
 

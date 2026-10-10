@@ -231,10 +231,11 @@ class TestPostCollectorDeduplication:
         p3 = Post(title="c", link="https://example.com/2", published_date=now)
         collector = PostCollector([_Stub([p1, p3]), _Stub([p2])])
         posts = collector.collect_posts(now, now)
-        assert {str(p.link) for p in posts} == {
+        # A list, not a set: a set would hide the duplicate this test is about.
+        assert sorted(str(p.link) for p in posts) == [
             "https://example.com/1",
             "https://example.com/2",
-        }
+        ]
 
     def test_one_failing_fetcher_does_not_abort(self):
         now = datetime.now(UTC)

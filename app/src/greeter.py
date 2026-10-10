@@ -66,7 +66,13 @@ class Greeter:
         long greeting is a cosmetic flaw and must never fail the digest.
         """
         draft = self._generate(context)
-        return self._enforce_length(draft)
+        greeting = self._enforce_length(draft)
+        # The one spacing slip a model keeps making; fixed in code, not prompted.
+        return (
+            greeting.replace("이번주", "이번 주")
+            if self.language is Language.KO
+            else greeting
+        )
 
     @retry_with_backoff("greeting")
     def _generate(self, context: str | None = None) -> str:

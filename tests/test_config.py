@@ -205,6 +205,14 @@ class TestSummarizationSwitchesReachTheSummarizer:
         )
 
 
+_VALID_SUMMARIZATION = {
+    "filtering_criteria": "all",
+    "filtering_model_id": "anthropic.claude-haiku-5-5",
+    "summarization_model_id": "anthropic.claude-sonnet-5-5",
+    "greeting_model_id": "anthropic.claude-haiku-5-5",
+}
+
+
 class TestNewestModelsAreSelectable:
     """The newest Claude and GPT ids must load from YAML for every stage, and the
     shipped configs must agree with the code defaults."""
@@ -222,21 +230,31 @@ class TestNewestModelsAreSelectable:
             "openai.gpt-6-astra",
         ],
     )
-    @pytest.mark.parametrize("effort", [None, "medium", "xhigh", "max"])
-    def test_every_stage_accepts_the_id(self, model_value, effort):
+    def test_every_stage_accepts_the_id(self, model_value):
         s = Summarization.model_validate(
             {
                 "filtering_criteria": "all",
                 "filtering_model_id": model_value,
                 "summarization_model_id": model_value,
                 "greeting_model_id": model_value,
-                "thinking_effort": effort,
             }
         )
         assert s.filtering_model_id.value == model_value
         assert s.summarization_model_id.value == model_value
         assert s.greeting_model_id.value == model_value
+
+    @pytest.mark.parametrize("effort", [None, "low", "medium", "high", "xhigh", "max"])
+    def test_every_effort_level_loads(self, effort):
+        s = Summarization.model_validate(
+            {**_VALID_SUMMARIZATION, "thinking_effort": effort}
+        )
         assert s.thinking_effort == effort
+
+    def test_an_unknown_effort_is_rejected(self):
+        with pytest.raises(ValidationError, match="thinking_effort"):
+            Summarization.model_validate(
+                {**_VALID_SUMMARIZATION, "thinking_effort": "extreme"}
+            )
 
     @staticmethod
     def _summarization(name: str) -> dict:

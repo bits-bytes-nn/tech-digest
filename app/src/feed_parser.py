@@ -143,11 +143,9 @@ class ScraperConfig:
         "%b %d, %Y",
         "%B %d, %Y",
     )
-    # Visible-text length below which a feed entry is considered a teaser and we
-    # go scrape the full article page. Distinct from ``scraping.min_content_length``
-    # (the configurable ~600-char gate that decides whether a post is substantive
-    # enough to summarize at all) — the two were previously both called
-    # "min content length", which invited confusing one for the other.
+    # Visible-text length below which a feed entry is a teaser and the article
+    # page is fetched instead. Not ``scraping.min_content_length``, the ~600-char
+    # gate on whether a post is worth summarizing at all.
     FULL_SCRAPE_TEXT_THRESHOLD: ClassVar[int] = 3000
     MARKDOWN_IMAGE_PATTERN: ClassVar[re.Pattern] = re.compile(r"!\[.*?]\((.*?)\)")
     # A full, realistic browser header set. The Sec-Fetch-* / Sec-Ch-Ua and
@@ -216,10 +214,8 @@ def visible_text(html: str) -> str:
     all three agree on what counts as content — and agree with the summarizer,
     which receives ``content_html`` and so never sees ``NON_CONTENT_TAGS``.
 
-    Those tags used to count here. A JavaScript-rendered page (tech.kakao.com)
-    then scraped as 681 characters of menus, sitemap and script data: enough to
-    beat the feed teaser and clear the 600-character gate, while the summarizer
-    received 182 characters, essentially the title.
+    Counting those tags would let a JavaScript-rendered page's menus and script
+    data clear the gate while the summarizer receives little more than a title.
     """
     if not html:
         return ""
@@ -276,8 +272,7 @@ def content_html(html: str) -> str:
             }
         return str(soup)
     except Exception as e:
-        # Never let input shaping cost us the post: fall back to the raw HTML,
-        # which is what every run before this used.
+        # Never let input shaping cost the post: fall back to the raw HTML.
         logger.warning("Could not clean content HTML, using it as-is: %s", e)
         return html
 
@@ -432,10 +427,7 @@ class Post(BaseModel):
 
         ``source`` is always DERIVED from the link via ``SOURCE_MAPPING``, never
         read off the entry: that map is the single source of truth, and a
-        per-scraper source would be a second copy of it that could drift. The
-        index-page scrapers used to pass ``source=`` here and it was silently
-        ignored — one of them had drifted to a hardcoded literal without anyone
-        noticing, which is what a duplicate nobody reads looks like.
+        per-scraper source would be a second copy of it that could drift.
         """
         link_str = getattr(entry, "link", "")
         content = cls._extract_content_from_entry(entry, link_str)
@@ -889,9 +881,7 @@ class LinkedInBlogScraper(GenericPageScraper):
 class ScraperRegistry:
     # URL fragment -> scraper. No source is recorded alongside the class: the
     # source comes from ``SOURCE_MAPPING`` via the post's link, so pairing one
-    # here would be a second copy of that map. The entries used to be
-    # ``(class, source)`` tuples whose source was threaded down and then
-    # discarded by ``Post.from_entry``.
+    # here would be a second copy of that map.
     _SCRAPER_MAPPING: ClassVar[dict[str, type[GenericPageScraper]]] = {
         "www.linkedin.com/blog/engineering": LinkedInBlogScraper,
         # NOTE: add new scrapers here (only for sites with no feed)
@@ -927,16 +917,10 @@ class SourceHealth:
     post_count: int = 0
     #: Posts it returned that a previous source had already provided.
     duplicates: int = 0
-    #: Items the source offered BEFORE the date-window filter — feed entries for
-    #: a feed, index-page links matching the scraper's LINK_PATTERN for a scraper.
-    #:
-    #: This is what separates the two reasons a source can be EMPTY, which the
-    #: report used to render identically: a blog that published nothing this week
-    #: offers its back catalogue and the window filters it out, while a moved feed
-    #: or a scraper whose selector no longer matches offers NOTHING to filter. One
-    #: is normal and one needs a person. Both showed up as one indistinguishable
-    #: line among the ~12 empty sources of a typical run, so a broken crawler could
-    #: sit there for weeks.
+    #: Items with a readable date the source offered BEFORE the date window.
+    #: It separates the two reasons a source can be EMPTY: a quiet blog offers a
+    #: back catalogue the window filters out; a moved feed or a broken scraper
+    #: offers nothing. Only the second needs a person (``likely_broken``).
     #:
     #: ``None`` means the fetcher did not report a count — unknown, NOT zero.
     candidates: int | None = None

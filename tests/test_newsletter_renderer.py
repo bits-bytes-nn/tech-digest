@@ -359,6 +359,9 @@ class TestClipBudget:
         for article in data.articles:
             article.summary = "<p>" + "가" * (self.KO_SUMMARY_CHARS * 10) + "</p>"
         with caplog.at_level("WARNING"):
+            renderer.render_newsletter(self._issue(3))
+        assert not any(r.levelname == "WARNING" for r in caplog.records)
+        with caplog.at_level("WARNING"):
             renderer.render_newsletter(data)
         assert any("clip budget" in r.message for r in caplog.records)
 

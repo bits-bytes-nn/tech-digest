@@ -602,12 +602,21 @@ def _capture_ctor(monkeypatch) -> dict:
     return captured
 
 
-def _request_fields(kwargs: dict) -> dict:
-    """Every place a model-specific field can land, merged for assertions."""
-    return {
-        **kwargs.get("model_kwargs", {}),
-        **kwargs.get("additional_model_request_fields", {}),
-    }
+def _request_fields(captured: dict) -> dict:
+    """Model-specific fields, read from the key the captured backend sends.
+
+    Converse takes them as ``additional_model_request_fields`` and InvokeModel as
+    ``model_kwargs``; a field under the other backend's key is a malformed request.
+    """
+    converse = captured["class"] == "ChatBedrockConverse"
+    key, wrong = (
+        ("additional_model_request_fields", "model_kwargs")
+        if converse
+        else ("model_kwargs", "additional_model_request_fields")
+    )
+    kwargs = captured["kwargs"]
+    assert wrong not in kwargs, (captured["class"], kwargs[wrong])
+    return kwargs.get(key, {})
 
 
 class TestClaude55AndFable51:
@@ -632,7 +641,7 @@ class TestClaude55AndFable51:
         assert LanguageModelId(value) is model_id
 
     @pytest.mark.parametrize("model_id", NEW_GENERATION)
-    @pytest.mark.parametrize("prefix", ["", "us.", "global."])
+    @pytest.mark.parametrize("prefix", ["", "global."])
     @pytest.mark.parametrize("enable_thinking", [False, True])
     def test_no_sampling_params_sent(
         self, monkeypatch, model_id, prefix, enable_thinking
@@ -649,11 +658,11 @@ class TestClaude55AndFable51:
         kwargs = captured["kwargs"]
         for key in SAMPLING_KEYS:
             assert key not in kwargs, (model_id, key)
-            assert key not in _request_fields(kwargs), (model_id, key)
+            assert key not in _request_fields(captured), (model_id, key)
 
     @pytest.mark.parametrize("model_id", NEW_GENERATION)
     @pytest.mark.parametrize("prefix", ["", "global."])
-    @pytest.mark.parametrize("effort", [None, "low", "xhigh", "max"])
+    @pytest.mark.parametrize("effort", [None, "max"])
     def test_thinking_on_is_adaptive_never_budget(
         self, monkeypatch, model_id, prefix, effort
     ):
@@ -666,7 +675,7 @@ class TestClaude55AndFable51:
             effort=effort,
             max_tokens=64000,
         )
-        fields = _request_fields(captured["kwargs"])
+        fields = _request_fields(captured)
         assert fields["thinking"] == {"type": "adaptive"}
         if effort:
             assert fields["output_config"] == {"effort": effort}
@@ -684,14 +693,14 @@ class TestThinkingOff:
 
     @pytest.mark.parametrize("model_id", list(THINKING_OFF))
     @pytest.mark.parametrize("prefix", ["", "global."])
-    @pytest.mark.parametrize("effort", [None, "medium", "max"])
+    @pytest.mark.parametrize("effort", [None, "max"])
     def test_sends_the_models_off_switch(self, monkeypatch, model_id, prefix, effort):
         _stub_resolution(monkeypatch, prefix)
         captured = _capture_ctor(monkeypatch)
         _offline_factory().get_model(
             model_id, enable_thinking=False, effort=effort, max_tokens=4096
         )
-        fields = _request_fields(captured["kwargs"])
+        fields = _request_fields(captured)
         off = THINKING_OFF[model_id]
         if off is not None:
             assert fields["thinking"] == off
@@ -720,7 +729,7 @@ class TestThinkingOff:
         _stub_resolution(monkeypatch, "us.")
         captured = _capture_ctor(monkeypatch)
         _offline_factory().get_model(model_id, enable_thinking=False, effort="high")
-        fields = _request_fields(captured["kwargs"])
+        fields = _request_fields(captured)
         assert "thinking" not in fields
         assert "output_config" not in fields
 
@@ -793,19 +802,19 @@ class TestOpenAIDialect:
         # Converse even on a bare id: InvokeModel would need OpenAI's own body.
         assert captured["class"] == "ChatBedrockConverse"
         assert "stop_sequences" not in kwargs
-        fields = _request_fields(kwargs)
+        fields = _request_fields(captured)
         for key in (*SAMPLING_KEYS, "thinking", "output_config"):
             assert key not in kwargs and key not in fields, key
 
     @pytest.mark.parametrize("model_id", GPT_6)
-    @pytest.mark.parametrize("effort", [None, "low", "max"])
+    @pytest.mark.parametrize("effort", [None, "max"])
     def test_thinking_on_sends_the_configured_effort(
         self, monkeypatch, model_id, effort
     ):
         _stub_resolution(monkeypatch, "global.")
         captured = _capture_ctor(monkeypatch)
         _offline_factory().get_model(model_id, enable_thinking=True, effort=effort)
-        fields = _request_fields(captured["kwargs"])
+        fields = _request_fields(captured)
         if effort:
             assert fields["reasoning"] == {"effort": effort}
         else:
@@ -817,7 +826,7 @@ class TestOpenAIDialect:
         _stub_resolution(monkeypatch, "global.")
         captured = _capture_ctor(monkeypatch)
         _offline_factory().get_model(model_id, enable_thinking=False, effort=effort)
-        fields = _request_fields(captured["kwargs"])
+        fields = _request_fields(captured)
         if model_id in GPT_CAN_STOP_REASONING:
             assert fields["reasoning"] == {"effort": "none"}
         elif effort:

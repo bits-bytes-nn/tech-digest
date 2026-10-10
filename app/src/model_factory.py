@@ -96,7 +96,7 @@ class LanguageModelInfo(BaseModel):
     # field, so leaving the field out is NOT how thinking is turned off. True for
     # the whole Claude 5 generation (Sonnet 5 and Opus 5 included); False for 4.x,
     # where omission still means "no thinking" even on the adaptive-only Opus
-    # 4.7/4.8. Measured against Bedrock on 2026-10-10 (see design.md §8).
+    # 4.7/4.8. Measured against Bedrock on 2026-10-10 (see docs/CHANGELOG.md).
     thinks_when_omitted: bool = False
     # What turns thinking off on a ``thinks_when_omitted`` model, because it is
     # not the same everywhere: Sonnet 5, Opus 5 and Haiku 5.5 take
@@ -474,15 +474,7 @@ class BedrockCrossRegionModelHelper:
 
 
 class BedrockLanguageModelFactory:
-    """Builds a configured LangChain chat model for a ``LanguageModelId``.
-
-    This used to derive from a ``BaseBedrockModelFactory(Generic[ModelIdT,
-    ModelInfoT, WrapperT], ABC)`` whose three abstract methods were a constant
-    string, a module-level dict and this class's own ``get_model``. One
-    implementation, three type variables, and every concrete answer already
-    known — the abstraction had no second case to serve and cost a reader two
-    hops to find the service name.
-    """
+    """Builds a configured LangChain chat model for a ``LanguageModelId``."""
 
     BOTO_READ_TIMEOUT: ClassVar[int] = 300
     BOTO_MAX_ATTEMPTS: ClassVar[int] = 3
@@ -524,8 +516,32 @@ class BedrockLanguageModelFactory:
         return _LANGUAGE_MODEL_INFO.get(model_id)
 
     def get_model(
-        self, model_id: LanguageModelId, **kwargs: Any
+        self,
+        model_id: LanguageModelId,
+        *,
+        temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int | None = None,
+        enable_thinking: bool = False,
+        thinking_budget_tokens: int | None = None,
+        effort: str | None = None,
+        stage: str | None = None,
+        callbacks: list[BaseCallbackHandler] | None = None,
+        top_k: int = DEFAULT_TOP_K,
     ) -> ChatBedrock | ChatBedrockConverse:
+        """A configured chat model. Options are explicit keywords, so a misspelt
+        one is a TypeError rather than silently ignored; the private helpers
+        below receive them as ``**kwargs``."""
+        kwargs: dict[str, Any] = {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "enable_thinking": enable_thinking,
+            "thinking_budget_tokens": thinking_budget_tokens
+            or self.DEFAULT_THINKING_BUDGET_TOKENS,
+            "effort": effort,
+            "stage": stage,
+            "callbacks": callbacks,
+            "top_k": top_k,
+        }
         model_info = self.get_model_info(model_id)
         if not model_info:
             raise ValueError(f"Unsupported language model ID: '{model_id.value}'")
@@ -535,11 +551,8 @@ class BedrockLanguageModelFactory:
         # Which backend runs decides where every parameter goes: ChatBedrockConverse
         # takes them as top-level kwargs / additional_model_request_fields, while
         # ChatBedrock nests them under model_kwargs. Converse is required for a
-        # cross-region inference profile AND for thinking, so the two conditions
-        # are OR'd into ONE flag that is threaded down. The helpers below take it
-        # as ``use_converse``; they previously named the same argument
-        # ``is_cross_region``, which read as if thinking-on-a-plain-model took the
-        # ChatBedrock path when it does not.
+        # cross-region inference profile AND for thinking, so the conditions are
+        # OR'd into one ``use_converse`` flag that the helpers below take.
         is_cross_region = resolved_model_id != model_id.value
         enable_thinking = kwargs.get("enable_thinking", False)
         # The OpenAI models are only built for Converse here: ChatBedrock's
@@ -593,13 +606,6 @@ class BedrockLanguageModelFactory:
             config.update(sampling_params)
         else:
             config["model_kwargs"].update(sampling_params)
-        # NOTE: there is no 1M-context branch. It used to be here, gated on a
-        # ``supports_1m_context_window`` kwarg that no caller ever passed, next to
-        # a registry flag 11 models set to True — so the
-        # ``anthropic_beta: context-1m-2025-08-07`` header was never once sent and
-        # the flag documented a capability the code could not reach. The pipeline's
-        # largest single input is one article (~25k tokens), well inside every
-        # model's default window, so the feature had no user to gain.
         self._apply_model_features(config, model_info, use_converse, **kwargs)
         return config
 
@@ -627,9 +633,7 @@ class BedrockLanguageModelFactory:
         # Derive it from the catalog id ("anthropic.claude-...") rather than
         # hardcoding, so adding a non-Anthropic model stays correct.
         if resolved_model_id.startswith("arn:"):
-            config["provider"] = kwargs.get("provider") or self._provider_of(
-                kwargs.get("model_id")
-            )
+            config["provider"] = self._provider_of(kwargs.get("model_id"))
         if (
             self.boto_session.profile_name
             and self.boto_session.profile_name != "default"
@@ -657,10 +661,6 @@ class BedrockLanguageModelFactory:
         use_converse: bool,
         **kwargs: Any,
     ) -> None:
-        # NOTE: latency-optimized inference used to be applied here, gated on an
-        # ``enable_performance_optimization`` kwarg no caller passed and a registry
-        # flag only Claude 3.5 Haiku set — a model this project does not use. Three
-        # helpers and a constant existed to configure something no run could reach.
         enable_think = kwargs.get("enable_thinking", False)
         if model_info.request_dialect == "openai":
             self._apply_openai_reasoning(config, model_info, **kwargs)
