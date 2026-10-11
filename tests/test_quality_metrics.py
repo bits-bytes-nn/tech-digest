@@ -188,6 +188,14 @@ class TestStructurePenalties:
             "구체적인 파라미터 이름은 글에 나오지 않으므로 넘어갑니다.",
             "절감 폭을 측정한 수치는 없습니다.",
             "이 글은 구조를 따로 설명하지 않습니다.",
+            # Missed by the first detector, all from real summaries.
+            "이 아티클은 구체적인 성능 메트릭이나 벤치마크 수치를 제공하지 않습니다.",
+            "원문은 이 비교의 구체적인 점수를 싣지 않았습니다.",
+            "글은 파라미터 이름이나 값을 따로 적지 않습니다.",
+            "벤치마크 점수나 지연 측정값은 글에 실려 있지 않습니다.",
+            "증강 비율이나 혼합 방식은 글에 나와 있지 않습니다.",
+            "속도 수치를 공개하지 않았습니다.",
+            "이 글에서 AWS가 직접 측정한 결과는 없습니다.",
         ],
     )
     def test_reworded_absence_sentences_are_caught(self, sentence):
@@ -199,6 +207,10 @@ class TestStructurePenalties:
             "이 방식은 별도 학습이 필요하지 않습니다.",
             "금메달은 미세조정만으로는 나오지 않았고 RL이 필요했습니다.",
             "리소스 구성을 명시하지 않고 기본값으로 배포합니다.",
+            "양자화 결과는 정확도 손실이 없습니다.",
+            "벤치마크 결과도 기존 모델과 차이가 없습니다.",
+            # "구글" ends in 글 but is not the document.
+            "구글은 별도 학습이 필요 없습니다.",
         ],
     )
     def test_a_negated_verb_about_the_technology_is_not_absence_filler(self, sentence):
