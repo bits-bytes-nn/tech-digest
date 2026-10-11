@@ -273,6 +273,9 @@ def _sanitize_html(html: str) -> str:
     return str(soup)
 
 
+_SPACES = re.compile(r"\s")
+
+
 def _strip_unsourced_images(
     summary_html: str, source_html: str, known_images: list[str]
 ) -> tuple[str, list[str]]:
@@ -290,22 +293,33 @@ def _strip_unsourced_images(
     URL with a plain ``&``, and a raw-only comparison dropped images the article
     really contains (three in one OpenAI post).
 
+    A src that differs from one of ``known_images`` only in which space
+    characters it uses is that image, and is restored to the known URL: models
+    copy the narrow no-break space in macOS screenshot names ("1.27.14\u202fPM.png")
+    as a plain space, which names a file the CDN does not have.
+
     Returns ``(cleaned_html, dropped_srcs)``.
     """
     if "<img" not in summary_html.lower():
         return summary_html, []
     allowed = set(known_images)
+    by_spacing = {_SPACES.sub(" ", url): url for url in known_images}
     decoded_source = unescape(source_html)
     soup = BeautifulSoup(summary_html, "html.parser")
     dropped: list[str] = []
+    changed = False
     for img in list(soup.find_all("img")):
         src = str(img.get("src") or "").strip()
         if src and (src in allowed or src in source_html or src in decoded_source):
             continue
+        if known := by_spacing.get(_SPACES.sub(" ", src)):
+            img["src"] = known
+            changed = True
+            continue
         dropped.append(src or "(no src)")
         # The whole figure goes: a caption left behind describes nothing.
         (img.find_parent("figure") or img).decompose()
-    if not dropped:
+    if not (dropped or changed):
         return summary_html, []
     return str(soup), dropped
 
@@ -565,9 +579,9 @@ class Summarizer:
 
         This is measured, not predicted: across 24 real summarization calls the
         usage logger recorded ``cache_read=0`` on every one, with a
-        ``cache_write`` on every one. Filtering is untouched, because it scores
-        every collected post (~20) in chunks of ``max_concurrency`` (10) — later
-        chunks hit, and its logs show cache reads well above cache writes.
+        ``cache_write`` on every one. Filtering is not gated by this: it scores
+        every collected post in several waves, so later waves can hit (on models
+        that accept a cache point at all).
         """
         max_posts = self.settings.max_posts
         # None means "no cap", so the batch is however many posts survived
