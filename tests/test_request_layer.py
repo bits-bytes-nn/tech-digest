@@ -208,17 +208,29 @@ class TestEmailRenderableImage:
     def respond(self, monkeypatch):
         from app.src import feed_parser
 
-        def install(content_type, status_ok=True):
+        calls: list[dict] = []
+
+        def install(content_type="image/png", ok=True, raises=None):
             class _Resp:
                 def __init__(self):
+                    self.ok = ok
                     self.headers = {"content-type": content_type}
 
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *exc):
+                    return False
+
+            def fake(session, url, headers, timeout=None, stream=False):
+                calls.append({"timeout": timeout, "stream": stream})
+                if raises:
+                    raise raises
+                return _Resp()
+
             monkeypatch.setattr(feed_parser, "_is_blocked_host", lambda host: False)
-            monkeypatch.setattr(
-                feed_parser,
-                "_try_request",
-                lambda session, url, headers: _Resp() if status_ok else None,
-            )
+            monkeypatch.setattr(feed_parser, "_get_following_redirects", fake)
+            return calls
 
         return install
 
@@ -244,8 +256,22 @@ class TestEmailRenderableImage:
     def test_an_image_that_does_not_load_is_dropped(self, respond):
         from app.src.feed_parser import is_email_renderable_image
 
-        respond("image/png", status_ok=False)
+        respond(ok=False)
         assert not is_email_renderable_image("https://cdn.example.com/a")
+
+    def test_one_short_header_only_attempt(self, respond):
+        # A hung host used to cost 3 attempts x 30 s per image, with the body
+        # downloaded; now one bounded attempt that reads only the headers.
+        import requests
+
+        from app.src.feed_parser import (
+            IMAGE_PROBE_TIMEOUT_SECONDS,
+            is_email_renderable_image,
+        )
+
+        calls = respond(raises=requests.exceptions.ConnectTimeout("hung"))
+        assert not is_email_renderable_image("https://cdn.example.com/a")
+        assert calls == [{"timeout": IMAGE_PROBE_TIMEOUT_SECONDS, "stream": True}]
 
     def test_an_unsafe_scheme_is_never_fetched(self):
         from app.src.feed_parser import is_email_renderable_image
