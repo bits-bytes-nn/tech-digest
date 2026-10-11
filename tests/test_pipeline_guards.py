@@ -147,6 +147,29 @@ class TestTitleCaseFailureKeepsTheTitles:
         main._title_case_titles([post], _Config(), None)
         assert post.title == "a guide"
 
+    def test_recased_titles_replace_the_feed_titles_in_order(self, monkeypatch):
+        from src.feed_parser import Post
+
+        class _Caser:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def recase(self, titles):
+                return [t.title() for t in titles]
+
+        monkeypatch.setattr(main, "TitleCaser", _Caser)
+
+        class _Config:
+            class summarization:
+                greeting_model_id = "unused"
+
+        posts = [
+            Post(title=t, link=f"https://x.example/{i}", published_date="2026-10-09")
+            for i, t in enumerate(["first post", "second post"])
+        ]
+        main._title_case_titles(posts, _Config(), None)
+        assert [p.title for p in posts] == ["First Post", "Second Post"]
+
 
 class TestTestRunsKeepOutOfTheLogFile:
     def test_no_file_handler_under_pytest(self):
