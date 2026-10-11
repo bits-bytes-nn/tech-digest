@@ -24,7 +24,7 @@
                   alt="{{ article.source_label ~ ' logo' if article.source_label else '' }}"
                 />
               </td>
-              <td valign="middle" style="text-align: left">
+              <td valign="middle" style="text-align: center">
                 <div class="card-title">{{ article.title }}</div>
               </td>
             </tr>
@@ -32,7 +32,7 @@
         </td>
       </tr>
       <tr>
-        <td class="card-pad" style="padding: 12px 24px 0 24px; text-align: left">
+        <td class="card-pad" style="padding: 12px 24px 0 24px; text-align: center">
           <div class="muted">
             {{ labels.published_on }} {{ article.published_date }}
             {% if article.reading_minutes %}
@@ -46,7 +46,7 @@
       </tr>
       {% if article.tags %}
       <tr>
-        <td class="tags-cell card-pad" style="padding: 10px 24px 0 24px; text-align: left">
+        <td class="tags-cell card-pad" style="padding: 10px 24px 0 24px; text-align: center">
           {% for tag in article.tags %}
           <span class="tag-chip"><span>#{{ tag }}</span></span>
           {% endfor %}
