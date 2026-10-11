@@ -525,11 +525,31 @@ class TestHandlerControlFlow:
         assert len(session.sns.published) == 1
         assert "Empty Digest" in session.sns.published[0]["Subject"]
 
-    def test_a_likely_broken_source_alone_raises_the_crawl_health_alert(
-        self, monkeypatch
+    @pytest.mark.parametrize(
+        "source",
+        [
+            # Fetched fine but offered nothing (candidates == 0): dead, not quiet.
+            SourceHealth(
+                url="https://moved.example/feed",
+                fetcher="RssFetcher",
+                status=SourceStatus.EMPTY,
+                candidates=0,
+            ),
+            # Fetched fine, but no post's article page could be read.
+            SourceHealth(
+                url="https://blocked.example/feed",
+                fetcher="RssFetcher",
+                status=SourceStatus.OK,
+                post_count=3,
+                unreadable_pages=3,
+            ),
+        ],
+        ids=["likely_broken", "pages_unreadable"],
+    )
+    def test_a_source_that_did_not_fail_alone_raises_the_crawl_health_alert(
+        self, monkeypatch, source
     ):
-        # No source FAILED; one fetched fine but offered nothing (candidates == 0).
-        # That is the "dead vs quiet" signal, and the handler must page on it.
+        # No source FAILED; the handler must still page on either signal.
         self._patch_common(monkeypatch)
 
         class _Cfg:
@@ -548,16 +568,7 @@ class TestHandlerControlFlow:
         session = _FakeSession()
         monkeypatch.setattr(main, "_boto_sessions", lambda _cfg: (session, session))
         monkeypatch.setattr(main, "_setup_aws_env", lambda *a, **k: None)
-        report = CrawlReport(
-            sources=[
-                SourceHealth(
-                    url="https://moved.example/feed",
-                    fetcher="RssFetcher",
-                    status=SourceStatus.EMPTY,
-                    candidates=0,
-                )
-            ]
-        )
+        report = CrawlReport(sources=[source])
         monkeypatch.setattr(
             main,
             "_fetch_and_filter_posts",
