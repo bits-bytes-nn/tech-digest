@@ -18,7 +18,60 @@ from app.src.newsletter_renderer import (
     collapse_html_whitespace,
     estimate_reading_minutes,
     normalize_date,
+    to_title_case,
 )
+
+
+class TestTitleCase:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (
+                "Multimodal open d1 decision models for the edge",
+                "Multimodal Open d1 Decision Models for the Edge",
+            ),
+            (
+                "EmbeddingGemma 2: an open, lightweight multimodal embedding model",
+                "EmbeddingGemma 2: An Open, Lightweight Multimodal Embedding Model",
+            ),
+            (
+                "Manage Amazon SageMaker HyperPod Spaces directly from SageMaker Studio",
+                "Manage Amazon SageMaker HyperPod Spaces Directly from SageMaker Studio",
+            ),
+            (
+                "an end-to-end guide to vLLM on huggingface.co",
+                "An End-to-End Guide to vLLM on huggingface.co",
+            ),
+            ("what the model is looking at", "What the Model Is Looking At"),
+            (
+                "Building A Context-aware Assistant",
+                "Building a Context-Aware Assistant",
+            ),
+            (
+                "Introducing Claude Haiku 5.5 on AWS",
+                "Introducing Claude Haiku 5.5 on AWS",
+            ),
+            ('"quoted" start', '"Quoted" Start'),
+        ],
+    )
+    def test_english_headlines(self, raw: str, expected: str) -> None:
+        assert to_title_case(raw) == expected
+
+    def test_cjk_title_is_left_alone(self) -> None:
+        assert (
+            to_title_case("Amazon Bedrock으로 만든 에이전트")
+            == "Amazon Bedrock으로 만든 에이전트"
+        )
+
+    def test_article_title_is_title_cased(self) -> None:
+        article = Article(
+            title="a guide to agents",
+            link="https://example.com/a",
+            published_date="2026-10-01",
+            thumbnail="t.png",
+            summary="<p>s</p>",
+        )
+        assert article.title == "A Guide to Agents"
 
 
 class TestValidateDate:
