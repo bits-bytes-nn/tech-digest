@@ -410,7 +410,14 @@ class NewsletterStack(Stack):
                 ],
             ),
             iam.PolicyStatement(
-                actions=["bedrock:ListInferenceProfiles"],
+                # List: our profile resolution (model_factory). Get: langchain-aws
+                # calls it inside ChatBedrockConverse for an application-profile
+                # ARN to learn the base model. Without it every run dies at
+                # model construction (AccessDenied, 2026-10-11).
+                actions=[
+                    "bedrock:ListInferenceProfiles",
+                    "bedrock:GetInferenceProfile",
+                ],
                 resources=["*"],  # profile discovery is an account-level action
             ),
             # No CloudWatch Logs statement: nothing running as this role writes
