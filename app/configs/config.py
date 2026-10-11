@@ -106,9 +106,9 @@ class Scraping(BaseModelWithDefaults):
     # crawl primarily CJK sources, lower this (e.g. 300-400) per stage.
     min_content_length: int = Field(default=600, ge=0)
     # Substrings of source URLs whose fetch failure is KNOWN and expected, so it
-    # should not raise a crawl-health alert. x.ai (and sometimes ai.meta.com)
-    # reject AWS datacenter egress IPs on essentially every run; alerting on them
-    # weekly trains the operator to ignore the alarm, which then hides a source
+    # should not raise a crawl-health alert, such as a site that blocks AWS
+    # datacenter egress IPs on every run. Alerting on one weekly trains the
+    # operator to ignore the alarm, which then hides a source
     # that breaks for real. Listed sources still appear in the health report — they
     # just don't page. Matched as a plain substring against the configured URL.
     expected_flaky_urls: list[str] = Field(default_factory=list)

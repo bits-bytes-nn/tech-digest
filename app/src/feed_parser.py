@@ -7,6 +7,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from html import unescape
 from typing import ClassVar, Protocol, TypeAlias
@@ -183,6 +184,7 @@ class ScraperConfig:
         "openai.com": "openai",
         "blog.palantir.com": "palantir",
         "palantir": "palantir",  # Medium @-handle
+        "palantir.medium.com": "palantir",  # the same feed links here too
         "pinterest-engineering": "pinterest",
         "pinterest_engineering": "pinterest",  # Medium @-handle
         "qwenlm.github.io": "qwen",
@@ -449,9 +451,6 @@ class Post(BaseModel):
             # whose summarization failed shipped its raw feed teaser as the
             # article body while ALSO being reported as filtered-out.
             images=cls._extract_images(content, link_str),
-            tags=[
-                tag.term for tag in getattr(entry, "tags", []) if hasattr(tag, "term")
-            ],
         )
 
     @classmethod
@@ -628,6 +627,13 @@ def try_parse_published_date(date_str: str) -> datetime | None:
         # and fell out of a window starting on 10-04.
         return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
     except (ValueError, TypeError):
+        pass
+    try:
+        # RFC 822, the RSS date format, including the named zones ("PDT", "EST")
+        # that strptime's %z rejects.
+        dt = parsedate_to_datetime(date_str)
+        return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
+    except (ValueError, TypeError, IndexError):
         pass
     for fmt in ScraperConfig.DATE_FORMATS:
         try:
@@ -880,10 +886,6 @@ class LinkedInBlogScraper(GenericPageScraper):
         if not href:
             return None
 
-        tags = []
-        if topic_elem := item.select_one("a.t-14.t-bold"):
-            tags = [topic_elem.text.strip()]
-
         return feedparser.FeedParserDict(
             title=title_link_elem.text.strip(),
             # Resolve relative hrefs against the page URL, matching every other
@@ -893,7 +895,6 @@ class LinkedInBlogScraper(GenericPageScraper):
             # already-absolute URLs.
             link=urljoin(self.page_url, str(href)),
             published=date_elem.text.strip(),
-            tags=[{"term": tag} for tag in tags],
         )
 
 

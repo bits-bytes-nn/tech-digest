@@ -35,6 +35,11 @@ class TestParsePublishedDate:
         dt = parse_published_date("Fri, 30 May 2026 10:00:00 GMT")
         assert dt.year == 2026 and dt.month == 5 and dt.day == 30
 
+    def test_rfc822_named_zone(self):
+        # strptime's %z rejects "PDT"; such a post read as undated and was dropped.
+        dt = parse_published_date("Fri, 30 May 2026 10:00:00 PDT")
+        assert dt == datetime(2026, 5, 30, 17, 0, 0, tzinfo=UTC)
+
     def test_human_readable(self):
         dt = parse_published_date("May 30, 2026")
         assert dt.year == 2026 and dt.month == 5 and dt.day == 30
@@ -118,6 +123,8 @@ class TestSourceDetection:
             ("https://aws.amazon.com/blogs/ml/post", "aws"),
             ("https://openai.com/news/foo", "openai"),
             ("https://qwenlm.github.io/blog/qwen3", "qwen"),
+            # The medium.com/feed/@palantir feed links some posts on this host.
+            ("https://palantir.medium.com/some-post-1a2b", "palantir"),
             ("https://unknown-blog.example.com/post", "unknown"),
             ("", "unknown"),
         ],

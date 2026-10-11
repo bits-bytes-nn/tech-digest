@@ -134,6 +134,17 @@ class TestLinkedInTruncatedTitles:
         [post] = scraper.fetch(*window)
         assert post.title == "Inside the data context layer: trustworthy context"
 
+    def test_a_page_without_og_title_falls_back_to_its_title_tag(
+        self, monkeypatch, window
+    ):
+        scraper = self._scraper(monkeypatch, "Inside the data context la...")
+        page = "<html><head><title>Inside the data context layer</title></head></html>"
+        monkeypatch.setattr(
+            feed_parser, "_make_robust_request", lambda url: _Page(page)
+        )
+        [post] = scraper.fetch(*window)
+        assert post.title == "Inside the data context layer"
+
     def test_an_unreachable_post_page_keeps_the_index_title(self, monkeypatch, window):
         scraper = self._scraper(monkeypatch, "Inside the data context la...")
         [post] = scraper.fetch(*window)
