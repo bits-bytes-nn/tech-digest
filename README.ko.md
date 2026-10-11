@@ -24,7 +24,7 @@ Amazon Bedrock 기반(필터 GPT-6.1 Sol, 요약 Claude) · AWS 위에서 CDK로
 - **AI 기반 큐레이션**. Amazon Bedrock에서 GPT-6.1 Sol이 글마다 관련성을 점수로 매기고,
   Claude가 여러 섹션으로 구조화된 요약을 씁니다.
 - **다중 소스 집계**. RSS와 견고한 HTML 스크레이핑으로 약 20개 기술 블로그(AWS,
-  Google, Meta, OpenAI, Microsoft, NVIDIA 등)에서 글을 모읍니다. 모든 요청에는
+  Google, Meta, Microsoft, NVIDIA 등)에서 글을 모읍니다. 모든 요청에는
   SSRF 가드와 소스별 헬스 추적이 따라붙습니다.
 - **콘텐츠 품질 게이트**. 본문이 너무 빈약한 글은 LLM에 닿기 *전에* 걸러내, 빈
   껍데기 글이 다이제스트에 실리지 않게 합니다.

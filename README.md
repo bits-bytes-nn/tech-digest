@@ -24,7 +24,7 @@ Powered by Amazon Bedrock (GPT-6.1 Sol filters, Claude summarizes) · orchestrat
 - **AI-powered curation**. On Amazon Bedrock, GPT-6.1 Sol scores each post for
   relevance and Claude writes a structured, multi-section summary.
 - **Multi-source aggregation**. pulls from \~20 tech blogs via RSS and resilient
-  HTML scraping (AWS, Google, Meta, OpenAI, Microsoft, NVIDIA, and more), with
+  HTML scraping (AWS, Google, Meta, Microsoft, NVIDIA, and more), with
   SSRF-guarded requests and per-source health tracking.
 - **Content quality gate**. drops posts whose visible text is too thin to
   summarize *before* they reach the LLM, so the digest never ships empty write-ups.

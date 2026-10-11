@@ -529,9 +529,9 @@ HTML 엔티티를 한 번 더 풉니다. 제목을 두 번 이스케이프해 �
 - `SourceStatus`. `OK`(가져와서 글까지 생성), `EMPTY`(가져왔지만 기간 안에
   글이 없음), `FAILED`(가져오기 자체가 실패).
 - `SourceHealth`. 소스별 레코드: `url`, `fetcher`, `status`, `post_count`,
-  `duplicates`, `candidates`, `error`.
+  `duplicates`, `candidates`, `unreadable_pages`, `error`.
 - `CrawlReport`. `SourceHealth`들을 한데 모읍니다. `failed` / `empty` / `ok` /
-  `likely_broken`으로 나눠 보여 주고, `total_posts`, 한 줄 요약 `summary_line()`,
+  `likely_broken` / `pages_unreadable`로 나눠 보여 주고, `total_posts`, 한 줄 요약 `summary_line()`,
   그리고 사람이 읽기 좋게 정리한 `format_alert()`를 제공합니다.
 
 ### `EMPTY`를 가르는 후보 수
@@ -574,16 +574,25 @@ Empty sources (no posts in window):
 `PostCollector.collect_posts`가 실행하면서 이 리포트를 채우고, `likely_broken` 소스의 URL은
 알림과 별개로 매 실행 WARNING 로그에 남깁니다.
 
+### 글 페이지를 읽지 못하는 `OK` 소스
+
+피드는 받아지는데 피드에 소개 문구만 있고 글 페이지가 막힌 소스는 `OK`로 집계됩니다. 그러나
+글마다 소개 문구만 남아 콘텐츠 게이트에서 전부 탈락합니다. `Post.page_unreadable`은 피드
+본문이 짧아 글 페이지를 받아야 했는데 받지 못했거나 파싱하지 못한 글에 붙습니다. 저장하는
+글 JSON에는 들어가지 않는 실행 상태입니다. 수집기가 소스별로 이 글 수를
+`SourceHealth.unreadable_pages`에 세고, `CrawlReport.pages_unreadable`은 **기여한 글 전부가**
+그런 `OK` 소스만 골라냅니다. 일부만 실패한 소스는 일시적 오류일 수 있어 고르지 않습니다.
+
 ### 크롤 헬스 알림의 트리거
 
-AWS에서 실행하다 소스가 `FAILED`가 되거나 `likely_broken`이 되면 `main.py`가 크롤 헬스
+AWS에서 실행하다 소스가 `FAILED`, `likely_broken`, `pages_unreadable` 중 하나가 되면 `main.py`가 크롤 헬스
 알림을 발행합니다(`_send_crawl_health_alert`, 알림 전체 목록은 [SNS 알림](#sns-알림)).
 깨진 소스가 다이제스트에서 조용히 사라지는 대신 바로 손쓸 수 있는 이메일이 됩니다.
 
 - **조용한 블로그는 이 알림을 띄우지 않습니다.** 후보가 0이 아니기 때문입니다. 평소에도
   비어 있는 소스마다 울리는 알람은 아무도 읽지 않는 알람이고, 그러면 새로 깨진 소스가 그
   뒤에 숨습니다.
-- **`scraping.expected_flaky_urls`에 적힌 소스는 두 트리거 모두에서 제외합니다.** 매 실행
+- **`scraping.expected_flaky_urls`에 적힌 소스는 모든 트리거에서 제외합니다.** 매 실행
   AWS 송신 IP를 거부하는 소스를 위한 장치로, 차단 결과가 `FAILED`로 나오든 후보 0개로
   나오든 울리지 않아야 하기 때문입니다. 리포트 본문과 로그에는 그대로 남고, 조용해지는
   것은 트리거뿐입니다. 실패가 전부 예상된 것이면 알림 대신 그 사실을 INFO 로그로 남기고,
@@ -1754,8 +1763,9 @@ fixture(`no_network`)가 실제 연결과 호스트 이름 조회를 막아, 테
 `Retry-After` 준수, `403` 비재시도, 선언된 헤더가 그대로 나가는지를 확인하고, SSRF 가드는
 내부 IP와 내부로 해석되는 호스트명, 내부로 향하는 리다이렉트가 모두 막히는지 봅니다.
 
-**크롤 헬스.** 후보 0개만 `likely_broken`이 되는지, `None`을 0으로 취급하지 않는지,
-`expected_flaky_urls`가 두 트리거를 모두 억제하면서 리포트에는 남기는지를 확인합니다.
+**크롤 헬스.** 후보 0개만 `likely_broken`이 되는지, `None`을 0으로 취급하지 않는지, 글 페이지를
+전부 못 읽은 소스만 `pages_unreadable`이 되는지, `expected_flaky_urls`가 모든 트리거를
+억제하면서 리포트에는 남기는지를 확인합니다.
 
 **필터·요약 단계.** 점수 경계값, 범위 밖 점수의 실패 처리, 피드 제목 유지, 응답이 `None`으로
 돌아왔을 때의 정렬 유지, 잘못된 출력 처리, 요약 전에 적용되는 `max_posts` 캡을 확인합니다.

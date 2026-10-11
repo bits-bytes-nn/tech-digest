@@ -24,7 +24,6 @@ scraping:
     - "https://www.microsoft.com/en-us/research/blog/feed/" # was research.microsoft.com/rss/news.xml (301 redirect)
     - "https://medium.com/feed/netflix-techblog" # was techblog.netflix.com (301 redirect to Medium)
     - "https://developer.nvidia.com/blog/feed"
-    - "https://openai.com/news/rss.xml"
     - "https://medium.com/feed/@palantir"
     - "https://medium.com/feed/@Pinterest_Engineering"
     - "https://qwenlm.github.io/blog/index.xml"

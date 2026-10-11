@@ -328,6 +328,50 @@ class TestPostFromEntry:
         assert post.content == rich
 
 
+class TestPageUnreadable:
+    """A teaser-only entry whose article page cannot be read is marked, so crawl
+    health can name the source instead of reporting it as healthy."""
+
+    def _entry(self, body: str) -> feedparser.FeedParserDict:
+        return feedparser.FeedParserDict(
+            title="T",
+            link="https://openai.com/index/x",
+            published="2026-05-30T10:00:00Z",
+            content=[{"value": body}],
+        )
+
+    def test_a_blocked_page_marks_the_post(self, monkeypatch):
+        from app.src import feed_parser
+
+        monkeypatch.setattr(
+            feed_parser.Post, "_scrape_full_content", staticmethod(lambda url: "")
+        )
+        post = Post.from_entry(self._entry("<p>short teaser</p>"))
+        assert post.page_unreadable
+        assert "page_unreadable" not in post.model_dump()
+
+    def test_a_page_that_was_read_does_not(self, monkeypatch):
+        from app.src import feed_parser
+
+        monkeypatch.setattr(
+            feed_parser.Post,
+            "_scrape_full_content",
+            staticmethod(lambda url: "<p>tiny</p>"),
+        )
+        assert not Post.from_entry(self._entry("<p>short teaser</p>")).page_unreadable
+
+    def test_a_full_feed_body_needs_no_page(self, monkeypatch):
+        from app.src import feed_parser
+
+        monkeypatch.setattr(
+            feed_parser.Post,
+            "_scrape_full_content",
+            staticmethod(lambda url: pytest.fail("fetched")),
+        )
+        body = "<p>" + ("word " * 800) + "</p>"
+        assert not Post.from_entry(self._entry(body)).page_unreadable
+
+
 class TestRegisteredScrapersResolveToAMappedSource:
     """Each index-page scraper's own URL must resolve to a real source.
 
