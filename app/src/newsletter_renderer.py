@@ -104,6 +104,73 @@ def normalize_date(v: str) -> str:
     return (parsed or datetime.now(UTC)).strftime("%Y-%m-%d")
 
 
+# Articles, coordinating conjunctions and short prepositions stay lowercase in
+# a title-cased headline unless they open or close it (Chicago-style).
+# fmt: off
+_TITLE_MINOR_WORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at",
+    "by", "in", "of", "off", "on", "per", "to", "up", "via", "vs", "vs.", "from",
+    "with", "into", "onto",
+})
+# fmt: on
+_NON_LATIN_SCRIPT = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+# Punctuation after which the next word starts a new phrase and is capitalized.
+_PHRASE_BREAK = re.compile(r"[:?!]$")
+
+
+def _title_case_part(part: str, force_capital: bool) -> str:
+    match = re.search(r"[A-Za-z]", part)
+    if match is None:
+        return part
+    core = part[match.start() :]
+    # Leave names and identifiers as written: acronyms and brands with inner
+    # capitals (LLMs, AgentCore, iOS), versions and model ids (d1, GPT-6.1),
+    # and URLs, handles or file names.
+    if (
+        any(c.isupper() for c in core[1:])
+        or any(c.isdigit() for c in core)
+        or re.search(r"[./@_][A-Za-z]", core)
+    ):
+        return part
+    if not force_capital and core.lower().rstrip(",;") in _TITLE_MINOR_WORDS:
+        return part[: match.start()] + core.lower()
+    return part[: match.start()] + core[0].upper() + core[1:]
+
+
+def to_title_case(title: str) -> str:
+    """Title-case an English headline so every card reads in one style.
+
+    Feeds mix sentence case ("Multimodal open d1 decision models for the edge")
+    with title case. A title in Korean, Japanese or Chinese is returned as is:
+    the convention has no meaning there.
+    """
+    if _NON_LATIN_SCRIPT.search(title):
+        return title
+    words = title.split(" ")
+    content = [i for i, w in enumerate(words) if re.search(r"[A-Za-z]", w)]
+    if not content:
+        return title
+    first, last = content[0], content[-1]
+    out: list[str] = []
+    capitalize_next = True
+    for i, word in enumerate(words):
+        if not word:
+            out.append(word)
+            continue
+        force = capitalize_next or i in (first, last)
+        # Each segment of a hyphenated compound is cased on its own, so a minor
+        # word inside one stays lowercase ("Context-Aware", "End-to-End").
+        segments = word.split("-")
+        out.append(
+            "-".join(
+                _title_case_part(seg, force if j == 0 else j == len(segments) - 1)
+                for j, seg in enumerate(segments)
+            )
+        )
+        capitalize_next = bool(_PHRASE_BREAK.search(word))
+    return " ".join(out)
+
+
 class Article(BaseModel):
     title: str = Field(min_length=1)
     link: str
@@ -120,6 +187,7 @@ class Article(BaseModel):
     urls: list[str] = Field(default_factory=list)
     score: float = Field(default=1.0, ge=0.0, le=1.0)
     _normalize_date = field_validator("published_date", mode="before")(normalize_date)
+    _title_case = field_validator("title")(to_title_case)
 
     @field_validator("link", mode="before")
     @classmethod

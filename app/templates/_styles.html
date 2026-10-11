@@ -38,6 +38,7 @@
      issue, which cost tens of KB against the mail-client clip budget. If a
      client ignores <style>, text falls back to the client default — still
      perfectly legible, so the degradation is graceful. */
+  .card-title,
   .muted,
   .lede,
   .card-body,
@@ -45,20 +46,12 @@
   .resources {
     font-family: "Pretendard", "Inter", system-ui, sans-serif;
   }
-  /* One title face for every heading: the issue title, the card titles, the
-     summary's section headings and the resources heading. */
-  .hero-title,
-  .card-title,
-  .card-body h3,
-  .resources-title {
-    font-family: "Pretendard", "Inter", system-ui, sans-serif;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-  }
   .card-title {
+    font-weight: 700;
     color: #16191f;
     font-size: 1.75rem;
     line-height: 1.3;
+    letter-spacing: -0.02em;
   }
   .muted {
     color: #6c757d;
@@ -164,6 +157,7 @@
     margin: 0;
   }
   .resources-title {
+    font-weight: 700;
     margin-bottom: 10px;
   }
   .resources {
