@@ -128,6 +128,26 @@ class TestGreetingFailureKeepsTheIssue:
         assert intro == main.FALLBACK_INTRO[language]
 
 
+class TestTitleCaseFailureKeepsTheTitles:
+    def test_an_unavailable_caser_leaves_titles_alone(self, monkeypatch):
+        from src.feed_parser import Post
+
+        def _broken(*args, **kwargs):
+            raise ValueError("Unsupported model ID")
+
+        monkeypatch.setattr(main, "TitleCaser", _broken)
+
+        class _Config:
+            class summarization:
+                greeting_model_id = "unused"
+
+        post = Post(
+            title="a guide", link="https://x.example/p", published_date="2026-10-09"
+        )
+        main._title_case_titles([post], _Config(), None)
+        assert post.title == "a guide"
+
+
 class TestTestRunsKeepOutOfTheLogFile:
     def test_no_file_handler_under_pytest(self):
         from src.logger import configure_logger

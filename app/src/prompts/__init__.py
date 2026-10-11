@@ -4,6 +4,7 @@ from .prompts import (
     GreetingPrompt,
     GreetingRevisionPrompt,
     SummarizationPrompt,
+    TitleCasePrompt,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "GreetingPrompt",
     "GreetingRevisionPrompt",
     "SummarizationPrompt",
+    "TitleCasePrompt",
 ]

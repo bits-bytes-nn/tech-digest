@@ -461,6 +461,41 @@ Y야" 같은 과거-현재 대조는 넣지 마세요. 평문만 출력하세요
         )
 
 
+class TitleCasePrompt(BasePrompt):
+    """Recase the issue's card titles to one headline style.
+
+    Feeds mix sentence case and title case. Which words are product, model or
+    project names written in lowercase (gpt-oss, vLLM, d1) is a judgment a word
+    list cannot make, so the model decides; ``TitleCaser`` rejects any answer
+    that changes more than letter case.
+    """
+
+    input_variables: list[str] = ["titles"]
+    output_variables: list[str] = ["titles"]
+    system_prompt_template: str = """You are a copy editor for an English-language technical
+newsletter. You apply headline title case and change nothing else."""
+    human_prompt_template: str = """Convert each title below to title case (Chicago style).
+
+**TITLES (JSON array):**
+{titles}
+
+**RULES:**
+1. Capitalize the first and last word, the first word after a colon, and every noun, pronoun,
+   verb (including "Is", "Are", "Be"), adjective and adverb.
+2. Lowercase articles (a, an, the), coordinating conjunctions (and, but, or, nor, for, so, yet),
+   "as", "to" and prepositions (of, in, on, at, by, for, from, with, into, via, vs, ...), unless
+   rule 1 applies.
+3. In a hyphenated compound, case each part by rules 1-2 ("Context-Aware", "End-to-End").
+4. Keep acronyms, product, model, library, company and person names exactly as they are
+   officially written, including lowercase or mixed-case ones (gpt-oss, vLLM, iOS, d1,
+   AgentCore). Keep version numbers, code identifiers, file names and URLs unchanged.
+5. Change letter case only: never add, remove, reorder, translate or respell characters,
+   spaces or punctuation. A title not written in English is returned unchanged.
+
+**OUTPUT:** A JSON array of the converted titles, same count and order as the input. Nothing
+else."""
+
+
 class SummarizationPrompt(BasePrompt):
     input_variables: list[str] = ["post"]
     output_variables: list[str] = ["summary", "one_liner", "tags", "urls"]
