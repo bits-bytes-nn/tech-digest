@@ -32,7 +32,8 @@ class TestIsAnchor:
 
 class TestBandOfScore:
     def test_bands(self):
-        assert band_of_score(0.85) == "high"
+        assert band_of_score(0.85) == "included"
+        assert band_of_score(0.80) == "high"
         assert band_of_score(0.70) == "strong"
         assert band_of_score(0.50) == "moderate"
         assert band_of_score(0.35) == "weak"
@@ -118,7 +119,7 @@ class TestBandOfScore:
 
 class TestArticleScoreStats:
     def test_deterministic_identical_scores(self):
-        s = ArticleScoreStats("a", "high", [0.85, 0.85, 0.85])
+        s = ArticleScoreStats("a", "high", [0.80, 0.80, 0.80])
         assert s.is_deterministic
         assert s.spread == 0.0
         assert s.stdev == 0.0
@@ -144,9 +145,9 @@ class TestArticleScoreStats:
 class TestBuildReport:
     def test_aggregate_rates(self):
         results = {
-            "a": [0.85, 0.85],  # deterministic, on-anchor, band high (matches)
+            "a": [0.80, 0.80],  # deterministic, on-anchor, band high (matches)
             "b": [0.70, 0.60],  # non-det, on-anchor, mean 0.65 -> moderate
-            "c": [0.83, 0.83],  # deterministic but OFF grid, band high
+            "c": [0.78, 0.78],  # deterministic but OFF grid, band high
         }
         expected = {"a": "high", "b": "moderate", "c": "high"}
         report = build_report(results, expected)
@@ -185,6 +186,11 @@ class TestBandsHaveNoSecondScale:
             # A hair off an anchor is still that anchor's band.
             assert band_of_score(round(anchor + 0.01, 2)) == band, anchor
 
+    def test_an_included_post_scored_as_other_content_is_a_band_miss(self):
+        # The eval could not tell these apart while both were "high", so a model
+        # ignoring the included topics still passed.
+        assert not ArticleScoreStats("a", "included", [0.80, 0.80]).band_matches
+
     def test_out_of_grid_extremes_still_classify(self):
-        assert band_of_score(1.0) == "high"
+        assert band_of_score(1.0) == "included"
         assert band_of_score(0.0) == "reject"

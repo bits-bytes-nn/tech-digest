@@ -16,7 +16,8 @@ from statistics import mean, pstdev
 # Band label for each anchor the filtering rubric can emit, taken from the
 # rubric's OWN wording (see app/src/prompts/prompts.py):
 #
-#   0.95-0.85 included topic / 0.80 Groundbreaking / 0.75 Excellent -> high
+#   0.95 / 0.90 / 0.85 included topic                             -> included
+#   0.80 Groundbreaking / 0.75 Excellent                          -> high
 #   0.70 Strong                                                   -> strong
 #   0.60 Good / 0.50 Moderate                                     -> moderate
 #   0.35 Weak                                                     -> weak
@@ -26,9 +27,9 @@ from statistics import mean, pstdev
 # nearest anchor, with no second table of cutoffs to drift from it.
 # ``test_eval_metrics`` pins every anchor to the band its rubric label names.
 ANCHOR_BANDS: dict[float, str] = {
-    0.95: "high",
-    0.90: "high",
-    0.85: "high",
+    0.95: "included",
+    0.90: "included",
+    0.85: "included",
     0.80: "high",
     0.75: "high",
     0.70: "strong",
