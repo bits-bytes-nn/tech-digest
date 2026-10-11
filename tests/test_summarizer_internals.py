@@ -294,6 +294,20 @@ class TestSummarizePosts:
         s._summarize_posts([post])
         assert "Screenshot%20at%201.27.14%E2%80%AFPM.png" in post.summary
 
+    def test_image_whose_narrow_space_the_model_flattened_is_restored(self):
+        # Seen in production: the model wrote "1.27.14 PM.png" for the article's
+        # "1.27.14\u202fPM.png". That URL 403s, so the image used to be dropped.
+        url = "https://cdn.example.com/Screenshot at 1.27.14\u202fPM.png"
+        s = _summarizer()
+        post = _post("a", content=f'<p>text</p><img src="{url}">')
+        post.images = [url]
+        flattened = url.replace("\u202f", " ")
+        s.summarizer = _FakeChain(
+            [{"summary": BODY + f'<img src="{flattened}">body', "tags": [], "urls": []}]
+        )
+        s._summarize_posts([post])
+        assert "Screenshot%20at%201.27.14%E2%80%AFPM.png" in post.summary
+
     def test_an_already_encoded_image_url_is_left_alone(self):
         url = "https://cdn.example.com/a%20b.png?w=1200&q=90"
         s = _summarizer()
