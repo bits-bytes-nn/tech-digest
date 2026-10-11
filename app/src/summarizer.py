@@ -822,14 +822,15 @@ class Summarizer:
                     # real run, raw HTML was 8x the visible text (one page: 77,417
                     # chars of HTML around 5,669 chars of article), so sending HTML
                     # meant ~87% of filtering input tokens were nav bars, inline
-                    # styles and scripts. Filtering is 74% of this pipeline's
-                    # Bedrock cost, so that waste dominated the bill. Summarization
-                    # still receives the full HTML, which it needs for code blocks,
-                    # tables and image URLs.
+                    # styles and scripts. Summarization still receives the full
+                    # HTML, which it needs for code blocks, tables and image URLs.
                     "post": visible_text(post.content)
                     if strip_markup
                     else post.content,
                     "original_title": post.title,
+                    # Provenance is evidence the text may not state: an Amazon
+                    # Science post rarely names Amazon, and scored as off-topic.
+                    "source_url": str(post.link),
                     "included_topics": included,
                     "excluded_topics": excluded,
                 }

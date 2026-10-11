@@ -22,6 +22,7 @@ class TestFilteringCacheSplit:
         return {
             "post": "ACTUAL_POST_BODY",
             "original_title": "Some Title",
+            "source_url": "https://example.com/post",
             "included_topics": "Reinforcement Learning",
             "excluded_topics": "Biology",
         }
@@ -107,6 +108,7 @@ class TestBehavioralPreservation:
             FilteringPrompt.for_criteria(FilteringCriteria.ALL),
             post="P",
             original_title="T",
+            source_url="https://example.com/post",
             included_topics="Reinforcement Learning",
             excluded_topics="Biology",
         )
@@ -125,7 +127,11 @@ class TestBackendRoundTrip:
             enable_prompt_cache=True, use_converse=use_converse
         )
         return tmpl.format_messages(
-            post="P", original_title="T", included_topics="RL", excluded_topics="Bio"
+            post="P",
+            original_title="T",
+            source_url="https://example.com/post",
+            included_topics="RL",
+            excluded_topics="Bio",
         )
 
     def test_converse_conversion_does_not_raise(self):
@@ -160,6 +166,7 @@ class TestNoCachePathUnchanged:
         msgs = tmpl.format_messages(
             post="X",
             original_title="T",
+            source_url="https://example.com/post",
             included_topics="RL",
             excluded_topics="Bio",
         )
