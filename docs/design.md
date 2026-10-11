@@ -150,7 +150,8 @@ tech-digest/
 ├── tests/                       # pytest 스위트
 ├── docs/                        # 설계 문서, 변경 이력(CHANGELOG.md), 다이어그램
 ├── pyproject.toml               # 도구 설정: ruff, mypy, pytest
-└── .github/workflows/ci.yml     # CI: lint, type-check, test, cdk synth
+├── .github/dependabot.yml       # 주간 GitHub Actions 업데이트 PR
+└── .github/workflows/           # ci.yml(lint, type-check, test, cdk synth), workflow-lint.yml(actionlint)
 ```
 
 > **임포트 경로 주의.** 이 프로젝트에는 두 가지 임포트 레이아웃이 공존합니다.
@@ -697,8 +698,9 @@ Cost Explorer는 모델 단위로만 청구하는데, 필터링·요약·출력 
 방어적으로 처리합니다.
 
 ### `BedrockLanguageModelFactory`
-단일 클래스입니다. 생성자가 타임아웃(읽기 300초), 적응형 재시도, 커넥션 풀을 갖춘 boto3
-`bedrock-runtime` 클라이언트를 만듭니다.
+단일 클래스입니다. 생성자가 타임아웃(읽기 300초)과 커넥션 풀을 갖춘 boto3 `bedrock-runtime`
+클라이언트를 만듭니다. botocore 재시도는 끕니다. 재시도는 `utils.retry_with_backoff`가 맡고, 두
+계층이 함께 재시도하면 멈춘 호출 하나가 시도마다 4 × 300초를 잡아먹습니다.
 
 `get_model`의 옵션(`temperature`, `max_tokens`, `enable_thinking`,
 `thinking_budget_tokens`, `effort`, `stage`, `callbacks`, `top_k`)은 명시적인 키워드
@@ -1794,7 +1796,9 @@ Claude 5 세대 요청 계약은 특히 강하게 고정해 두었습니다. 새
 - **밴드는 `ANCHOR_BANDS`가 유일한 출처입니다.** `band_of_score`는 가장 가까운 앵커의 밴드를
   돌려주고, 동점은 루브릭의 지시("두 앵커 사이에서 망설여지면 항상 낮은 쪽")대로 낮은 밴드로
   내립니다(0.65는 moderate, 0.25는 reject). 컷오프 표를 따로 두면 앵커와 어긋납니다. 테스트가
-  모든 앵커를 자기 라벨의 밴드에 고정합니다.
+  모든 앵커를 자기 라벨의 밴드에 고정합니다. 포함 주제 앵커(0.95·0.90·0.85)는 `included`라는
+  별도 밴드입니다. 0.80·0.75와 같은 `high`로 묶으면, 포함 주제를 놓치고 일반 글로 채점한 결과도
+  평가를 통과합니다.
 
 **출력 쪽: `scripts/eval_summary_quality.py`.** 저장된 요약을 §10의 루브릭으로 채점하고,
 다음에 손볼 약한 채점 차원을 지목하고(`weakest()`), 계약 검사 위반은 글별로 `GUARD` 줄에
@@ -1838,6 +1842,13 @@ FAILED 규칙의 대상, 잡 역할과 인스턴스 역할의 분리, 그리고 
 IMDSv2 필수, 스케줄 DLQ, 로그 보존, 잡 타임아웃), 컴퓨트 환경의 AL2023 이미지 타입을 확인합니다. 합성 결과는 pytest 임시
 디렉터리에 씁니다(기본 위치는 실행마다 `app/` 사본을 남깁니다). jsii에 Node가 필요해서
 Node가 없는 환경에서는 건너뜁니다.
+
+워크플로 파일 자체는 `.github/workflows/workflow-lint.yml`이 같은 push·PR마다 actionlint로
+검사합니다. actionlint 바이너리는 체크섬을 확인한 뒤 실행합니다. 모든 Actions는 태그가 아니라
+커밋 SHA로 고정해, 태그를 옮기는 공급망 공격이 CI에 들어오지 못하게 합니다. 고정한 SHA는
+Dependabot(`.github/dependabot.yml`)이 매주 월요일 github-actions 업데이트 PR로 올립니다. Python
+의존성은 Dependabot 대상이 아니고 `app/requirements.lock`을 직접 갱신합니다(§19). `main`은 두
+CI 잡을 필수 검사로 둔 브랜치 보호가 걸려 있어 PR로만 바뀝니다.
 
 ---
 
@@ -1915,10 +1926,11 @@ Node가 없는 환경에서는 건너뜁니다.
   대상이 아니라 관찰 대상입니다.
 - **필터링 점수가 완전히 재현되지는 않습니다.** GPT-6.1 Sol도 temperature를 받지 않아, 실제
   후보의 약 2%가 재채점에서 밴드를 바꿉니다(Sonnet 5.5는 약 15%). 측정값은 §9에 있습니다.
-- **응답이 멈춘 호출은 로그 없이 5분을 잡아먹을 수 있습니다.** 모든 Bedrock 호출의 읽기 제한은
-  300초이고(`BOTO_READ_TIMEOUT`, 사고를 켠 긴 요약 출력에 맞춘 값), 초과하면 botocore가 조용히
-  다시 시도합니다. 필터 호출은 보통 몇 초면 끝나지만 2026-10-11 prod 실행에서 한 건이 300초를
-  기다린 뒤 재시도로 성공했습니다. 최악에도 글당 15분 안이라 잡 시간 제한(90분) 안에 듭니다.
+- **응답이 멈춘 호출은 한 번에 5분을 잡아먹습니다.** 모든 Bedrock 호출의 읽기 제한은
+  300초입니다(`BOTO_READ_TIMEOUT`, 사고를 켠 긴 요약 출력에 맞춘 값). botocore는 재시도하지 않고
+  재시도는 `retry_with_backoff` 한 계층이 맡으므로, 시간 초과는 재시도 경고 로그로 남습니다. 한
+  글이 매번 멈춰도 일괄 처리 한 번과 순차 재시도 다섯 번, 약 35분 안에 끝나 잡 시간 제한(90분)
+  안에 듭니다.
 - **GPT 필터 호출의 `cache_write`는 입력 토큰과 거의 같게 찍힙니다.** Bedrock이 보고한 값을 그대로
   옮긴 것이고, 같은 실행에서 `cache_read`는 0이었습니다. 이것이 과금에 반영되는지는 확인하지
   못했습니다. Cost Explorer에서 `tech-digest-*-openai-gpt-6-1-sol` 프로파일 비용으로 확인하세요.

@@ -4,12 +4,12 @@
 
 **선도적인 기술 블로그에서 그 주의 가장 좋은 AI/ML 엔지니어링 글을 모아 큐레이션·필터링·요약한 뒤 이메일로 보내 주는 자동화 뉴스레터.**
 
-Amazon Bedrock (Claude) 기반 · AWS 위에서 CDK로 정의·오케스트레이션.
+Amazon Bedrock 기반(필터 GPT-6.1 Sol, 요약 Claude) · AWS 위에서 CDK로 정의·오케스트레이션.
 
 [![CI](https://github.com/bits-bytes-nn/tech-digest/actions/workflows/ci.yml/badge.svg)](https://github.com/bits-bytes-nn/tech-digest/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue)
 ![AWS CDK](https://img.shields.io/badge/IaC-AWS%20CDK-orange)
-![Bedrock](https://img.shields.io/badge/LLM-Amazon%20Bedrock%20(Claude)-green)
+![Bedrock](https://img.shields.io/badge/LLM-Amazon%20Bedrock-green)
 
 🇺🇸 [English README](./README.md)
 
@@ -21,10 +21,10 @@ Amazon Bedrock (Claude) 기반 · AWS 위에서 CDK로 정의·오케스트레�
 
 ## ✨ 주요 기능
 
-- **AI 기반 큐레이션**. Claude(Amazon Bedrock)가 글마다 관련성을 점수로 매기고,
-  여러 섹션으로 구조화된 요약을 직접 작성합니다.
+- **AI 기반 큐레이션**. Amazon Bedrock에서 GPT-6.1 Sol이 글마다 관련성을 점수로 매기고,
+  Claude가 여러 섹션으로 구조화된 요약을 씁니다.
 - **다중 소스 집계**. RSS와 견고한 HTML 스크레이핑으로 약 20개 기술 블로그(AWS,
-  Google, Meta, OpenAI, Anthropic, NVIDIA 등)에서 글을 모읍니다. 모든 요청에는
+  Google, Meta, OpenAI, Microsoft, NVIDIA 등)에서 글을 모읍니다. 모든 요청에는
   SSRF 가드와 소스별 헬스 추적이 따라붙습니다.
 - **콘텐츠 품질 게이트**. 본문이 너무 빈약한 글은 LLM에 닿기 *전에* 걸러내, 빈
   껍데기 글이 다이제스트에 실리지 않게 합니다.
@@ -35,7 +35,7 @@ Amazon Bedrock (Claude) 기반 · AWS 위에서 CDK로 정의·오케스트레�
   빌드가 경고합니다.
 - **크롤 헬스 모니터링**. 모든 소스의 페치 상태를 추적하다가 소스가 실패하거나
   **걸러낼 것을 아무것도 내놓지 못하면** 알림을 띄웁니다. 그러지 않으면 이전한 피드와
-  깨진 스크레이퍼가 조용한 블로그와 구별되지 않고, 정상적인 주에도 19개 중 12개가
+  깨진 스크레이퍼가 조용한 블로그와 구별되지 않고, 정상적인 주에도 소스 대부분이
   비어 있습니다. 조용한 블로그는 절대 알림을 띄우지 않으며, AWS 송신 IP에서 상시
   실패하는 소스는 허용 목록으로 빼서 알람이 계속 조치 가능한 상태로 남습니다.
 - **서버리스 인프라**. 설정으로 고르는 AWS Lambda *또는* Batch 위에서 돌아가며,
@@ -45,14 +45,14 @@ Amazon Bedrock (Claude) 기반 · AWS 위에서 CDK로 정의·오케스트레�
 - **멱등한 발송**. 호마다 어떤 수신자에게 전달됐는지를 S3 원장에 기록하므로, 재시도된
   실행(스팟 회수, OOM 등)이 같은 호를 두 번 보내지 않고 아직 못 받은 독자에게만
   보냅니다.
-- **추측이 아니라 측정**. 루브릭 하네스 두 개가 취향 대신 튜닝을 이끕니다. 하나는
+- **추측이 아니라 측정**. 프롬프트는 감이 아니라 두 가지 채점 도구의 결과를 보고 고칩니다. 하나는
   *필터*("올바른 글을 골랐나"), 하나는 *출력*("글이 잘 써졌나")을 채점합니다. 출력 검사는
   전부 결정적이며 프롬프트 규칙과 1:1로 대응하므로, 낮은 점수가 **어느 지시문을 고쳐야
   하는지**를 알려줍니다.
 - **재현 가능한 빌드**. 베이스 이미지를 digest로 고정하는 것에 더해 전이 의존성을 포함한 모든 Python 의존성을
   `app/requirements.lock`으로 고정하고, CI가 이를 constraints로 적용해 **테스트가 실제
   배포되는 버전을 검증**합니다.
-- **귀속 가능한 비용**. 온디맨드 Bedrock에는 태그를 붙일 리소스가 없으므로, 태그가 달린
+- **단계별 비용 추적**. 온디맨드 Bedrock에는 태그를 붙일 리소스가 없으므로, 태그가 달린
   애플리케이션 추론 프로파일로 호출하고 파이프라인 단계별 토큰 사용량을 로깅합니다.
 
 ---
