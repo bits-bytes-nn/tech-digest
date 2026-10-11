@@ -125,7 +125,8 @@ class TestSummaryOutput:
         out = SummaryOutput.model_validate(
             {"summary": "# Heading\n\nSome **bold** text.", "tags": [], "urls": []}
         )
-        assert "<h1" in out.summary or "<strong>" in out.summary
+        assert "<h1" in out.summary
+        assert "<strong>bold</strong>" in out.summary
 
     def test_tags_default_when_empty(self):
         out = SummaryOutput.model_validate({"summary": "x", "tags": [], "urls": []})

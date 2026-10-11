@@ -69,11 +69,10 @@ summarization:
   # release notes rather than a curated issue.
   max_per_source: 2
   # Send the relevance filter the article's visible TEXT instead of its raw HTML.
-  # Measured on a real run, markup was ~87% of filtering input tokens (one page:
-  # 77,417 chars of HTML around 5,669 chars of article) and filtering is ~74% of
-  # this pipeline's Bedrock spend, so this cut cost per run 48%. The rubric scores
-  # topic and quality, which live in the prose. Summarization still gets the full
-  # HTML (it needs code blocks, tables and image URLs). Set False to revert.
+  # Markup is most of a page's tokens (one page: 77,417 chars of HTML around 5,669
+  # chars of article; the cost measurement is in docs/CHANGELOG.md), and the
+  # rubric scores topic and quality, which live in the prose. Summarization still
+  # gets the full HTML (it needs code blocks, tables and image URLs).
   filter_on_visible_text: True
   # Strip site furniture (scripts, nav, footers, inline styles, class hooks) from
   # the HTML the summarizer receives, measured at -37% on summarization input
@@ -90,12 +89,13 @@ summarization:
   # on an adaptive model only logs that it is ignored.
   # filtering_thinking_budget_tokens: 4096
   # summarization_thinking_budget_tokens: 8192
-  # Adaptive-thinking depth for newer models (Sonnet 5+ / Opus 5 / 5.5 / Fable 5.1):
+  # Reasoning depth for newer models (Sonnet 5+ / Opus 5 / 5.5 / Fable 5.1 / GPT-6):
   #   low | medium | high | xhigh | max
-  # Blank = model default ("medium" on Opus 5.5 and Haiku 5.5, "high" elsewhere).
-  # Applies only while thinking is on — except on Opus 5.5 and Fable 5.1, which
-  # cannot stop thinking, so it is sent with *_enable_thinking False too.
-  # Ignored by legacy budget-thinking models (Sonnet 4.x and older).
+  # Blank = model default ("medium" on Opus 5.5, Haiku 5.5 and GPT-6, "high"
+  # elsewhere). Applies only while thinking is on — except on models that cannot
+  # stop thinking (Opus 5.5, Fable 5.1, GPT-6.1 Sol, GPT-6 Astra), which get it
+  # with *_enable_thinking False too. Ignored by legacy budget-thinking models
+  # (Sonnet 4.x and older).
   thinking_effort:
   # Optional cap on summary output tokens (blank = use the model's maximum).
   summarization_max_tokens:
@@ -108,7 +108,7 @@ newsletter:
   header_title: "Weekly AI Tech Blog Digest"
   header_description: '$ cron weekly-digest | grep "AI tech" | sort -by relevance > your-inbox 🔮'
   header_thumbnail: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/peccy.png"
-  footer_title: "Thank you for becoming a subscriber to Weekly AI Tech Blog Digest.<br>If you have any questions or feedback, please send them to <a href='mailto:example@example.com' style='color: #007bff; text-decoration: none;'>example@example.com</a>." # footer title
+  footer_title: "Thank you for becoming a subscriber to Weekly AI Tech Blog Digest.<br>If you have any questions or feedback, please send them to <a href='mailto:example@example.com' style='text-decoration: none;'>example@example.com</a>." # footer title
   logos:
     airbnb: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/airbnb.png"
     amazon: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/amazon.png"
