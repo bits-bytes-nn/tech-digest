@@ -1,5 +1,5 @@
 {
-  "description": "Small labeled eval set for filtering-score behavior. Each item has synthetic-but-representative content and an expected coarse band (high/strong/moderate/weak/reject). Used by scripts/eval_filtering.py to measure determinism, grid adherence, and band alignment. Expected bands were calibrated against a live Sonnet 4.6 run (2026-06, thinking OFF): the tuned rubric is stricter than first-guess labels (e.g. a pure vendor click-through tutorial scores 'reject', a no-novelty educational recap scores 'weak'). Extend with real article excerpts as needed.",
+  "description": "Small labeled eval set for filtering-score behavior. Each item has synthetic-but-representative content and an expected coarse band (included/high/strong/moderate/weak/reject; 'included' is the included-topic anchors, so an included post scored as ordinary content is a miss). Used by scripts/eval_filtering.py to measure determinism, anchor adherence, and band alignment. Labels follow the rubric's wording, not a past model's output. Extend with real article excerpts as needed.",
   "criteria": "all",
   "included_topics": [
     "Foundation Model Releases (e.g., GPT, Claude, Gemini, Grok)",
@@ -13,7 +13,7 @@
   "articles": [
     {
       "id": "included-foundation-model-release",
-      "expected_band": "high",
+      "expected_band": "included",
       "title": "Introducing Claude 4.6: A New Frontier Foundation Model",
       "content": "Today we release Claude 4.6, a new foundation model. This post is a primary, in-depth account of the release: the model's architecture (a sparse mixture-of-experts transformer with 64 routed experts), the training recipe (a three-stage curriculum of pretraining, mid-training on synthetic reasoning traces, and RLHF), and benchmark results across MMLU, GPQA, and SWE-bench. We detail the new 1M-token context window, the adaptive-thinking mechanism that dynamically allocates reasoning tokens, and the inference-time routing that cuts cost by 40%. Foundation model releases like this are the core focus throughout. We include ablations showing each training stage's contribution, latency/throughput curves, and a discussion of safety evaluations. The release is the primary subject of the entire article, covered with expert depth and novel architectural detail."
     },
