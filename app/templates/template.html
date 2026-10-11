@@ -25,6 +25,13 @@
     {% include "_styles.html" %}
   </head>
   <body style="margin: 0; padding: 0; background-color: #34495e">
+    <!-- Preheader: inbox preview line. Uses the intro, falls back to title. -->
+    <div style="display: none; max-height: 0; overflow: hidden">
+      {{ (data.section.introduction | striptags | truncate(140)) if (data.section and data.section.introduction) else data.header.title }}
+    </div>
+    <div style="display: none; max-height: 0; overflow: hidden">
+      &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;
+    </div>
     <table
       width="100%"
       cellpadding="0"
@@ -37,70 +44,37 @@
       aria-roledescription="email"
       aria-label="{{ data.header.title }}"
     >
-      <div
-        class="Gmail"
-        style="
-          height: 1px !important;
-          margin-top: -1px !important;
-          max-width: 800px !important;
-          min-width: 800px !important;
-          width: 800px !important;
-        "
-      ></div>
-      <!-- Preheader: inbox preview line. Uses the intro, falls back to title. -->
-      <div style="display: none; max-height: 0; overflow: hidden">
-        {{ (data.section.introduction | striptags | truncate(140)) if (data.section and data.section.introduction) else data.header.title }}
-      </div>
-      <div style="display: none; max-height: 0; overflow: hidden">
-        &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;
-      </div>
       <tr>
-        <td align="center">{{ header_partial.header(data.header) }}</td>
-      </tr>
-      <tr>
-        <td align="center">{{ title_partial.title(data.section) }}</td>
-      </tr>
-      <tr>
-        <td width="100%" valign="top" align="center" class="padding-container">
+        <td align="center" class="outer-gutter" style="padding: 24px 12px">
+          {# One fluid column, capped at 800px. The cap is a max-width so a phone
+             gets its own width instead of an 800px page to scroll or zoom; the
+             mso table gives Outlook for Windows, which ignores max-width, the
+             same 800px. #}
+          <!--[if mso]><table role="presentation" width="800" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
           <table
-            width="800"
+            role="presentation"
+            width="100%"
             cellpadding="0"
             cellspacing="0"
             border="0"
             align="center"
-            class="wrapper"
-            bgcolor="#FFFFFF"
+            style="max-width: 800px"
           >
+            {{ header_partial.header(data.header) }}
+            {{ title_partial.title(data.section) }}
             <tr>
-              <td width="100%" align="center">
-                <table
-                  width="100%"
-                  cellpadding="0"
-                  cellspacing="0"
-                  border="0"
-                  class="container"
-                >
+              <td class="articles" bgcolor="#F1F3F5" style="background-color: #f1f3f5; border-radius: 8px; padding: 8px 0">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                   {% for article in data.articles %}
-                  <tr>
-                    <td align="center">
-                      {{ main_partial.main_content(article, data.labels) }}
-                    </td>
-                  </tr>
+                  {{ main_partial.main_content(article, data.labels) }}
                   {% endfor %}
                 </table>
               </td>
             </tr>
+            {{ footer_partial.footer(data.footer) }}
           </table>
+          <!--[if mso]></td></tr></table><![endif]-->
         </td>
-      </tr>
-      <tr>
-        <td height="18" align="center"></td>
-      </tr>
-      <tr>
-        <td align="center">{{ footer_partial.footer(data.footer) }}</td>
-      </tr>
-      <tr>
-        <td height="36" align="center"></td>
       </tr>
     </table>
   </body>

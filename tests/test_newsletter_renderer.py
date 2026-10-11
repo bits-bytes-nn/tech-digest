@@ -268,6 +268,20 @@ class TestNewsletterRendering:
         assert "table-layout: auto" in html
         assert "overflow-wrap: anywhere" in html
 
+    def test_layout_is_fluid_so_phones_do_not_zoom_out(
+        self, templates_dir, sample_article_data
+    ):
+        # A min-width or a fixed width wider than a phone made the whole issue
+        # 800px wide on a 390px screen, which the device then shrank to fit.
+        import re
+
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._build_data(sample_article_data))
+        outside_mso = re.sub(r"<!--\[if mso\]>.*?<!\[endif\]-->", "", html, flags=re.S)
+        assert "min-width" not in outside_mso
+        assert not re.search(r'width="(?:[4-9]\d\d|\d{4,})"', outside_mso)
+        assert "max-width: 800px" in html
+
     def test_source_alt_text(self, templates_dir, sample_article_data):
         sample_article_data["source"] = "openai"
         renderer = NewsletterRenderer(templates_dir)
