@@ -352,6 +352,8 @@ going long pushes that article below the fold.
    one: introduce two or three of them in a phrase each
 4. Close with one short line that hands off to the articles
 5. Casual, confident, technically fluent. No markdown, plain text only
+6. No praise or vague adjectives ("groundbreaking", "powerful", "amazing", "various"); say the
+   specific thing instead
 
 **OUTPUT:** Newsletter introduction only.""",
         Language.KO: """Write a weekly newsletter introduction in Korean using the context below.
@@ -490,6 +492,9 @@ explanations that make complex technical concepts accessible without sacrificing
    - Defining a standard, widely established concept (what a KV cache or LoRA is) from general knowledge
      is allowed and is not speculation. Everything about THIS article's system, numbers and plans still
      comes only from the article
+   - Make the technology the subject of the sentence ("Haiku 5.5 routes...", not "The article explains
+     that Haiku 5.5 routes..."). Name the article or vendor only to attribute a figure or claim that is
+     theirs ("Anthropic reports...")
 
 3. **Length Budget**
    - Total <summary> body: **1,300-2,000 words of visible text**, excluding HTML tags
@@ -608,10 +613,12 @@ into a published issue, so look for each one in your draft and fix it before you
    earlier mention with words ("cuts latency sharply"). Then delete any 📊 sentence about business
    value, a ratio you computed, or a forecast the article does not make.
 2. Find sentences whose verb is "provides", "offers" or "supports" and say what the feature actually does.
-3. Find praise adjectives, "not just X, it's Y" and meta-narration (principle 5) and rewrite them.
+3. Find praise adjectives, "not just X, it's Y" and meta-narration (principle 5) and rewrite them. Read the
+   last sentence of 📌: if it says who should read this or that it is worth noting, end on the finding instead.
 4. Count the words in one_liner. If it is outside 15-28 words, fix it.
 5. Check that every image src is copied character for character from the article, query string included.
-6. Find sentences about what the article does not say, show or disclose, and delete them.
+6. Delete every sentence whose point is that something is missing (not described, not reported, no figure
+   given), and every reason or intention the article does not state ("likely because", "this suggests").
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
@@ -653,6 +660,9 @@ Korean:
    - Defining a standard, widely established concept (what a KV cache or LoRA is) from general knowledge
      is allowed and is not speculation. Everything about THIS article's system, numbers and plans still
      comes only from the article
+   - Make the technology the subject of the sentence ("Haiku 5.5 routes...", not "The article explains
+     that Haiku 5.5 routes..."). Name the article or vendor only to attribute a figure or claim that is
+     theirs ("Anthropic reports...")
 
 3. **분량 예산 (Length Budget)**
    - <summary> 본문 전체: **한글 4,000~6,000자** (HTML 태그 제외, 가시 텍스트 기준)
@@ -670,7 +680,7 @@ Korean:
 
 4. **일관된 문체 (Consistent Register)**
    - 모든 섹션의 모든 문장을 **정중한 합니다체**로 통일하세요 (예: "제안합니다", "달성했습니다",
-     "확인되지 않았습니다"). 절대 문어체 평서형(한다체: "제안한다", "달성했다")과 섞지 마세요
+     "줄였습니다"). 절대 문어체 평서형(한다체: "제안한다", "달성했다")과 섞지 마세요
    - 원문 블로그의 어조를 따라가지 말고, 위 합니다체를 처음부터 끝까지 유지하세요
    - 이 뉴스레터는 여러 아티클을 하나로 묶어 발송하므로, 아티클마다 문체가 다르면 독자가 이질감을
      느낍니다. 문체 통일은 필수입니다
@@ -690,7 +700,8 @@ Korean:
      외우는 게 아니라 원리를 적용하세요: **같은 뜻을 군더더기 없이 말할 수 있으면 그렇게 씁니다.**
      - "X를 통해 Y" → 수단은 조사로 붙입니다: "샤딩을 통해 분산합니다" → "샤딩으로 분산합니다"
      - "X에 대한/대해" → 대상도 조사로: "지연에 대한 개선" → "지연 개선"
-     - "~하는 것이 아니라", "~하는 것을 의미합니다" → 동사로 끝냅니다: "~라는 뜻입니다"
+     - "~하는 것이 아니라", "~하는 것을 의미합니다" → 뜻을 동사로 바로 씁니다:
+       "캐시를 재사용하는 것을 의미합니다" → "캐시를 재사용합니다"
      - "모델들이", "노드들을" → 한국어는 수를 표시하지 않습니다. 수량 표현이 이미 있으면
        특히 어색합니다: "16개 GPU들" → "16개 GPU"
      - "~를 제공합니다/지원합니다"로 문장을 끝내지 말고 **실제로 하는 일**을 쓰세요:
@@ -703,8 +714,9 @@ Korean:
    - "다양한"은 몇 가지인지로: "다양한 로봇에서" → "ALOHA 2와 Apollo 두 기종에서"
    - "단순히 X가 아니라 Y입니다" 대조 문형과 "결론적으로", "요약하면", "살펴보겠습니다" 같은
      메타 서술을 쓰지 마세요. 각 섹션은 요약이 아니라 내용입니다
-   - "~라는/다는 점입니다"로 문장을 맺지 마세요. 감싸던 절을 서술문으로 내려 쓰면 됩니다:
-     "지연이 줄었다는 점입니다" → "지연이 22% 줄었습니다"
+   - 절을 "~라는/다는 점"으로 감싸지 마세요. 문장 끝("~다는 점입니다")이든 주어("~다는 점이
+     핵심입니다")든 같습니다. 감싸던 절을 서술문으로 내려 쓰면 됩니다:
+     "지연이 줄었다는 점이 핵심입니다" → "지연이 22% 줄었습니다"
 
    **원칙 6·7은 문체 규칙이고, 우선순위는 원칙 3보다 낮습니다.** 표현을 다듬느라 메커니즘·
    파라미터·측정값·코드를 빼지 마세요. 번역투를 피하려고 문장을 짧게 끊는 것도, 강조하려고 앞
@@ -789,12 +801,14 @@ avoid speculation.
    줄입니다"처럼 말로 바꾸세요. 그다음 원문에 없는 비즈니스 함의, 직접 계산한 비율, 전망을 담은 📊
    문장을 지우세요.
 2. "제공합니다", "지원합니다"로 끝나는 문장을 찾아 그 기능이 실제로 무엇을 하는지로 바꾸세요.
-3. "~라는/다는 점입니다"로 끝나는 문장, "~하는 것" 명사절, 수량 표현 뒤의 "-들"("16개 GPU들")을
-   찾아 원칙 6·7대로 고치세요.
+3. "~라는/다는 점" 절, "~하는 것" 명사절, 수량 표현 뒤의 "-들"("16개 GPU들"), 칭찬 형용사와 메타
+   서술을 찾아 원칙 6·7대로 고치세요. 📌의 마지막 문장이 누가 읽으면 좋은지, 주목할 만하다는 말로
+   끝나면 이 글이 확인한 사실로 끝맺으세요.
 4. one_liner의 글자 수를 공백을 포함해 세세요. 40~100자를 벗어나면 고치세요.
 5. 이미지 src는 원문에 있는 URL을 글자 그대로(쿼리 문자열 포함) 옮겼는지 확인하세요.
-6. 원문이 말하지 않은 것을 적은 문장("~는 설명하지 않습니다", "~는 제시하지 않았습니다")을
-   찾아 지우세요. 원문이 스스로 밝힌 한계만 남깁니다.
+6. 무언가가 없다는 것이 요지인 문장은 표현과 상관없이 지우세요("~는 설명하지 않습니다", "~는
+   보고되지 않았습니다", "~수치는 없습니다", "글에 나오지 않으므로"). 원문이 밝히지 않은 이유·의도
+   ("~때문으로 보입니다", "~라고 볼 수 있습니다")도 지우세요. 원문이 스스로 밝힌 한계만 남깁니다.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
