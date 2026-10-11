@@ -477,7 +477,6 @@ class BedrockLanguageModelFactory:
     """Builds a configured LangChain chat model for a ``LanguageModelId``."""
 
     BOTO_READ_TIMEOUT: ClassVar[int] = 300
-    BOTO_MAX_ATTEMPTS: ClassVar[int] = 3
     MAX_POOL_CONNECTIONS: ClassVar[int] = 50
     BOTO_SERVICE_NAME: ClassVar[str] = "bedrock-runtime"
     DEFAULT_TEMPERATURE: ClassVar[float] = 0.0
@@ -488,18 +487,16 @@ class BedrockLanguageModelFactory:
     MIN_THINKING_BUDGET: ClassVar[int] = 1024
     DEFAULT_THINKING_BUDGET_TOKENS: ClassVar[int] = 4096
 
-    def __init__(
-        self,
-        boto_session: boto3.Session | None = None,
-        region_name: str | None = None,
-        profile_name: str | None = None,
-    ) -> None:
-        self.boto_session = boto_session or boto3.Session(profile_name=profile_name)
-        self.region_name = region_name or self.boto_session.region_name
+    def __init__(self, boto_session: boto3.Session | None = None) -> None:
+        self.boto_session = boto_session or boto3.Session()
+        self.region_name = self.boto_session.region_name
         boto_config = BotoConfig(
             read_timeout=self.BOTO_READ_TIMEOUT,
             connect_timeout=60,
-            retries={"max_attempts": self.BOTO_MAX_ATTEMPTS, "mode": "adaptive"},
+            # No botocore retries: ``utils.retry_with_backoff`` owns them. With
+            # both layers retrying a read timeout, one hung call could cost
+            # 4 x 300 s per tenacity attempt, outlasting the Batch attempt.
+            retries={"total_max_attempts": 1, "mode": "standard"},
             max_pool_connections=self.MAX_POOL_CONNECTIONS,
         )
         self._client = self.boto_session.client(

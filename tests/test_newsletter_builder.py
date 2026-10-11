@@ -62,6 +62,25 @@ def _config(**overrides) -> BuildConfiguration:
     return BuildConfiguration(**(base | overrides))
 
 
+class TestLogoFallback:
+    def test_a_logo_map_without_unknown_still_builds(self, digest_dirs, templates_dir):
+        # The fallback was looked up eagerly, so a map without "unknown" raised
+        # KeyError for EVERY article and the run failed after all its LLM spend.
+        inputs, outputs = digest_dirs
+        _write_post(
+            inputs / "2026-06-01",
+            title="A Post",
+            source="aws",
+            score=0.8,
+            published="2026-06-01",
+        )
+        builder = NewsletterBuilder(
+            inputs, outputs, templates_dir, logos={"google": "https://x/g.png"}
+        )
+        [article] = builder._load_articles("2026-06-01")
+        assert article.thumbnail == ""
+
+
 class TestArticleOrdering:
     """The filtering stage pays to rank posts by relevance; presentation must not
     throw that ranking away. Sorting by publication date did exactly that — a
