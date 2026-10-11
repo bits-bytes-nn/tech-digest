@@ -281,6 +281,30 @@ class TestSummarizePosts:
         s._summarize_posts([post])
         assert "Saved.png" in post.summary
 
+    def test_image_url_with_a_narrow_no_break_space_is_kept_and_encoded(self):
+        # macOS screenshot names put U+202F before "PM"; the CDN serves the file
+        # only under that exact name, and raw in a src it rendered broken.
+        url = "https://cdn.example.com/2026/10/Screenshot at 1.27.14\u202fPM.png"
+        s = _summarizer()
+        post = _post("a", content=f'<p>text</p><img src="{url}">')
+        post.images = [url]
+        s.summarizer = _FakeChain(
+            [{"summary": BODY + f'<img src="{url}">body', "tags": [], "urls": []}]
+        )
+        s._summarize_posts([post])
+        assert "Screenshot%20at%201.27.14%E2%80%AFPM.png" in post.summary
+
+    def test_an_already_encoded_image_url_is_left_alone(self):
+        url = "https://cdn.example.com/a%20b.png?w=1200&q=90"
+        s = _summarizer()
+        post = _post("a", content=f'<img src="{url}">')
+        post.images = [url]
+        s.summarizer = _FakeChain(
+            [{"summary": BODY + f'<img src="{url}">body', "tags": [], "urls": []}]
+        )
+        s._summarize_posts([post])
+        assert 'src="https://cdn.example.com/a%20b.png?w=1200&amp;q=90"' in post.summary
+
 
 class TestProcessPostsCapBeforeSummarize:
     """max_posts must be applied BEFORE summarization so we don't pay to

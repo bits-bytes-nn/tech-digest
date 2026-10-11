@@ -1,6 +1,7 @@
 import re
 from html import escape, unescape
 from typing import Any, ClassVar, Literal
+from urllib.parse import quote
 
 import boto3
 import markdown
@@ -307,6 +308,32 @@ def _strip_unsourced_images(
     if not dropped:
         return summary_html, []
     return str(soup), dropped
+
+
+# RFC 3986 reserved and unreserved characters plus "%", so an already-encoded
+# URL passes through unchanged and only what a URL cannot carry is encoded.
+_URL_SAFE_CHARS = ":/?#[]@!$&'()*+,;=%-._~"
+
+
+def _encode_image_srcs(summary_html: str) -> str:
+    """Percent-encode the characters a URL cannot carry raw in ``<img src>``.
+
+    Source URLs are used as published, and some contain them: macOS names
+    screenshots "...at 1.27.14\u202fPM.png", so AWS blog images carry a narrow
+    no-break space. Left raw, email clients and image proxies do not reliably
+    encode it themselves and the image renders broken.
+    """
+    if "<img" not in summary_html.lower():
+        return summary_html
+    soup = BeautifulSoup(summary_html, "html.parser")
+    changed = False
+    for img in soup.find_all("img"):
+        src = str(img.get("src") or "")
+        encoded = quote(src, safe=_URL_SAFE_CHARS)
+        if encoded != src:
+            img["src"] = encoded
+            changed = True
+    return str(soup) if changed else summary_html
 
 
 def _unsourced_urls(urls: list[str], source_html: str) -> list[str]:
@@ -996,4 +1023,4 @@ class Summarizer:
                 post.title,
                 dropped,
             )
-        return _postprocess_summary(cleaned)
+        return _postprocess_summary(_encode_image_srcs(cleaned))
