@@ -157,10 +157,13 @@ def is_korean(text: str, threshold: float = 0.1) -> bool:
 # every time a fixed phrase list catches up with it.
 AUDIENCE_CALLOUT = re.compile(
     r"(실무자|팀|엔지니어|개발자|아키텍트|독자|조직)[^.]{0,40}(참고|유용|의미가|도움)"
+    # The same closing without the audience noun: "…점도 눈여겨볼 만합니다".
+    r"|(주목|눈여겨볼|참고할|살펴볼)\s*만(합니다|한)"
 )
 
 # Meta-framing the lede must not use: it should state the finding, not announce
-# that an article exists.
+# that an article exists — at its start ("이 글은 …") or its end ("…를 다룹니다").
+LEDE_ANNOUNCING_END = re.compile(r"(?:다룹니다|소개합니다|설명합니다|정리합니다)\.?$")
 BANNED_LEDE_OPENERS: tuple[str, ...] = (
     "이 글은",
     "이 아티클은",
@@ -169,12 +172,15 @@ BANNED_LEDE_OPENERS: tuple[str, ...] = (
     "이 포스트는",
 )
 
-# "정보 없음" filler: the prompt says omit a section rather than write this.
-ABSENCE_FILLER: tuple[str, ...] = (
-    "정보가 없습니다",
-    "언급되지 않았습니다",
-    "확인할 수 없습니다",
-    "명시되어 있지 않습니다",
+# A sentence about what the article does not say, which the prompt bans: a
+# reporting verb negated ("제시되지 않았습니다", "밝히지 않습니다", "글에 나오지
+# 않으므로") or a missing figure ("수치는 없습니다"). Matched as a shape because
+# the model rewords it every time a fixed phrase list catches up with it.
+ABSENCE_FILLER = re.compile(
+    r"(?:언급|명시|공개|제시|보고|설명|소개|확인)(?:하|되|되어\s*있)?지\s*않"
+    r"|(?:밝히|다루|나오|나와\s*있)지\s*않"
+    r"|(?:정보|수치|내용)(?:는|은|가|이)\s*없"
+    r"|확인할\s*수\s*없"
 )
 
 # A MEASURED quantity: a number that carries a unit, a percent sign or a Korean
@@ -238,7 +244,7 @@ CLICHE_MARKERS: dict[str, str] = {
     "단순히 X가 아니라": r"단순(?:한|히|하게)?\s*[^.]{0,25}?(?:가|이|것이)\s*아니(?:라|고|며)",
     # Ending on "the point is that ~" instead of just asserting it. The one
     # marker that rose between prompt generations (2.4 -> 4.0 per 10,000).
-    "~라는 점입니다": r"(?:라는|다는) 점(?:입니다|이며|이라|에서|은|을)",
+    "~라는 점입니다": r"(?:라는|다는) 점(?:입니다|이며|이라|에서|은|을|이|도)",
     # Meta-narration and summary-of-the-summary.
     "메타 서술": r"(?:살펴보|알아보|짚어보|정리해\s*보)(?:겠습니다|았습니다|면)"
     r"|결론적으로|요약하(?:면|자면)|종합하(?:면|자면)",
@@ -340,12 +346,13 @@ def table_figures(soup: BeautifulSoup) -> set[str]:
 def _numbers(text: str) -> set[str]:
     """Multi-digit numbers in ``text``, with thousands separators dropped.
 
-    A number glued to a preceding letter is part of a name, not a value: "BF16",
-    "W4A16", "H100" and "v2.1" were matched against a table's 16, 100 and 2.1.
+    A number glued to a letter is part of a name, not a value: "BF16", "W4A16",
+    "H100", "v2.1" and "35B-A3B" were matched against a table's 16, 100, 2.1
+    and 35.
     """
     found = {
         n.replace(",", "").rstrip(".")
-        for n in re.findall(r"(?<![A-Za-z\d.,])\d[\d,.]*", text)
+        for n in re.findall(r"(?<![A-Za-z\d.,])\d[\d,.]*(?![\d,.]*[A-Za-z])", text)
     }
     return {n for n in found if len(n.replace(".", "")) >= 2}
 
@@ -484,7 +491,9 @@ class SummaryQuality:
             score -= 0.4
         if self.lede_sentences != 1:
             score -= 0.3
-        if any(self.lede.startswith(opener) for opener in BANNED_LEDE_OPENERS):
+        if any(
+            self.lede.startswith(opener) for opener in BANNED_LEDE_OPENERS
+        ) or LEDE_ANNOUNCING_END.search(self.lede.strip()):
             score -= 0.3
         return max(0.0, score)
 
@@ -543,6 +552,9 @@ def evaluate_summary(
     text = prose_text(summary_html)
     sections = split_sections(summary_html)
     soup = BeautifulSoup(summary_html or "", "html.parser")
+    # Length is the prompt's budget, which counts all visible text, code
+    # included; the register checks below read ``text``, which has no code.
+    visible = soup.get_text(separator=" ", strip=True)
 
     earlier = " ".join(sections.get(m, "") for m in ("📌", "🔄", "🛠️"))
     results_section = sections.get("📊", "")
@@ -562,11 +574,11 @@ def evaluate_summary(
 
     return SummaryQuality(
         article_id=article_id,
-        length=len(text),
+        length=len(visible),
         sections=tuple(m for m in SECTION_MARKERS if m in sections),
         missing_sections=tuple(m for m in SECTION_MARKERS if m not in sections),
         subsection_headers=len(soup.find_all(["h4", "h5", "h6"])),
-        absence_filler=sum(text.count(p) for p in ABSENCE_FILLER),
+        absence_filler=len(ABSENCE_FILLER.findall(text)),
         han_da=tuple(han_da_sentences(text)),
         # Counted on the HTML with the SAME pattern the summarizer corrects with,
         # so a colon that legitimately introduces a list is not a defect here.

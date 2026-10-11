@@ -98,6 +98,18 @@ class TestDistinctiveness:
         )
         assert evaluate_summary("a", html).repeated_quantities == ()
 
+    def test_a_model_size_is_not_a_table_repeat(self):
+        html = (
+            "<h3>🛠️ 심층</h3><p>Decider 35B-A3B 모델을 씁니다.</p>"
+            "<table><tr><td>지연</td><td>35 ms</td></tr></table>"
+        )
+        assert evaluate_summary("a", html).repeated_quantities == ()
+
+    def test_length_counts_code_like_the_prompt_budget(self):
+        code = "<pre><code>" + "x" * 500 + "</code></pre>"
+        with_code = evaluate_summary("a", _summary("가") + code).length
+        assert with_code >= evaluate_summary("a", _summary("가")).length + 500
+
     def test_a_number_in_a_label_cell_is_not_a_table_repeat(self):
         html = (
             "<h3>🛠️ 심층</h3><p>IOI 2025에서 GPT-5.5와 비교했습니다.</p>"
@@ -133,6 +145,10 @@ class TestLede:
         lede = "지연을 22% 줄였습니다. 비용도 절감됩니다. 그리고 확장성이 좋아집니다."
         assert evaluate_summary("a", _summary("가"), one_liner=lede).lede_score < 1.0
 
+    def test_lede_announcing_the_article_at_its_end_is_penalised(self):
+        lede = "포인트 기반 프롬프트 캐싱과 보안 점검 연동을 다룹니다."
+        assert evaluate_summary("a", _summary("가"), one_liner=lede).lede_score < 1.0
+
     def test_missing_lede_scores_zero(self):
         assert evaluate_summary("a", _summary("가"), one_liner="").lede_score == 0.0
 
@@ -156,6 +172,22 @@ class TestStructurePenalties:
     def test_absence_filler_penalised(self):
         html = _summary("원문에 관련 정보가 없습니다.")
         assert evaluate_summary("a", html).structure_score < 1.0
+
+    @pytest.mark.parametrize(
+        "sentence",
+        [
+            "GLM 5와의 직접 비교는 보고되지 않았습니다.",
+            "구체적인 파라미터 이름은 글에 나오지 않으므로 넘어갑니다.",
+            "절감 폭을 측정한 수치는 없습니다.",
+            "이 글은 구조를 따로 설명하지 않습니다.",
+        ],
+    )
+    def test_reworded_absence_sentences_are_caught(self, sentence):
+        assert evaluate_summary("a", _summary(sentence)).absence_filler > 0
+
+    def test_a_negated_capability_is_not_absence_filler(self):
+        html = _summary("이 방식은 별도 학습이 필요하지 않습니다.")
+        assert evaluate_summary("a", html).absence_filler == 0
 
     def test_subsection_headers_penalised(self):
         html = _summary("본문") + "<h4>소제목</h4>"
@@ -240,7 +272,7 @@ class TestToneRulesAreInThePrompt:
         assert phrase in self._template()
 
     @pytest.mark.parametrize(
-        "phrase", ["혁신적인", "다양한", "단순히 X가 아니라", "라는/다는 점입니다"]
+        "phrase", ["혁신적인", "다양한", "단순히 X가 아니라", "라는/다는 점"]
     )
     def test_cliche_rules_are_stated(self, phrase):
         assert phrase in self._template()
@@ -458,6 +490,13 @@ class TestRepeatsAndCallouts:
         html = (
             "<h3>📌 왜</h3><p>지연을 줄이는 방법을 다룹니다. 추론 비용을 고민하는 실무자가 "
             "참고할 수 있습니다.</p><h3>🛠️ 심층</h3><p>본문입니다.</p>"
+        )
+        assert evaluate_summary("a", html).boilerplate_score == 0.0
+
+    def test_a_call_out_without_an_audience_noun_is_caught(self):
+        html = (
+            "<h3>📌 왜</h3><p>지연을 22% 줄였습니다. 측정값을 직접 공개한 점도 "
+            "눈여겨볼 만합니다.</p><h3>🛠️ 심층</h3><p>본문입니다.</p>"
         )
         assert evaluate_summary("a", html).boilerplate_score == 0.0
 
