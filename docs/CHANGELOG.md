@@ -235,6 +235,12 @@
   `email_validator`에 위임합니다.
 - `format_alarm`의 `project`가 기본값 "tech-digest"였고 호출자가 아무도 넘기지 않아서, 다른
   이름으로 배포해도 알림 제목에 그 이름이 찍혔습니다.
+- **2026-10-11** 그날 prod 실행에서 필터 호출 하나가 읽기 제한 300초를 기다린 뒤 botocore의
+  조용한 재시도로 성공했습니다. 같은 오류를 tenacity도 재시도해서, 매번 멈추는 호출 하나가 이론상
+  약 95분을 써 Batch 시도 제한(90분)을 넘을 수 있었습니다. botocore 재시도를 끄고 tenacity 한
+  계층만 재시도하게 했습니다. 같은 검토에서 `wait_for_batch_job_completion`이 제출 직후 빈
+  `describe_jobs` 응답을 실패로 보고해, 실제로는 발송될 작업에 `run_batch`가 종료 코드 1을
+  내던 것도 고쳤습니다.
 
 ## 프롬프트 캐싱
 

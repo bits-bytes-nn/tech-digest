@@ -4,12 +4,12 @@
 
 **An automated newsletter that curates, filters, summarizes, and emails the week's best AI/ML engineering posts.**
 
-Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
+Powered by Amazon Bedrock (GPT-6.1 Sol filters, Claude summarizes) · orchestrated on AWS, defined with the CDK.
 
 [![CI](https://github.com/bits-bytes-nn/tech-digest/actions/workflows/ci.yml/badge.svg)](https://github.com/bits-bytes-nn/tech-digest/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue)
 ![AWS CDK](https://img.shields.io/badge/IaC-AWS%20CDK-orange)
-![Bedrock](https://img.shields.io/badge/LLM-Amazon%20Bedrock%20(Claude)-green)
+![Bedrock](https://img.shields.io/badge/LLM-Amazon%20Bedrock-green)
 
 🇰🇷 [한국어 README](./README.ko.md)
 
@@ -21,10 +21,10 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
 
 ## ✨ Features
 
-- **AI-powered curation**. Claude (via Amazon Bedrock) scores each post for
-  relevance and writes a structured, multi-section summary.
+- **AI-powered curation**. On Amazon Bedrock, GPT-6.1 Sol scores each post for
+  relevance and Claude writes a structured, multi-section summary.
 - **Multi-source aggregation**. pulls from \~20 tech blogs via RSS and resilient
-  HTML scraping (AWS, Google, Meta, OpenAI, Anthropic, NVIDIA, and more), with
+  HTML scraping (AWS, Google, Meta, OpenAI, Microsoft, NVIDIA, and more), with
   SSRF-guarded requests and per-source health tracking.
 - **Content quality gate**. drops posts whose visible text is too thin to
   summarize *before* they reach the LLM, so the digest never ships empty write-ups.
@@ -35,7 +35,7 @@ Powered by Amazon Bedrock (Claude) · orchestrated on AWS, defined with the CDK.
   under it, and the build warns if an issue would be cut.
 - **Crawl-health monitoring**. tracks every source's fetch status and alerts when
   one fails *or* stops offering anything to filter — a moved feed and a broken
-  scraper look identical to a quiet blog otherwise, and \~12 of 19 sources are
+  scraper look identical to a quiet blog otherwise, and most sources are
   legitimately empty in a normal week. A quiet blog never pages; an allow-list
   covers sources known to fail from AWS egress IPs, so the alarm stays actionable.
 - **Serverless infrastructure**. AWS Lambda *or* Batch (config-selectable),
