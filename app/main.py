@@ -34,6 +34,7 @@ from src import (
     SSMParams,
     Summarizer,
     SummarizerSettings,
+    TitleCaser,
     check_and_download_from_s3,
     format_alarm,
     get_date_range,
@@ -291,6 +292,7 @@ def _process_posts_and_create_newsletter(
 ) -> Path:
     """Build the issue and archive it in S3, under ``archive_suffix`` if given
     (see ``_archive_suffix``)."""
+    _title_case_titles(posts, config, bedrock_boto_session)
     inputs_dir = _prepare_and_save_posts(posts, date_suffix)
     first_section_intro = _generate_greeting(
         posts, date_suffix, config, bedrock_boto_session, language
@@ -414,6 +416,22 @@ def _save_post_to_file(post: Post, path: Path) -> None:
     post_dict = post.model_dump(mode="json")
     json_str = json.dumps(post_dict, ensure_ascii=False, indent=2, default=str)
     path.write_text(json_str, encoding="utf-8")
+
+
+def _title_case_titles(
+    posts: list[Post], config: Config, boto_session: boto3.Session
+) -> None:
+    """Recase the shipping titles in place: feeds mix sentence and title case."""
+    if not posts:
+        return
+    try:
+        caser = TitleCaser(boto_session, config.summarization.greeting_model_id)
+    except Exception as e:
+        # Like the greeting: cosmetic, and every summary is already paid for.
+        logger.error("Title caser unavailable (%s); keeping the feed titles.", e)
+        return
+    for post, title in zip(posts, caser.recase([p.title for p in posts]), strict=True):
+        post.title = title
 
 
 def _generate_greeting(

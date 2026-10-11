@@ -1,0 +1,86 @@
+"""Unit tests for the title caser's deterministic boundary: the model judges
+casing, code makes sure nothing but casing changes."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from app.src.title_caser import TitleCaser, accept_recased, parse_recased
+
+TITLES = [
+    "Multimodal open d1 decision models for the edge",
+    "Fine-tuning gpt-oss with LoRA",
+]
+
+
+class TestAcceptRecased:
+    def test_a_case_only_change_is_accepted(self):
+        assert accept_recased("a guide to agents", "A Guide to Agents") == (
+            "A Guide to Agents"
+        )
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "A Guide To AI Agents",  # a word added
+            "A Guide: Agents",  # punctuation changed
+            "에이전트 가이드",  # translated
+            None,
+            ["A Guide to Agents"],
+        ],
+    )
+    def test_anything_beyond_case_keeps_the_original(self, answer):
+        assert accept_recased("a guide to agents", answer) == "a guide to agents"
+
+
+class TestParseRecased:
+    def test_pairs_titles_in_order(self):
+        answer = json.dumps(
+            [
+                "Multimodal Open d1 Decision Models for the Edge",
+                "Fine-Tuning gpt-oss with LoRA",
+            ]
+        )
+        assert parse_recased(answer, TITLES) == [
+            "Multimodal Open d1 Decision Models for the Edge",
+            "Fine-Tuning gpt-oss with LoRA",
+        ]
+
+    def test_a_code_fence_is_tolerated(self):
+        answer = "```json\n" + json.dumps([t.upper() for t in TITLES]) + "\n```"
+        assert parse_recased(answer, TITLES) == [t.upper() for t in TITLES]
+
+    def test_one_bad_title_does_not_discard_the_others(self):
+        answer = json.dumps(["Multimodal Models", "Fine-Tuning gpt-oss with LoRA"])
+        assert parse_recased(answer, TITLES) == [
+            TITLES[0],
+            "Fine-Tuning gpt-oss with LoRA",
+        ]
+
+    @pytest.mark.parametrize(
+        "answer", ["not json", json.dumps(["only one"]), json.dumps({"a": 1})]
+    )
+    def test_a_malformed_answer_raises(self, answer):
+        with pytest.raises(ValueError):
+            parse_recased(answer, TITLES)
+
+
+class TestRecase:
+    def _caser(self, invoke) -> TitleCaser:
+        caser = TitleCaser.__new__(TitleCaser)
+        caser._invoke = invoke  # type: ignore[method-assign]
+        return caser
+
+    def test_model_failure_keeps_the_feed_titles(self):
+        def fail(_titles):
+            raise RuntimeError("Bedrock unavailable")
+
+        assert self._caser(fail).recase(TITLES) == TITLES
+
+    def test_malformed_answer_keeps_the_feed_titles(self):
+        assert self._caser(lambda _t: "Sure! Here you go.").recase(TITLES) == TITLES
+
+    def test_no_titles_makes_no_call(self):
+        assert self._caser(lambda _t: pytest.fail("called")).recase([]) == []

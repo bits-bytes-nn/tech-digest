@@ -44,6 +44,7 @@ from .newsletter_renderer import (
     NewsletterBuilder,
 )
 from .summarizer import MODEL_FAILURE_PREFIXES, Summarizer, SummarizerSettings
+from .title_caser import TitleCaser
 from .utils import (
     HTMLTagOutputParser,
     format_alarm,
@@ -81,6 +82,7 @@ __all__ = [
     "SourceStatus",
     "Summarizer",
     "SummarizerSettings",
+    "TitleCaser",
     "check_and_download_from_s3",
     "format_alarm",
     "get_account_id",
