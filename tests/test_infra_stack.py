@@ -131,6 +131,13 @@ def test_bedrock_invoke_covers_every_resource_type_the_runtime_resolves(template
         assert fragment in resources, fragment
 
 
+def test_the_role_can_read_inference_profiles(template):
+    # langchain-aws calls GetInferenceProfile when it is given an application
+    # profile ARN; removing it made every run fail before filtering.
+    actions = {a for s in _statements(template) for a in _actions(s)}
+    assert {"bedrock:ListInferenceProfiles", "bedrock:GetInferenceProfile"} <= actions
+
+
 def test_a_failed_run_is_not_retried_but_an_infrastructure_death_is(template):
     [job_definition] = _resources(template, "AWS::Batch::JobDefinition")
     from app.src.constants import BATCH_ATTEMPTS
