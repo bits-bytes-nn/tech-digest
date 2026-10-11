@@ -98,6 +98,13 @@ class TestDistinctiveness:
         )
         assert evaluate_summary("a", html).repeated_quantities == ()
 
+    def test_a_value_with_a_glued_unit_is_still_a_table_repeat(self):
+        html = (
+            "<h3>🛠️ 심층</h3><p>지연은 50ms 안에 듭니다.</p>"
+            "<table><tr><td>p99</td><td>50 ms</td></tr></table>"
+        )
+        assert "table 50" in evaluate_summary("a", html).repeated_quantities
+
     def test_a_model_size_is_not_a_table_repeat(self):
         html = (
             "<h3>🛠️ 심층</h3><p>Decider 35B-A3B 모델을 씁니다.</p>"
@@ -146,8 +153,9 @@ class TestLede:
         assert evaluate_summary("a", _summary("가"), one_liner=lede).lede_score < 1.0
 
     def test_lede_announcing_the_article_at_its_end_is_penalised(self):
-        lede = "포인트 기반 프롬프트 캐싱과 보안 점검 연동을 다룹니다."
-        assert evaluate_summary("a", _summary("가"), one_liner=lede).lede_score < 1.0
+        # In the length band, so the only deduction is the announcing ending.
+        lede = "GLM 5.3의 Bedrock 출시와 포인트 기반 명시적 프롬프트 캐싱, 보안 점검 연동을 다룹니다."
+        assert evaluate_summary("a", _summary("가"), one_liner=lede).lede_score == 0.7
 
     def test_missing_lede_scores_zero(self):
         assert evaluate_summary("a", _summary("가"), one_liner="").lede_score == 0.0
@@ -185,9 +193,16 @@ class TestStructurePenalties:
     def test_reworded_absence_sentences_are_caught(self, sentence):
         assert evaluate_summary("a", _summary(sentence)).absence_filler > 0
 
-    def test_a_negated_capability_is_not_absence_filler(self):
-        html = _summary("이 방식은 별도 학습이 필요하지 않습니다.")
-        assert evaluate_summary("a", html).absence_filler == 0
+    @pytest.mark.parametrize(
+        "sentence",
+        [
+            "이 방식은 별도 학습이 필요하지 않습니다.",
+            "금메달은 미세조정만으로는 나오지 않았고 RL이 필요했습니다.",
+            "리소스 구성을 명시하지 않고 기본값으로 배포합니다.",
+        ],
+    )
+    def test_a_negated_verb_about_the_technology_is_not_absence_filler(self, sentence):
+        assert evaluate_summary("a", _summary(sentence)).absence_filler == 0
 
     def test_subsection_headers_penalised(self):
         html = _summary("본문") + "<h4>소제목</h4>"
@@ -490,6 +505,13 @@ class TestRepeatsAndCallouts:
         html = (
             "<h3>📌 왜</h3><p>지연을 줄이는 방법을 다룹니다. 추론 비용을 고민하는 실무자가 "
             "참고할 수 있습니다.</p><h3>🛠️ 심층</h3><p>본문입니다.</p>"
+        )
+        assert evaluate_summary("a", html).boilerplate_score == 0.0
+
+    def test_a_lede_section_announcing_the_article_is_caught(self):
+        html = (
+            "<h3>📌 왜</h3><p>지연을 22% 줄였습니다. 이 글은 그 구현 방법을 다룹니다.</p>"
+            "<h3>🛠️ 심층</h3><p>본문입니다.</p>"
         )
         assert evaluate_summary("a", html).boilerplate_score == 0.0
 
