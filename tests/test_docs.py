@@ -15,7 +15,12 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-DOCS = [REPO / "README.md", REPO / "README.ko.md", REPO / "docs" / "design.md"]
+DOCS = [
+    REPO / "README.md",
+    REPO / "README.ko.md",
+    REPO / "docs" / "design.md",
+    REPO / "docs" / "CHANGELOG.md",
+]
 
 
 def _strip_code(text: str) -> str:

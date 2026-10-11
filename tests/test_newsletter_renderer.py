@@ -209,7 +209,7 @@ class TestNewsletterRendering:
         html = renderer.render_newsletter(self._build_data(sample_article_data))
         assert "Weekly AI Tech Blog Digest" in html
         assert sample_article_data["title"] in html
-        assert "#Mixture Of Experts" in html or "Mixture Of Experts" in html
+        assert "#Mixture Of Experts" in html
         assert html.strip().startswith("<!DOCTYPE")
 
     def test_summary_html_not_escaped(self, templates_dir, sample_article_data):
@@ -280,6 +280,7 @@ class TestNewsletterRendering:
         outside_mso = re.sub(r"<!--\[if mso\]>.*?<!\[endif\]-->", "", html, flags=re.S)
         assert "min-width" not in outside_mso
         assert not re.search(r'width="(?:[4-9]\d\d|\d{4,})"', outside_mso)
+        assert not re.search(r"(?<![-\w])width:\s*(?:[4-9]\d\d|\d{4,})px", outside_mso)
         assert "max-width: 800px" in html
 
     def test_source_alt_text(self, templates_dir, sample_article_data):
