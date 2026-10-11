@@ -990,14 +990,14 @@ def _send_crawl_health_alert(
 
     A quiet blog never triggers this: it offers its back catalogue and the date
     window filters it out, so its candidate count is non-zero. That matters more
-    than the coverage — an alarm that fires on the 12 normally-empty sources is an
-    alarm nobody reads, which is the same failure ``expected_flaky_urls`` exists to
+    than the coverage — an alarm that fires on the sources that are empty in a
+    normal week is an alarm nobody reads, which is the same failure ``expected_flaky_urls`` exists to
     prevent.
 
     Sources listed in ``scraping.expected_flaky_urls`` are excluded from BOTH
-    triggers (they still appear in the report body). x.ai and occasionally
-    ai.meta.com reject AWS datacenter IPs every single week, and an alarm that
-    always fires hides the one that means something.
+    triggers (they still appear in the report body): a source that fails every
+    week by design would make an alarm that always fires, hiding the one that
+    means something.
     """
 
     def unexpected(sources: list[SourceHealth]) -> list[SourceHealth]:
