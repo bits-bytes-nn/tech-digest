@@ -27,7 +27,13 @@ from .constants import (
     LanguageModelId,
 )
 from .eval_metrics import is_anchor
-from .feed_parser import Post, content_html, is_safe_url, visible_text
+from .feed_parser import (
+    Post,
+    content_html,
+    is_email_renderable_image,
+    is_safe_url,
+    visible_text,
+)
 from .logger import logger
 from .model_factory import BedrockLanguageModelFactory
 from .prompts.prompts import FilteringPrompt, SummarizationPrompt
@@ -348,6 +354,26 @@ def _encode_image_srcs(summary_html: str) -> str:
             img["src"] = encoded
             changed = True
     return str(soup) if changed else summary_html
+
+
+def _drop_unrenderable_images(summary_html: str) -> tuple[str, list[str]]:
+    """Remove images a mail client will not display, with their figure.
+
+    Outlook for Windows shows a WebP image's alt text instead, so the alt text
+    and the caption ran together as one odd sentence ("Massive Text Embedding
+    Benchmark (Code)코드 검색 부문 ... 차트입니다"). Returns
+    ``(cleaned_html, dropped_srcs)``.
+    """
+    if "<img" not in summary_html.lower():
+        return summary_html, []
+    soup = BeautifulSoup(summary_html, "html.parser")
+    dropped: list[str] = []
+    for img in list(soup.find_all("img")):
+        src = str(img.get("src") or "")
+        if not is_email_renderable_image(src):
+            dropped.append(src)
+            (img.find_parent("figure") or img).decompose()
+    return (str(soup), dropped) if dropped else (summary_html, [])
 
 
 def _unsourced_urls(urls: list[str], source_html: str) -> list[str]:
@@ -1037,5 +1063,14 @@ class Summarizer:
                 len(dropped),
                 post.title,
                 dropped,
+            )
+        cleaned, unrenderable = _drop_unrenderable_images(cleaned)
+        if unrenderable:
+            logger.warning(
+                "Dropped %d image(s) from the summary of '%s' — not a type mail "
+                "clients display, or not loadable: %s",
+                len(unrenderable),
+                post.title,
+                unrenderable,
             )
         return _postprocess_summary(_encode_image_srcs(cleaned))

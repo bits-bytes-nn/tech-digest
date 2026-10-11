@@ -330,6 +330,33 @@ class TestSummarizePosts:
         s._summarize_posts([post])
         assert "Screenshot%20at%201.27.14%E2%80%AFPM.png" in post.summary
 
+    def test_an_image_mail_clients_cannot_show_is_dropped_with_its_caption(
+        self, monkeypatch
+    ):
+        # Outlook shows a WebP's alt text, which then ran into the caption.
+        from app.src import summarizer as module
+
+        webp = "https://cdn.example.com/chart.width-100.format-webp.webp"
+        png = "https://cdn.example.com/arch.png"
+        monkeypatch.setattr(module, "is_email_renderable_image", lambda url: url == png)
+        s = _summarizer()
+        post = _post("a", content=f'<img src="{webp}"><img src="{png}">')
+        post.images = [webp, png]
+        s.summarizer = _FakeChain(
+            [
+                {
+                    "summary": BODY
+                    + f'<figure><img alt="Chart" src="{webp}"><figcaption>차트입니다.'
+                    f'</figcaption></figure><figure><img src="{png}"></figure>',
+                    "tags": [],
+                    "urls": [],
+                }
+            ]
+        )
+        s._summarize_posts([post])
+        assert "webp" not in post.summary and "차트입니다" not in post.summary
+        assert png in post.summary
+
     def test_an_already_encoded_image_url_is_left_alone(self):
         url = "https://cdn.example.com/a%20b.png?w=1200&q=90"
         s = _summarizer()
