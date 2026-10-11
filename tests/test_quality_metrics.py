@@ -98,6 +98,13 @@ class TestDistinctiveness:
         )
         assert evaluate_summary("a", html).repeated_quantities == ()
 
+    def test_a_number_in_a_label_cell_is_not_a_table_repeat(self):
+        html = (
+            "<h3>🛠️ 심층</h3><p>IOI 2025에서 GPT-5.5와 비교했습니다.</p>"
+            "<table><tr><td>IOI 2025 (GPT-5.5)</td><td>412점</td></tr></table>"
+        )
+        assert evaluate_summary("a", html).repeated_quantities == ()
+
 
 class TestLength:
     def test_in_band_scores_full(self):
@@ -467,6 +474,13 @@ class TestRepeatsAndCallouts:
             "<table><tr><td>문제 수</td><td>22,000</td></tr></table>"
         )
         assert "table 22000" in evaluate_summary("a", html).repeated_quantities
+
+    def test_a_number_inside_a_name_is_not_a_table_repeat(self):
+        html = (
+            "<h3>🛠️ 심층</h3><p>BF16 모델을 W4A16으로 내리고 H100에서 v2.1로 잽니다.</p>"
+            "<table><tr><td>배치</td><td>16</td><td>100</td><td>2.1</td></tr></table>"
+        )
+        assert evaluate_summary("a", html).repeated_quantities == ()
 
     def test_specificity_is_reported_but_not_averaged(self):
         from app.src.quality_metrics import SummaryQuality

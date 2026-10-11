@@ -338,14 +338,25 @@ def table_figures(soup: BeautifulSoup) -> set[str]:
 
 
 def _numbers(text: str) -> set[str]:
-    """Multi-digit numbers in ``text``, with thousands separators dropped."""
-    found = {n.replace(",", "").rstrip(".") for n in re.findall(r"\d[\d,.]*", text)}
+    """Multi-digit numbers in ``text``, with thousands separators dropped.
+
+    A number glued to a preceding letter is part of a name, not a value: "BF16",
+    "W4A16", "H100" and "v2.1" were matched against a table's 16, 100 and 2.1.
+    """
+    found = {
+        n.replace(",", "").rstrip(".")
+        for n in re.findall(r"(?<![A-Za-z\d.,])\d[\d,.]*", text)
+    }
     return {n for n in found if len(n.replace(".", "")) >= 2}
 
 
 def _table_prose_repeats(soup: BeautifulSoup) -> set[str]:
-    """Numbers that appear both in a table cell and in the prose outside tables."""
-    in_tables = _numbers(" ".join(td.get_text(" ") for td in soup.find_all("td")))
+    """Numbers that appear both in a table's value cells and in the prose outside
+    tables. Value cells are those that start with a digit (as in ``table_figures``):
+    a label cell ("IOI 2025 (Nano)", "GPT-5.5 high") names a row, and its numbers
+    are mentioned in prose as names, not repeated as results."""
+    values = (td.get_text(" ", strip=True) for td in soup.find_all("td"))
+    in_tables = _numbers(" ".join(v for v in values if v[:1].isdigit()))
     if not in_tables:
         return set()
     prose = BeautifulSoup(str(soup), "html.parser")
