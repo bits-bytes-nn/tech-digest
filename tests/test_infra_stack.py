@@ -138,6 +138,25 @@ def test_the_role_can_read_inference_profiles(template):
     assert {"bedrock:ListInferenceProfiles", "bedrock:GetInferenceProfile"} <= actions
 
 
+# Actions granted on Resource "*". Each has no resource-level scoping in IAM
+# (SendRawEmail is held to the sender by a ses:FromAddress condition instead), so
+# a new entry here is a deliberate widening, not an accident.
+ACCOUNT_WIDE_ACTIONS = {
+    "bedrock:GetInferenceProfile",
+    "bedrock:ListInferenceProfiles",
+    "ecr:GetAuthorizationToken",
+    "ses:ListSuppressedDestinations",
+    "ses:SendRawEmail",
+}
+
+
+def test_no_wildcard_actions_and_only_profile_listing_is_account_wide(template):
+    statements = _statements(template)
+    assert not [a for s in statements for a in _actions(s) if "*" in a]
+    account_wide = {a for s in statements if s["Resource"] == "*" for a in _actions(s)}
+    assert account_wide == ACCOUNT_WIDE_ACTIONS
+
+
 def test_a_failed_run_is_not_retried_but_an_infrastructure_death_is(template):
     [job_definition] = _resources(template, "AWS::Batch::JobDefinition")
     from app.src.constants import BATCH_ATTEMPTS

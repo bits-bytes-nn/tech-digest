@@ -64,6 +64,28 @@ def _summarizer(min_score=0.7, **overrides):
 
 
 class TestFilterPosts:
+    def test_inputs_match_the_prompt_variables(self):
+        # The chain is faked everywhere else, so a key the prompt requires but
+        # _filter_posts stops sending would KeyError on every real call while CI
+        # stays green.
+        from app.src.prompts import FilteringPrompt
+
+        seen: list[dict] = []
+
+        class _Recording:
+            def batch(self, inputs, config=None, return_exceptions=False):
+                seen.extend(inputs)
+                return [{"score": "0.70", "reason": "ok"} for _ in inputs]
+
+            def invoke(self, single):
+                raise AssertionError("batch path expected")
+
+        s = _summarizer()
+        s.filter = _Recording()
+        s._filter_posts([_post("a")])
+        assert set(seen[0]) == set(FilteringPrompt.input_variables)
+        assert seen[0]["source_url"].startswith("https://")
+
     def test_score_boundary_inclusive(self):
         s = _summarizer(min_score=0.70)
         posts = [_post("a"), _post("b")]

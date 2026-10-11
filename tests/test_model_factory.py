@@ -858,3 +858,18 @@ class TestOpenAIDialect:
         assert "stopSequences" not in inference
         fields = params.get("additionalModelRequestFields") or {}
         assert "thinking" not in fields
+
+
+def test_botocore_does_not_retry_so_tenacity_is_the_only_layer():
+    # Both layers retrying one read timeout let a hung call cost 4 x 300 s per
+    # tenacity attempt, longer than the Batch attempt limit.
+    import boto3
+
+    factory = BedrockLanguageModelFactory(
+        boto3.Session(
+            region_name="us-west-2",
+            aws_access_key_id="testing",
+            aws_secret_access_key="testing",
+        )
+    )
+    assert factory._client.meta.config.retries["total_max_attempts"] == 1
