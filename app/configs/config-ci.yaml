@@ -22,7 +22,7 @@ scraping:
 summarization:
   use_filtering: True
   filtering_criteria: all
-  filtering_model_id: anthropic.claude-sonnet-5-5
+  filtering_model_id: openai.gpt-6.1-sol
   summarization_model_id: anthropic.claude-sonnet-5-5
   greeting_model_id: anthropic.claude-haiku-5-5
   max_concurrency: 5

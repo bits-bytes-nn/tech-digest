@@ -98,7 +98,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **S3**. config, recipients, generated newsletters, and article HTML.
 - **SSM Parameter Store**. LangChain API key and Batch queue/definition names.
 - **SES**. newsletter delivery. **SNS** — run/health notifications.
-- **Bedrock (us-west-2)**. Claude Sonnet 5.5 (filter + summarize), Claude
+- **Bedrock (us-west-2)**. GPT-6.1 Sol (filter), Claude Sonnet 5.5 (summarize), Claude
   Haiku 5.5 (greeting and output repair). Any model in the `LanguageModelId`
   catalog in [`app/src/constants.py`](./app/src/constants.py) is selectable per
   stage, including OpenAI GPT-6 models; per-model request rules (thinking
@@ -136,7 +136,7 @@ scraping:
     - "https://www.amazon.science/index.rss"
 
 summarization:
-  filtering_model_id: anthropic.claude-sonnet-5-5
+  filtering_model_id: openai.gpt-6.1-sol
   summarization_model_id: anthropic.claude-sonnet-5-5
   greeting_model_id: anthropic.claude-haiku-5-5
   min_score: 0.7                         # keep posts scoring >= this

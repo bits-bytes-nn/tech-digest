@@ -96,7 +96,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **S3**. 설정, 수신자 목록, 생성된 뉴스레터, 글 HTML을 보관합니다.
 - **SSM Parameter Store**. LangChain API 키와 Batch 큐/정의 이름을 저장합니다.
 - **SES**로 뉴스레터를 전달하고, **SNS**로 실행·헬스 알림을 보냅니다.
-- **Bedrock(us-west-2)**. Claude Sonnet 5.5(필터 + 요약), Claude Haiku 5.5(인사말,
+- **Bedrock(us-west-2)**. GPT-6.1 Sol(필터), Claude Sonnet 5.5(요약), Claude Haiku 5.5(인사말,
   출력 복구). [`app/src/constants.py`](./app/src/constants.py)의 `LanguageModelId`
   카탈로그에 있는 모델은 OpenAI GPT-6 모델을 포함해 스테이지별로 골라 쓸 수 있습니다.
   모델별 요청 규칙(thinking 끄기 값, effort, GPT 호출 방식)은 design.md §8에 있습니다.
@@ -133,7 +133,7 @@ scraping:
     - "https://www.amazon.science/index.rss"
 
 summarization:
-  filtering_model_id: anthropic.claude-sonnet-5-5
+  filtering_model_id: openai.gpt-6.1-sol
   summarization_model_id: anthropic.claude-sonnet-5-5
   greeting_model_id: anthropic.claude-haiku-5-5
   min_score: 0.7                         # 이 점수 이상인 글만 유지

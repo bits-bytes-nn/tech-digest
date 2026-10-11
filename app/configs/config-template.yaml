@@ -44,7 +44,10 @@ summarization:
   filtering_criteria: all
   included_topics: # list of included topics
   excluded_topics: # list of excluded topics
-  filtering_model_id: anthropic.claude-sonnet-5-5
+  # The filter runs on GPT-6.1 Sol: re-scoring the same real candidates changed
+  # the band of 2% of posts on it against 15% on Sonnet 5.5, which has no
+  # sampling controls (design.md §9). Any LanguageModelId works here.
+  filtering_model_id: openai.gpt-6.1-sol
   filtering_enable_thinking: False
   summarization_model_id: anthropic.claude-sonnet-5-5
   summarization_enable_thinking: False

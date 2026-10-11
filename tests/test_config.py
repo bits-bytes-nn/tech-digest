@@ -263,9 +263,9 @@ class TestNewestModelsAreSelectable:
         path = Path(__file__).resolve().parent.parent / "app" / "configs" / name
         return yaml.safe_load(path.read_text(encoding="utf-8"))["summarization"]
 
-    def test_the_template_defaults_to_the_latest_claude(self):
+    def test_the_template_defaults_to_the_chosen_models(self):
         section = self._summarization("config-template.yaml")
-        assert section["filtering_model_id"] == LanguageModelId.CLAUDE_V5_5_SONNET.value
+        assert section["filtering_model_id"] == LanguageModelId.GPT_6_1_SOL.value
         assert (
             section["summarization_model_id"]
             == LanguageModelId.CLAUDE_V5_5_SONNET.value
