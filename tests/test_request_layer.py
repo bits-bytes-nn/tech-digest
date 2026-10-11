@@ -199,3 +199,55 @@ class TestHeadersAreSentAsDeclared:
         _make_robust_request("https://example.com")
         assert session.sent_headers == [feed_parser.ScraperConfig.REQUEST_HEADERS]
         assert session.headers == {}
+
+
+class TestEmailRenderableImage:
+    """Only image types every mail client displays are kept in a summary."""
+
+    @pytest.fixture
+    def respond(self, monkeypatch):
+        from app.src import feed_parser
+
+        def install(content_type, status_ok=True):
+            class _Resp:
+                def __init__(self):
+                    self.headers = {"content-type": content_type}
+
+            monkeypatch.setattr(feed_parser, "_is_blocked_host", lambda host: False)
+            monkeypatch.setattr(
+                feed_parser,
+                "_try_request",
+                lambda session, url, headers: _Resp() if status_ok else None,
+            )
+
+        return install
+
+    @pytest.mark.parametrize(
+        "content_type", ["image/png", "image/jpeg; q=1", "image/gif"]
+    )
+    def test_email_safe_types_are_kept(self, respond, content_type):
+        from app.src.feed_parser import is_email_renderable_image
+
+        respond(content_type)
+        assert is_email_renderable_image("https://cdn.example.com/a")
+
+    @pytest.mark.parametrize(
+        "content_type",
+        ["image/webp", "image/avif", "image/svg+xml", "application/octet-stream"],
+    )
+    def test_types_mail_clients_do_not_show_are_dropped(self, respond, content_type):
+        from app.src.feed_parser import is_email_renderable_image
+
+        respond(content_type)
+        assert not is_email_renderable_image("https://cdn.example.com/a")
+
+    def test_an_image_that_does_not_load_is_dropped(self, respond):
+        from app.src.feed_parser import is_email_renderable_image
+
+        respond("image/png", status_ok=False)
+        assert not is_email_renderable_image("https://cdn.example.com/a")
+
+    def test_an_unsafe_scheme_is_never_fetched(self):
+        from app.src.feed_parser import is_email_renderable_image
+
+        assert not is_email_renderable_image("javascript:alert(1)")

@@ -106,3 +106,9 @@ def no_network(monkeypatch):
     for name in ("app.src.feed_parser", "src.feed_parser"):
         if module := sys.modules.get(name):
             monkeypatch.setattr(module, "_make_robust_request", lambda url: None)
+    # The summarizer fetches each summary image to check mail clients can show
+    # it. Offline, every image would be dropped; tests about that check stub
+    # it themselves.
+    for name in ("app.src.summarizer", "src.summarizer"):
+        if module := sys.modules.get(name):
+            monkeypatch.setattr(module, "is_email_renderable_image", lambda url: True)

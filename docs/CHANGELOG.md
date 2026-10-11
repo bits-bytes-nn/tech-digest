@@ -527,6 +527,12 @@
 - 거부 답변이나 "요약할 수 없습니다"를 복구 모델이 태그로 감싸면 그대로 카드가 됐고, 빈 응답이
   오면 복구 모델이 빈 입력에서 요약을 지어냈습니다. `EmptyModelOutput`과 최소 분량·한글 비율
   검사를 넣었습니다.
+- **2026-10-11** dev 테스트 호의 EmbeddingGemma 2 카드에서 그림 세 장이 "Massive Text Embedding
+  Benchmark (Code)코드 검색 부문 … 차트입니다"처럼 alt 텍스트와 캡션이 붙은 글로 보였습니다. 원문
+  `src`는 지연 로딩용 100px WebP 자리표시였고(실제 크기는 `data-loading` JSON에 있음), 서버에는 WebP만
+  있으며 `Content-Type`도 `application/octet-stream`이었습니다. Outlook은 WebP 대신 alt 텍스트를
+  보여 줍니다. 요약의 이미지를 받아 보고 메일 클라이언트가 표시하는 형식이 아니면 figure를 지우게
+  했습니다.
 
 ## 인사말
 
