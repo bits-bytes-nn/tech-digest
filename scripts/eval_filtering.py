@@ -102,7 +102,7 @@ def _score_live(
                 {
                     "post": article["content"],
                     "original_title": article["title"],
-                    "source_url": article.get("link", ""),
+                    "source_url": article["link"],
                     "included_topics": included,
                     "excluded_topics": excluded,
                 }

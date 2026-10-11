@@ -23,8 +23,15 @@
       "content": "Starting today, Amazon SageMaker AI inference endpoints can route requests by prompt prefix. When you enable the new RoutingStrategy=PREFIX_AWARE setting, the endpoint's router hashes the first 2,048 tokens of each request and sends requests that share a prefix to the instance that already holds those KV-cache blocks, falling back to least-outstanding-requests when that instance is above 85% of its concurrency limit. In our tests on a Llama-architecture 70B model with a 6,000-token shared system prompt, time to first token fell 43% at p50 and 58% at p99 at 200 concurrent users, and throughput per instance rose 1.6x. This post explains how the router tracks cache residency, why the fallback threshold exists, how scale-out redistributes prefixes, which container images support the feature, and the CloudWatch metrics (PrefixCacheHitRate, RouterFallbackCount) it adds. The feature is available in all commercial Regions at no additional cost."
     },
     {
+      "id": "launch-with-walkthrough",
+      "expected_band": "included",
+      "title": "Amazon Bedrock AgentCore now supports scheduled agent runs",
+      "link": "https://aws.amazon.com/blogs/machine-learning/agentcore-now-supports-scheduled-agent-runs/",
+      "content": "Amazon Bedrock AgentCore Runtime now runs agents on a schedule. A new Schedule resource takes a cron or rate expression, a target agent and a JSON payload, and AgentCore starts a fresh session at each tick with the payload as the first message. Runs that overlap are skipped by default (OverlapPolicy=SKIP) or queued (QUEUE, up to 3). Each run gets the agent's normal identity and memory configuration, and its outcome is recorded as a ScheduleRunSucceeded or ScheduleRunFailed event. In this post we launch the feature and then walk through a nightly report agent end to end: the IaC for the schedule, how the agent reads yesterday's metrics through a Gateway tool, how to alarm on two consecutive failed runs, and the limits at launch (1-minute minimum interval, 500 schedules per account). Pricing is the standard Runtime per-second rate; schedules themselves are free."
+    },
+    {
       "id": "monthly-launch-roundup",
-      "expected_band": "weak",
+      "expected_band": "reject",
       "title": "ICYMI: What shipped for AI builders on AWS in August",
       "link": "https://aws.amazon.com/blogs/machine-learning/icymi-what-shipped-for-ai-builders-in-august/",
       "content": "Here is everything that landed for AI builders on AWS last month. Amazon Bedrock added three new models from partner providers and expanded batch inference to two more Regions. AgentCore gained a browser tool update and new observability dashboards. SageMaker AI introduced faster endpoint startup for some container images. Strands Agents released version 1.9 with improved streaming. Amazon Q Developer can now explain more AWS errors in the console. Each item links to its launch page for details. Whether you are just starting out or scaling to production, these updates make it easier than ever to build with generative AI on AWS. Check out the links below, try the new features in your account, and tell us what you build. See you next month for another recap of the latest AI launches on AWS."
@@ -51,6 +58,13 @@
       "content": "Want to chat with your documents? Amazon Bedrock Knowledge Bases makes it easy. In this post we show you how to get started in just a few clicks. First, open the Amazon Bedrock console and choose Knowledge Bases from the left menu. Choose Create knowledge base. Give it a name, choose your S3 bucket, and accept the default chunking and embedding settings. Choose Create. Once the sync finishes, choose Test knowledge base, pick a model, and type a question about your documents. That's it! You now have a working retrieval-augmented generation application without writing any code. To learn more, see the Amazon Bedrock documentation and try it in your own account today."
     },
     {
+      "id": "third-party-model-deployment-guide",
+      "expected_band": "strong",
+      "title": "Deploying real-time streaming text-to-speech on Amazon SageMaker AI",
+      "content": "This post shows how to serve an open-weights text-to-speech model with streaming audio output on a SageMaker AI real-time endpoint. The model emits audio in 80 ms chunks; we expose them through the endpoint's bidirectional streaming API and measure time to first audio. We compare three configurations on ml.g6.2xlarge: the default container (first audio at 420 ms), the same with CUDA graphs enabled (260 ms), and with speculative decoding of the acoustic tokens (190 ms at the cost of 8% more GPU memory). We explain why the vocoder, not the language model, dominates latency at batch size 1, how we size concurrency so p99 stays under 400 ms at 30 streams, and how to autoscale on a custom ConcurrentStreams metric. Container code and load-test scripts are included.",
+      "link": "https://aws.amazon.com/blogs/machine-learning/deploying-real-time-streaming-tts-on-sagemaker-ai/"
+    },
+    {
       "id": "amazon-science-research",
       "expected_band": "high",
       "title": "Why do research agents generalize? A compression view",
@@ -63,6 +77,20 @@
       "title": "Graph-structured reasoning for root-cause analysis agents",
       "link": "https://www.amazon.science/blog/graph-structured-reasoning-for-root-cause-analysis-agents",
       "content": "Networks are graphs: devices, links and services form a topology through which failures propagate. We describe an agent that diagnoses outages by reasoning over that graph instead of over flat logs. The agent first builds a dependency graph from configuration and telemetry, then runs a learned propagation model, a graph neural network trained on 18 months of labeled incidents, to rank candidate root causes by how well each explains the observed alarms. An LLM planner chooses which diagnostic probes to run next, using the ranking as a prior and updating it after each probe. On 1,200 historical incidents the top-1 root-cause accuracy was 71%, against 48% for an LLM agent given the same telemetry as text, and median time to diagnosis fell from 26 to 9 minutes. We discuss why the graph prior matters most for cascading failures, where the first alarm is rarely the cause, and where the approach fails: incidents caused by changes the topology does not record."
+    },
+    {
+      "id": "amazon-science-partnership-news",
+      "expected_band": "reject",
+      "title": "Amazon and a university launch a joint research initiative",
+      "link": "https://www.amazon.science/news/amazon-and-a-university-launch-a-joint-research-initiative",
+      "content": "Amazon and a leading university today announced a new research initiative spanning AI, energy and healthcare. The initiative builds on a long relationship: more than ten Amazon teams already fund research and PhD fellowships at the university. It will support faculty-led projects, host an annual symposium and offer cloud credits to researchers. Leaders from both organizations said the partnership will help results reach the real world faster. Calls for proposals open next month, and selected projects will be announced in the spring."
+    },
+    {
+      "id": "non-amazon-research-control",
+      "expected_band": "reject",
+      "title": "Graph-structured reasoning for root-cause analysis agents",
+      "link": "https://research.example-network-vendor.com/blog/graph-structured-root-cause-agents",
+      "content": "Networks are graphs: devices, links and services form a topology through which failures propagate. We describe an agent that diagnoses outages by reasoning over that graph instead of over flat logs. The agent builds a dependency graph from configuration and telemetry, then runs a graph neural network trained on 18 months of labeled incidents to rank candidate root causes. An LLM planner chooses which diagnostic probes to run next, using the ranking as a prior. On 1,200 historical incidents the top-1 root-cause accuracy was 71%, against 48% for an LLM agent given the same telemetry as text. The system runs on our own observability platform."
     },
     {
       "id": "amazon-science-non-ml",

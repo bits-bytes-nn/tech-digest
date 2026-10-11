@@ -252,7 +252,6 @@ REJECT if content contains:
 - Topics in the provided Excluded Topics list
 - Non-Amazon promotional content
 - Competitor platform focus
-- Basic tutorials without technical depth
 
 **EXCEPTION:** If content SUBSTANTIALLY covers any included topic with AWS context (>30% as primary focus), AUTO-ACCEPT
 and proceed to scoring — unless its primary subject is an excluded topic.
@@ -272,8 +271,8 @@ ACCEPT if content has:
 - Technical depth in AWS ML services (SageMaker, Bedrock, etc.)
 - Advanced ML understanding within AWS ecosystem
 - **High-quality AWS ML practical guides with deep insights and proven best practices**
-- ML research or engineering that Amazon itself publishes (an amazon.science or AWS blog source URL).
-  That is Amazon context even when the text names no AWS service: score it on its ML merit
+- ML research or engineering that Amazon itself publishes (the source URL shows Amazon or AWS published
+  it). That is Amazon context even when the text names no AWS service: score it on its ML merit
 
 ---
 
@@ -298,7 +297,7 @@ anchor for other content:
 - **0.50** — Moderate: moderate AWS ML depth, or educational with some insight.
 - **0.35** — Weak: basic AWS ML tutorial with minimal depth.
 - **0.15** — Poor: marketing disguised as AWS technical content, or minimal AWS ML focus.
-- **0.05** — Not relevant: another vendor's platform or content, non-ML, or an excluded topic.
+- **0.05** — Not relevant: a competitor's platform, non-ML content, or an excluded topic.
 
 **UNCERTAINTY:** When torn between two anchors, always choose the LOWER one. Promotional
 mixing or poor organisation is a reason to choose the lower anchor, never to adjust a score.
@@ -617,7 +616,7 @@ avoid speculation.
 Knowing a rule is not the same as having followed it. These are the slips that most often survive
 into a published issue, so look for each one in your draft and fix it before you output:
 1. Go through every number in 📊. If it also appears in 📌, 🔄 or 🛠️, keep it in 📊 and replace the
-   earlier mention with words ("cuts latency sharply"). Then delete any 📊 sentence about business
+   earlier mention with words ("cuts latency"). Then delete any 📊 sentence about business
    value, a ratio you computed, or a forecast the article does not make.
 2. Find sentences whose verb is "provides", "offers" or "supports" and say what the feature actually does.
 3. Find praise adjectives, "not just X, it's Y" and meta-narration (principle 5) and rewrite them. Read the
@@ -804,13 +803,13 @@ avoid speculation.
 **마지막 점검 (답을 내기 전에 초안을 다시 읽고 고치세요):**
 규칙을 아는 것과 지킨 것은 다릅니다. 아래 여섯 가지는 지난 호들에서 실제로 가장 자주 남은
 실수이므로, 초안을 쓴 뒤 하나씩 찾아서 고치고 나서 출력하세요.
-1. 📊 섹션의 숫자를 하나씩 보세요. 📌·🔄·🛠️에도 같은 숫자가 있으면 📊에 남기고 앞쪽은 "지연을 크게
+1. 📊 섹션의 숫자를 하나씩 보세요. 📌·🔄·🛠️에도 같은 숫자가 있으면 📊에 남기고 앞쪽은 "지연을
    줄입니다"처럼 말로 바꾸세요. 그다음 원문에 없는 비즈니스 함의, 직접 계산한 비율, 전망을 담은 📊
    문장을 지우세요.
 2. "제공합니다", "지원합니다"로 끝나는 문장을 찾아 그 기능이 실제로 무엇을 하는지로 바꾸세요.
 3. "~라는/다는 점" 절, "~하는 것" 명사절, 수량 표현 뒤의 "-들"("16개 GPU들"), 칭찬 형용사와 메타
    서술을 찾아 원칙 6·7대로 고치세요. 📌의 마지막 문장이 누가 읽으면 좋은지, 주목할 만하다는 말로
-   끝나면 이 글이 확인한 사실로 끝맺으세요.
+   끝나면 기술이 하는 일이나 측정 결과로 끝맺으세요.
 4. one_liner의 글자 수를 공백을 포함해 세세요. 40~100자를 벗어나면 고치세요.
 5. 이미지 src는 원문에 있는 URL을 글자 그대로(쿼리 문자열 포함) 옮겼는지 확인하세요.
 6. 무언가가 없다는 것이 요지인 문장은 표현과 상관없이 지우세요("~는 설명하지 않습니다", "~는

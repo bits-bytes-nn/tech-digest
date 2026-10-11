@@ -217,6 +217,10 @@ class TestEvalSets:
     def test_labels_are_bands_and_ids_unique(self, eval_set):
         from app.src.eval_metrics import ANCHOR_BANDS
 
+        # The filter sees the URL in production, so every item carries one.
+        assert all(
+            a.get("link", "").startswith("https://") for a in eval_set["articles"]
+        )
         ids = [a["id"] for a in eval_set["articles"]]
         assert len(ids) == len(set(ids))
         assert {a["expected_band"] for a in eval_set["articles"]} <= set(
