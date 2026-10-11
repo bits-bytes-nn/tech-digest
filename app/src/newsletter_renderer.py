@@ -488,7 +488,9 @@ class NewsletterBuilder:
             try:
                 data = json.loads(file_path.read_text("utf-8"))
                 source = data.get("source", "unknown")
-                data["thumbnail"] = self.logos.get(source, self.logos["unknown"])
+                data["thumbnail"] = self.logos.get(source) or self.logos.get(
+                    "unknown", ""
+                )
                 data["reading_minutes"] = estimate_reading_minutes(
                     data.get("summary", ""), language
                 )

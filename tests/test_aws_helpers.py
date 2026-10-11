@@ -249,12 +249,23 @@ class TestWaitForBatchJob:
 
         assert wait_for_batch_job_completion(_FakeSession(_Batch()), "job-1") is False
 
-    def test_missing_status_aborts(self):
+    def test_a_job_not_yet_visible_is_polled_again_not_failed(self):
+        # Right after submit describe_jobs can return no jobs. Reporting that as
+        # a failure made run_batch exit 1 while the job went on to send.
+        responses = iter(
+            [{"jobs": []}, {"jobs": [{}]}, {"jobs": [{"status": "SUCCEEDED"}]}]
+        )
+
         class _Batch:
             def describe_jobs(self, jobs):
-                return {"jobs": [{}]}
+                return next(responses)
 
-        assert wait_for_batch_job_completion(_FakeSession(_Batch()), "job-1") is False
+        assert (
+            wait_for_batch_job_completion(
+                _FakeSession(_Batch()), "job-1", poll_interval_seconds=0
+            )
+            is True
+        )
 
     def test_client_error_returns_false(self):
         class _Batch:

@@ -277,16 +277,15 @@ def wait_for_batch_job_completion(
     while time.time() - start_time < timeout_seconds:
         try:
             response = batch_client.describe_jobs(jobs=[job_id])
-            # describe_jobs can return {"jobs": []} (eventual consistency right
-            # after submit); `.get("jobs", [{}])[0]` would raise IndexError on a
-            # present-but-empty list, so guard the empty case explicitly.
+            # describe_jobs can return {"jobs": []} right after submit (eventual
+            # consistency). That job exists and will run, so keep polling:
+            # reporting it as failed invites a re-run that sends the issue twice.
             jobs = response.get("jobs") or []
             status = jobs[0].get("status") if jobs else None
             if not status:
-                logger.error(
-                    "Could not find status for job ID '%s'. Aborting wait.", job_id
-                )
-                return False
+                logger.debug("Job '%s' not visible yet; polling again", job_id)
+                time.sleep(poll_interval_seconds)
+                continue
             job = jobs[0]
             if status == "SUCCEEDED":
                 logger.info("Job '%s' completed successfully.", job_id)

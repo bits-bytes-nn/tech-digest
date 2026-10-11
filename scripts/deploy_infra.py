@@ -372,7 +372,7 @@ class NewsletterStack(Stack):
             # SSM: read this project's parameters (e.g. LangChain API key,
             # stored as a SecureString — see _put_secure_ssm_parameter).
             iam.PolicyStatement(
-                actions=["ssm:GetParameter", "ssm:GetParameters"],
+                actions=["ssm:GetParameter"],
                 resources=[param_arn],
             ),
             # KMS: decrypt the SecureString SSM parameter. Scoped to the
@@ -395,10 +395,7 @@ class NewsletterStack(Stack):
             # (anthropic.*, openai.*), with a region wildcard. The account-scoped inference-profile ARNs remain
             # the access-controlled resource.
             iam.PolicyStatement(
-                actions=[
-                    "bedrock:InvokeModel",
-                    "bedrock:InvokeModelWithResponseStream",
-                ],
+                actions=["bedrock:InvokeModel"],  # calls are not streamed
                 resources=[
                     "arn:aws:bedrock:*::foundation-model/anthropic.*",
                     "arn:aws:bedrock:*::foundation-model/openai.*",
@@ -413,10 +410,7 @@ class NewsletterStack(Stack):
                 ],
             ),
             iam.PolicyStatement(
-                actions=[
-                    "bedrock:ListInferenceProfiles",
-                    "bedrock:GetInferenceProfile",
-                ],
+                actions=["bedrock:ListInferenceProfiles"],
                 resources=["*"],  # profile discovery is an account-level action
             ),
             # No CloudWatch Logs statement: nothing running as this role writes
