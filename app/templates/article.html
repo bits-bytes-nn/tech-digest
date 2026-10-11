@@ -39,7 +39,13 @@
       aria-roledescription="article"
       aria-label="{{ article.title }}"
     >
-      {{ main_partial.main_content(article, labels) }}
+      <tr>
+        <td align="center" style="padding: 12px 0">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" style="max-width: 800px">
+            {{ main_partial.main_content(article, labels) }}
+          </table>
+        </td>
+      </tr>
     </table>
   </body>
 </html>

@@ -9,22 +9,22 @@
    button) stay inline, where client support is weakest. #}
 {% macro main_content(article, labels) %}
 <tr>
-  <td align="center" class="wrapper" style="background-color: #f8f9fa; padding: 20px">
-    <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#FFFFFF" class="card">
+  <td align="center" class="card-gutter" style="padding: 12px 20px">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#FFFFFF" class="card">
       <tr>
-        <td>
-          <table width="100%" border="0" cellspacing="0" cellpadding="0">
+        <td style="padding: 24px 24px 0 24px">
+          <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
             <tr>
-              <td width="80" style="padding: 18px">
+              <td width="56" valign="middle" style="padding-right: 16px">
                 <img
                   src="{{ article.thumbnail }}"
-                  width="80"
-                  height="80"
+                  width="56"
+                  height="56"
                   class="thumb"
                   alt="{{ article.source_label ~ ' logo' if article.source_label else '' }}"
                 />
               </td>
-              <td style="padding: 18px; text-align: left; vertical-align: middle">
+              <td valign="middle" style="text-align: left">
                 <div class="card-title">{{ article.title }}</div>
               </td>
             </tr>
@@ -32,7 +32,7 @@
         </td>
       </tr>
       <tr>
-        <td style="padding: 0 18px 12px 18px; text-align: center">
+        <td class="card-pad" style="padding: 12px 24px 0 24px; text-align: left">
           <div class="muted">
             {{ labels.published_on }} {{ article.published_date }}
             {% if article.reading_minutes %}
@@ -46,7 +46,7 @@
       </tr>
       {% if article.tags %}
       <tr>
-        <td class="tags-cell" style="padding: 0 18px; text-align: center">
+        <td class="tags-cell card-pad" style="padding: 10px 24px 0 24px; text-align: left">
           {% for tag in article.tags %}
           <span class="tag-chip"><span>#{{ tag }}</span></span>
           {% endfor %}
@@ -55,48 +55,48 @@
       {% endif %}
       {% if article.one_liner %}
       <tr>
-        <td class="lede-cell" bgcolor="#FFFFFF" align="left" style="padding: 18px 18px 0 18px">
+        <td class="lede-cell card-pad" bgcolor="#FFFFFF" align="left" style="padding: 16px 24px 0 24px">
           <div class="lede">{{ article.one_liner }}</div>
         </td>
       </tr>
       {% endif %}
       <tr>
-        <td bgcolor="#FFFFFF" class="td-padding card-body" align="left" style="padding: 18px">
+        <td bgcolor="#FFFFFF" class="card-pad card-body" align="left" style="padding: 8px 24px 8px 24px">
           <div style="max-width: 100%">{{ article.summary | safe }}</div>
         </td>
       </tr>
       <tr>
-        <td class="cta-cell" bgcolor="#FFFFFF" align="center" style="padding: 0 18px 18px 18px">
+        <td class="cta-cell card-pad" bgcolor="#FFFFFF" align="center" style="padding: 8px 24px 24px 24px">
           <a
             href="{{ article.link }}"
             target="_blank"
             rel="noopener noreferrer"
+            class="cta"
             style="
               font-family: 'Pretendard', 'Inter', system-ui, sans-serif;
-              font-size: 0.875rem;
+              font-size: 0.9375rem;
               line-height: 1.5;
-              font-weight: 500;
-              color: #ffffff;
+              font-weight: 700;
+              color: #16191f;
               text-decoration: none;
-              border-radius: 4px;
-              padding: 10px 20px;
+              border-radius: 6px;
+              padding: 12px 28px;
               display: inline-block;
-              background: linear-gradient(135deg, #ff9900 0%, #ffb84d 100%);
               background-color: #ff9900;
             "
-            >{{ labels.view_more }}</a
+            >{{ labels.view_more }} →</a
           >
         </td>
       </tr>
       {% if article.urls %}
       <tr>
-        <td bgcolor="#FFFFFF" style="padding: 0 18px"><hr class="divider" /></td>
+        <td bgcolor="#FFFFFF" class="card-pad" style="padding: 0 24px"><hr class="divider" /></td>
       </tr>
       <tr>
-        <td bgcolor="#FFFFFF" class="td-padding resources" align="left" style="padding: 18px">
+        <td bgcolor="#FFFFFF" class="card-pad resources" align="left" style="padding: 16px 24px 24px 24px">
           <div class="resources-title">{{ labels.resources }}</div>
           {% for url in article.urls %}
-          <div style="margin-bottom: 5px">• {{ url | safe }}</div>
+          <div style="margin-bottom: 6px">• {{ url | safe }}</div>
           {% endfor %}
         </td>
       </tr>
