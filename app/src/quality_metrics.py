@@ -156,7 +156,7 @@ def is_korean(text: str, threshold: float = 0.1) -> bool:
 # usefulness word in the section's last sentence — because the model rewords it
 # every time a fixed phrase list catches up with it.
 AUDIENCE_CALLOUT = re.compile(
-    r"(실무자|팀|엔지니어|개발자|아키텍트|독자|조직)[^.]{0,40}(참고|유용|의미가|도움)"
+    r"(실무자|팀|엔지니어|개발자|아키텍트|독자|조직)[^.]{0,40}(참고|유용|의미가|도움|자료)"
     # The same closing without the audience noun: "…점도 눈여겨볼 만합니다".
     r"|(주목|눈여겨볼|참고할|살펴볼)\s*만(합니다|한)"
 )
@@ -172,16 +172,31 @@ BANNED_LEDE_OPENERS: tuple[str, ...] = (
     "이 포스트는",
 )
 
-# A sentence about what the article does not say, which the prompt bans: a
-# reporting verb negated ("제시되지 않았습니다", "밝히지 않습니다", "글에 나오지
-# 않으므로") or a missing figure ("수치는 없습니다"). Matched as a shape because
-# the model rewords it every time a fixed phrase list catches up with it.
-ABSENCE_FILLER = re.compile(
-    r"(?:언급|명시|공개|제시|보고|설명|소개|확인)(?:하|되|되어\s*있)?지\s*않"
-    r"|(?:밝히|다루|나오|나와\s*있)지\s*않"
-    r"|(?:정보|수치|내용)(?:는|은|가|이)\s*없"
-    r"|확인할\s*수\s*없"
+# A sentence about what the article does not say, which the prompt bans. Two
+# shapes, both anchored so a negated verb about the technology itself ("결과가
+# 나오지 않았고", "리소스를 명시하지 않고") is not counted:
+#   - the document is the subject and something is missing ("글은 구조를 따로
+#     설명하지 않습니다", "이 글에서 직접 측정한 결과는 없습니다");
+#   - a reported item is said to be unreported ("직접 비교는 보고되지 않았습니다",
+#     "속도 수치는 공개하지 않았습니다").
+_NOT_REPORTED = r"(?:언급|명시|공개|제시|보고|설명|소개)(?:하|되|되어\s*있)?지\s*않"
+_ABSENCE_ABOUT_DOCUMENT = re.compile(
+    r"(?:글|원문|본문|아티클|포스트)(?:은|는|이|에서|에는|에)\s[^.]*?"
+    r"(?:"
+    + _NOT_REPORTED
+    + r"|(?:밝히|다루|나오)지\s*않|없습니다|없으며|없고|하나이며|하나뿐)"
 )
+_ABSENCE_OF_ITEM = re.compile(
+    r"(?:수치|점수|비교|결과|일정|가격|파라미터|벤치마크)(?:는|은|도)\s[^.]{0,20}?"
+    r"(?:" + _NOT_REPORTED + r"|없습니다|없으며|없고)"
+)
+
+
+def is_absence_sentence(sentence: str) -> bool:
+    return bool(
+        _ABSENCE_ABOUT_DOCUMENT.search(sentence) or _ABSENCE_OF_ITEM.search(sentence)
+    )
+
 
 # A MEASURED quantity: a number that carries a unit, a percent sign or a Korean
 # comparative marker. The unit is required on purpose — an earlier version matched
@@ -346,13 +361,16 @@ def table_figures(soup: BeautifulSoup) -> set[str]:
 def _numbers(text: str) -> set[str]:
     """Multi-digit numbers in ``text``, with thousands separators dropped.
 
-    A number glued to a letter is part of a name, not a value: "BF16", "W4A16",
-    "H100", "v2.1" and "35B-A3B" were matched against a table's 16, 100, 2.1
-    and 35.
+    A number inside a name is not a value: "BF16", "W4A16", "H100" and "v2.1"
+    (a letter before it) and "35B-A3B" (letters then a hyphen or digit after it)
+    were matched against a table's 16, 100, 2.1 and 35. A number followed only
+    by a unit ("50ms", "870GB") is still a value.
     """
     found = {
         n.replace(",", "").rstrip(".")
-        for n in re.findall(r"(?<![A-Za-z\d.,])\d[\d,.]*(?![\d,.]*[A-Za-z])", text)
+        for n in re.findall(
+            r"(?<![A-Za-z\d.,])\d[\d,.]*(?![\d,.]*[A-Za-z]+[-\d])", text
+        )
     }
     return {n for n in found if len(n.replace(".", "")) >= 2}
 
@@ -401,6 +419,9 @@ class SummaryQuality:
 
     article_id: str
     length: int = 0
+    # Densities divide prose hits by prose length: ``length`` includes code,
+    # which would dilute them on a code-heavy summary.
+    prose_length: int = 0
     sections: tuple[str, ...] = ()
     missing_sections: tuple[str, ...] = ()
     subsection_headers: int = 0
@@ -472,9 +493,9 @@ class SummaryQuality:
         Tables and code blocks earn nothing here: rewarding their presence would
         reward adding one whether or not the source has the material.
         """
-        if not self.length:
+        if not self.prose_length:
             return 0.0
-        density = 1000 * self.quantity_count / self.length
+        density = 1000 * self.quantity_count / self.prose_length
         return min(1.0, density / SPECIFICITY_SATURATION)
 
     @property
@@ -507,12 +528,14 @@ class SummaryQuality:
     def translationese_score(self) -> float:
         """English sentence structure carried into Korean, by rate not presence."""
         return _density_score(
-            sum(self.translationese.values()), self.length, TRANSLATIONESE_BAND
+            sum(self.translationese.values()), self.prose_length, TRANSLATIONESE_BAND
         )
 
     @property
     def cliche_score(self) -> float:
-        return _density_score(sum(self.cliches.values()), self.length, CLICHE_BAND)
+        return _density_score(
+            sum(self.cliches.values()), self.prose_length, CLICHE_BAND
+        )
 
     # Graded dimensions: where real output varies, so they steer tuning.
     TUNED = (
@@ -575,10 +598,11 @@ def evaluate_summary(
     return SummaryQuality(
         article_id=article_id,
         length=len(visible),
+        prose_length=len(text),
         sections=tuple(m for m in SECTION_MARKERS if m in sections),
         missing_sections=tuple(m for m in SECTION_MARKERS if m not in sections),
         subsection_headers=len(soup.find_all(["h4", "h5", "h6"])),
-        absence_filler=len(ABSENCE_FILLER.findall(text)),
+        absence_filler=sum(map(is_absence_sentence, sentences(text))),
         han_da=tuple(han_da_sentences(text)),
         # Counted on the HTML with the SAME pattern the summarizer corrects with,
         # so a colon that legitimately introduces a list is not a defect here.
@@ -591,7 +615,11 @@ def evaluate_summary(
         captioned_images=captioned,
         banned_closings=tuple(
             lede_section[-1:]
-            if lede_section and AUDIENCE_CALLOUT.search(lede_section[-1])
+            if lede_section
+            and (
+                AUDIENCE_CALLOUT.search(lede_section[-1])
+                or LEDE_ANNOUNCING_END.search(lede_section[-1].strip())
+            )
             else ()
         ),
         translationese=translationese_hits(text),
