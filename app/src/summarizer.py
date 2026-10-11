@@ -1,4 +1,6 @@
 import re
+import time
+from collections.abc import Callable
 from html import escape, unescape
 from typing import Any, ClassVar, Literal
 from urllib.parse import quote
@@ -356,24 +358,88 @@ def _encode_image_srcs(summary_html: str) -> str:
     return str(soup) if changed else summary_html
 
 
-def _drop_unrenderable_images(summary_html: str) -> tuple[str, list[str]]:
-    """Remove images a mail client will not display, with their figure.
+# Mail clients show an image at most ~800px wide, so a 2x rendition is enough;
+# larger files only slow the message.
+MAX_IMAGE_CANDIDATE_WIDTH = 1600
+# Total time one summary may spend checking its images. Past it, the images not
+# yet proven to load are dropped rather than shipped unchecked.
+IMAGE_PROBE_BUDGET_SECONDS = 120
+
+
+def _image_candidates(src: str, source_html: str) -> list[str]:
+    """Other renditions of the image at ``src`` in the article, best first.
+
+    The article's own markup lists them: ``srcset``/``data-srcset`` with widths,
+    ``data-src``, and the ``<source>`` siblings of a ``<picture>``. A rendition no
+    wider than ``MAX_IMAGE_CANDIDATE_WIDTH`` comes first, widest first; then the
+    larger ones, then those of unknown width.
+    """
+    soup = BeautifulSoup(source_html, "html.parser")
+    found: dict[str, int] = {}
+    for img in soup.find_all("img"):
+        picture = img.find_parent("picture")
+        tags = [img, *(picture.find_all("source") if picture else [])]
+        urls: dict[str, int] = {}
+        for tag in tags:
+            for name in ("srcset", "data-srcset"):
+                for part in str(tag.get(name) or "").split(","):
+                    bits = part.split()
+                    if bits:
+                        width = bits[1][:-1] if len(bits) > 1 else ""
+                        urls[bits[0]] = int(width) if width.isdigit() else 0
+            for name in ("src", "data-src"):
+                if value := str(tag.get(name) or ""):
+                    urls.setdefault(value, 0)
+        if src in urls:
+            found.update(urls)
+    found.pop(src, None)
+
+    def rank(item: tuple[str, int]) -> tuple[int, int]:
+        width = item[1]
+        if not width:
+            return (2, 0)
+        return (0, -width) if width <= MAX_IMAGE_CANDIDATE_WIDTH else (1, width)
+
+    return [url for url, _ in sorted(found.items(), key=rank) if is_safe_url(url)]
+
+
+def _drop_unrenderable_images(
+    summary_html: str,
+    source_html: str,
+    budget_seconds: float = IMAGE_PROBE_BUDGET_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+) -> tuple[str, list[str]]:
+    """Keep only images a mail client will display.
 
     Outlook for Windows shows a WebP image's alt text instead, so the alt text
     and the caption ran together as one odd sentence ("Massive Text Embedding
-    Benchmark (Code)코드 검색 부문 ... 차트입니다"). Returns
+    Benchmark (Code)코드 검색 부문 ... 차트입니다"). An image that fails is
+    swapped for another rendition the article lists (NVIDIA serves WebP as the
+    main file and PNG in its srcset); with none, its figure goes. Returns
     ``(cleaned_html, dropped_srcs)``.
     """
     if "<img" not in summary_html.lower():
         return summary_html, []
+    deadline = clock() + budget_seconds
     soup = BeautifulSoup(summary_html, "html.parser")
     dropped: list[str] = []
+    changed = False
     for img in list(soup.find_all("img")):
         src = str(img.get("src") or "")
-        if not is_email_renderable_image(src):
+        chosen = None
+        for candidate in [src, *_image_candidates(src, source_html)]:
+            if clock() >= deadline:
+                break
+            if is_email_renderable_image(candidate):
+                chosen = candidate
+                break
+        if chosen is None:
             dropped.append(src)
             (img.find_parent("figure") or img).decompose()
-    return (str(soup), dropped) if dropped else (summary_html, [])
+        elif chosen != src:
+            img["src"] = chosen
+            changed = True
+    return (str(soup), dropped) if (dropped or changed) else (summary_html, [])
 
 
 def _unsourced_urls(urls: list[str], source_html: str) -> list[str]:
@@ -1064,7 +1130,7 @@ class Summarizer:
                 post.title,
                 dropped,
             )
-        cleaned, unrenderable = _drop_unrenderable_images(cleaned)
+        cleaned, unrenderable = _drop_unrenderable_images(cleaned, post.content)
         if unrenderable:
             logger.warning(
                 "Dropped %d image(s) from the summary of '%s' — not a type mail "

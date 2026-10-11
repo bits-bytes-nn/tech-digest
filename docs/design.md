@@ -1056,7 +1056,12 @@ src(모델이 macOS 스크린샷 이름의 U+202F를 일반 공백으로 옮긴 
 
 출처가 맞아도 메일에서 보이지 않는 이미지가 있습니다. `_drop_unrenderable_images`는 남은
 이미지를 하나씩 받아 보고(`feed_parser.is_email_renderable_image`), 응답이 PNG·JPEG·GIF가 아니거나
-받아지지 않으면 figure를 캡션째 지웁니다. Windows Outlook은 WebP·AVIF 자리에 alt 텍스트를
+받아지지 않으면 원문이 같은 그림에 대해 적어 둔 다른 판본(`srcset`, `data-src`, `<picture>`의
+`<source>`)을 차례로 확인해 메일에서 보이는 첫 판본으로 바꿉니다. 메일 화면에는 2배 해상도면 충분하므로
+1600px 이하 중 가장 큰 것부터 봅니다. 맞는 판본이 없으면 figure를 캡션째 지웁니다. 확인은 이미지당
+한 번, 10초 안에 헤더만 받고(`IMAGE_PROBE_TIMEOUT_SECONDS`), 요약 하나가 쓰는 확인 시간은 모두 합쳐
+120초(`IMAGE_PROBE_BUDGET_SECONDS`)입니다. 그 시간을 넘기면 아직 확인하지 못한 이미지는 보내지 않고
+지웁니다. Windows Outlook은 WebP·AVIF 자리에 alt 텍스트를
 보여 주므로, 그대로 두면 alt 텍스트와 캡션이 한 문장처럼 이어져 보입니다. URL 확장자로 추측하지
 않고 실제 응답으로 판단합니다. CDN URL은 확장자가 없는 경우가 많고, 같은 URL도 `Accept`에 따라 다른
 형식을 줄 수 있어서 요청은 메일용 형식을 먼저 달라고 보냅니다. 요청은 다른 수집 요청과 같은

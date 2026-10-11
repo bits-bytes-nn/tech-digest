@@ -357,6 +357,50 @@ class TestSummarizePosts:
         assert "webp" not in post.summary and "차트입니다" not in post.summary
         assert png in post.summary
 
+    def test_a_webp_is_swapped_for_a_png_rendition_the_article_lists(self, monkeypatch):
+        # NVIDIA serves WebP as the main file and PNG in its srcset.
+        from app.src import summarizer as module
+
+        base = "https://cdn.example.com/chart"
+        monkeypatch.setattr(
+            module, "is_email_renderable_image", lambda url: url.endswith(".png")
+        )
+        source = (
+            f'<img src="{base}.webp" srcset="{base}.webp 2048w, {base}-300.png 300w, '
+            f'{base}-1536.png 1536w, {base}-2048.png 2048w">'
+        )
+        s = _summarizer()
+        post = _post("a", content=source)
+        post.images = [f"{base}.webp"]
+        s.summarizer = _FakeChain(
+            [
+                {
+                    "summary": BODY
+                    + f'<figure><img src="{base}.webp"><figcaption>차트</figcaption>'
+                    "</figure>",
+                    "tags": [],
+                    "urls": [],
+                }
+            ]
+        )
+        s._summarize_posts([post])
+        # The widest rendition a mail client needs, not the largest file.
+        assert f"{base}-1536.png" in post.summary
+        assert ".webp" not in post.summary
+
+    def test_images_not_checked_within_the_budget_are_dropped(self, monkeypatch):
+        from app.src import summarizer as module
+
+        ticks = iter([0, 0, 1000])  # start, image a, image b
+        monkeypatch.setattr(module, "is_email_renderable_image", lambda url: True)
+        html, dropped = module._drop_unrenderable_images(
+            '<img src="https://x/a.png"><img src="https://x/b.png">',
+            "",
+            budget_seconds=60,
+            clock=lambda: next(ticks),
+        )
+        assert "a.png" in html and dropped == ["https://x/b.png"]
+
     def test_an_already_encoded_image_url_is_left_alone(self):
         url = "https://cdn.example.com/a%20b.png?w=1200&q=90"
         s = _summarizer()

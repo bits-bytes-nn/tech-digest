@@ -293,7 +293,11 @@ def parse_page(response: requests.Response) -> BeautifulSoup:
 
 
 def _get_following_redirects(
-    session: requests.Session, url: str, headers: dict[str, str]
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    timeout: float = ScraperConfig.REQUEST_TIMEOUT,
+    stream: bool = False,
 ) -> requests.Response | None:
     """GET ``url``, following up to ``MAX_REDIRECTS`` redirects manually and
     SSRF-validating every hop's host before connecting. Returns the final
@@ -312,9 +316,10 @@ def _get_following_redirects(
         response = session.get(
             current,
             headers=headers,
-            timeout=ScraperConfig.REQUEST_TIMEOUT,
+            timeout=timeout,
             allow_redirects=False,
             verify=True,
+            stream=stream,
         )
         if response.is_redirect and response.headers.get("location"):
             current = urljoin(current, response.headers["location"])
@@ -403,24 +408,43 @@ def _make_robust_request(url: str) -> requests.Response | None:
 EMAIL_IMAGE_TYPES: frozenset[str] = frozenset({"image/png", "image/jpeg", "image/gif"})
 
 
+# One short attempt per image: a static CDN either answers at once or the image
+# is not worth holding the run for (the summarizer also caps the total).
+IMAGE_PROBE_TIMEOUT_SECONDS = 10
+
+
 def is_email_renderable_image(url: str) -> bool:
     """Whether ``url`` serves an image a mail client will display.
 
     Fetched, not guessed from the URL: CDN URLs often carry no extension, and
     the only proof an image loads is that it does. The request asks for the
     email-safe types, so a content-negotiating CDN answers with one of them if
-    it can. SSRF-checked like every other fetch.
+    it can. Only the headers are read. SSRF-checked at every redirect hop like
+    every other fetch.
     """
     if not is_safe_url(url) or _is_blocked_host(urlparse(url).hostname or ""):
         return False
     headers = ScraperConfig.REQUEST_HEADERS | {
         "Accept": "image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1"
     }
-    response = _try_request(requests.Session(), url, headers)
+    try:
+        response = _get_following_redirects(
+            requests.Session(),
+            url,
+            headers,
+            timeout=IMAGE_PROBE_TIMEOUT_SECONDS,
+            stream=True,
+        )
+    except RequestException as e:
+        logger.info("Image probe failed for '%s': %s", url, e)
+        return False
     if response is None:
         return False
-    content_type = response.headers.get("content-type", "").split(";")[0]
-    return content_type.strip().lower() in EMAIL_IMAGE_TYPES
+    with response:
+        if not response.ok:
+            return False
+        content_type = response.headers.get("content-type", "").split(";")[0]
+        return content_type.strip().lower() in EMAIL_IMAGE_TYPES
 
 
 class Post(BaseModel):
