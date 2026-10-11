@@ -311,3 +311,43 @@ class TestCandidatesComeFromTheFetchers:
         collector.collect_posts(*self.WINDOW)
         assert collector.report.sources[0].candidates == 0
         assert len(collector.report.likely_broken) == 1
+
+
+class TestPagesUnreadable:
+    """A feed that fetches while every article page is blocked (OpenAI behind a
+    Cloudflare challenge) used to count as a healthy source."""
+
+    def _ok(self, posts: int, unreadable: int) -> SourceHealth:
+        return SourceHealth(
+            url="https://openai.com/news/rss.xml",
+            fetcher="RssFetcher",
+            status=SourceStatus.OK,
+            post_count=posts,
+            unreadable_pages=unreadable,
+        )
+
+    def test_every_page_unreadable_is_flagged(self):
+        report = CrawlReport(sources=[self._ok(15, 15)])
+        assert report.pages_unreadable == report.sources
+        assert "1 with unreadable article pages" in report.summary_line()
+        assert "15 of 15 post(s)" in report.format_alert()
+
+    @pytest.mark.parametrize(("posts", "unreadable"), [(15, 14), (3, 0), (0, 0)])
+    def test_partial_or_no_failures_are_not(self, posts, unreadable):
+        report = CrawlReport(sources=[self._ok(posts, unreadable)])
+        assert report.pages_unreadable == []
+        assert "unreadable" not in report.summary_line()
+
+    def test_the_collector_counts_contributed_posts_only(self):
+        blocked = _post("https://openai.com/index/a")
+        blocked.page_unreadable = True
+        duplicate = _post("https://openai.com/index/a")
+        duplicate.page_unreadable = True
+        collector = PostCollector(
+            [_OkFetcher("https://openai.com/news/rss.xml", [blocked, duplicate])]
+        )
+        now = datetime.now(UTC)
+        collector.collect_posts(now, now)
+        source = collector.report.sources[0]
+        assert (source.post_count, source.unreadable_pages) == (1, 1)
+        assert collector.report.pages_unreadable == [source]

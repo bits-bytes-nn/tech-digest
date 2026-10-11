@@ -461,6 +461,10 @@ class Post(BaseModel):
     tags: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
     score: float = 0.0
+    # The feed carried only a teaser and the article page could not be read
+    # (blocked, failed or unparseable). Crawl health counts these per source; it
+    # is run state, not part of the saved post.
+    page_unreadable: bool = Field(default=False, exclude=True)
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -482,7 +486,7 @@ class Post(BaseModel):
         per-scraper source would be a second copy of it that could drift.
         """
         link_str = getattr(entry, "link", "")
-        content = cls._extract_content_from_entry(entry, link_str)
+        content, page_unreadable = cls._extract_content_from_entry(entry, link_str)
         return cls(
             # Some feeds escape the title twice (Amazon Science sends
             # "don&amp;#8217;t"), so feedparser hands back "don&#8217;t" and the
@@ -501,12 +505,15 @@ class Post(BaseModel):
             # whose summarization failed shipped its raw feed teaser as the
             # article body while ALSO being reported as filtered-out.
             images=cls._extract_images(content, link_str),
+            page_unreadable=page_unreadable,
         )
 
     @classmethod
     def _extract_content_from_entry(
         cls, entry: feedparser.FeedParserDict, link: str
-    ) -> str:
+    ) -> tuple[str, bool]:
+        """The post's content, and whether the article page was needed but could
+        not be read."""
         content_items = getattr(entry, "content", [])
         content = (
             content_items[0].get("value")
@@ -519,17 +526,16 @@ class Post(BaseModel):
         # text keeps the scrape decision consistent with the content gate (\u00a711)
         # so we don't skip scraping and then drop the thin post.
         feed_text_len = len(visible_text(content))
+        if feed_text_len >= ScraperConfig.FULL_SCRAPE_TEXT_THRESHOLD:
+            return content, False
+        scraped_content = cls._scrape_full_content(link)
         # Only adopt the scrape if it actually has MORE readable prose than the
         # feed content. A JS-rendered/consent-walled page can yield a thin body
         # that, if it blindly replaced a decent feed teaser, would push the post
         # below the downstream content gate and silently drop a healthy post.
-        if (
-            feed_text_len < ScraperConfig.FULL_SCRAPE_TEXT_THRESHOLD
-            and (scraped_content := cls._scrape_full_content(link))
-            and len(visible_text(scraped_content)) > feed_text_len
-        ):
+        if scraped_content and len(visible_text(scraped_content)) > feed_text_len:
             content = scraped_content
-        return content
+        return content, not scraped_content
 
     @staticmethod
     def _scrape_full_content(url: str) -> str:
@@ -994,6 +1000,9 @@ class SourceHealth:
     #:
     #: ``None`` means the fetcher did not report a count — unknown, NOT zero.
     candidates: int | None = None
+    #: Contributed posts whose article page was needed but could not be read
+    #: (``Post.page_unreadable``).
+    unreadable_pages: int = 0
     error: str | None = None
 
 
@@ -1035,6 +1044,20 @@ class CrawlReport:
         return [s for s in self.empty if s.candidates == 0]
 
     @property
+    def pages_unreadable(self) -> list[SourceHealth]:
+        """OK sources whose every contributed post lacked a readable article page.
+
+        The feed fetched, so the source reads as healthy, yet each post carries
+        only its teaser and dies at the content gate. OpenAI's feed was in that
+        state for every run on record: the article pages answer with a
+        Cloudflare challenge. Some unreadable pages among readable ones are
+        transient errors and are not reported.
+        """
+        return [
+            s for s in self.ok if s.post_count and s.unreadable_pages == s.post_count
+        ]
+
+    @property
     def total_posts(self) -> int:
         return sum(s.post_count for s in self.sources)
 
@@ -1043,10 +1066,10 @@ class CrawlReport:
         empty = f"{len(self.empty)} empty"
         if broken:
             empty += f" ({broken} with nothing to filter)"
-        return (
-            f"{len(self.ok)} ok, {empty}, "
-            f"{len(self.failed)} failed ({self.total_posts} posts)"
-        )
+        ok = f"{len(self.ok)} ok"
+        if unreadable := len(self.pages_unreadable):
+            ok += f" ({unreadable} with unreadable article pages)"
+        return f"{ok}, {empty}, {len(self.failed)} failed ({self.total_posts} posts)"
 
     @staticmethod
     def _empty_reason(source: SourceHealth) -> str:
@@ -1065,6 +1088,14 @@ class CrawlReport:
             lines.extend(
                 f"  - {s.url} [{s.fetcher}]: {s.error or 'unknown error'}"
                 for s in self.failed
+            )
+            lines.append("")
+        if self.pages_unreadable:
+            lines.append("Sources whose article pages could not be read:")
+            lines.extend(
+                f"  - {s.url} [{s.fetcher}]: {s.unreadable_pages} of "
+                f"{s.post_count} post(s) left with only the feed teaser"
+                for s in self.pages_unreadable
             )
             lines.append("")
         if self.empty:
@@ -1122,6 +1153,7 @@ class PostCollector:
             try:
                 fetched = fetcher.fetch(start_date, end_date)
                 contributed = 0
+                unreadable = 0
                 for post in fetched:
                     if post.link in seen_links:
                         continue
@@ -1139,6 +1171,7 @@ class PostCollector:
                         continue
                     all_posts.append(post)
                     contributed += 1
+                    unreadable += post.page_unreadable
                     seen_links.add(post.link)
                     if title_key:
                         seen_titles.add(title_key)
@@ -1161,6 +1194,7 @@ class PostCollector:
                         # visible instead of hiding it.
                         post_count=contributed,
                         duplicates=len(fetched) - contributed,
+                        unreadable_pages=unreadable,
                     )
                 )
                 if not fetched:
@@ -1193,5 +1227,12 @@ class PostCollector:
                 "moved feed or a stale selector rather than a quiet blog: %s",
                 len(self.report.likely_broken),
                 [s.url for s in self.report.likely_broken],
+            )
+        if self.report.pages_unreadable:
+            logger.warning(
+                "%d source(s) left every post with only its feed teaser — the "
+                "article pages could not be read: %s",
+                len(self.report.pages_unreadable),
+                [s.url for s in self.report.pages_unreadable],
             )
         return sorted(all_posts, key=lambda p: p.published_date, reverse=True)

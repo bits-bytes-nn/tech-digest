@@ -3,6 +3,7 @@ success notification's crawl summary. Uses a fake boto session — no AWS."""
 
 from __future__ import annotations
 
+import re
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -158,6 +159,36 @@ class TestCrawlHealthAlert:
         session = _FakeSession()
         main._send_crawl_health_alert(
             session, "arn:topic", PROJECT, self._empty("https://unknown/rss", None), []
+        )
+        assert session.sns.published == []
+
+    def _unreadable(self) -> CrawlReport:
+        return CrawlReport(
+            sources=[
+                SourceHealth(
+                    url="https://openai.com/news/rss.xml",
+                    fetcher="RssFetcher",
+                    status=SourceStatus.OK,
+                    post_count=15,
+                    unreadable_pages=15,
+                )
+            ]
+        )
+
+    def test_a_source_with_unreadable_pages_alerts(self):
+        session = _FakeSession()
+        main._send_crawl_health_alert(
+            session, "arn:topic", PROJECT, self._unreadable(), []
+        )
+        assert len(session.sns.published) == 1
+        msg = session.sns.published[0]["Message"]
+        assert re.search(r"Unreadable article pages:\s+1", msg)
+        assert re.search(r"Check these:\s+https://openai.com/news/rss.xml", msg)
+
+    def test_expected_flaky_suppresses_the_unreadable_pages_trigger(self):
+        session = _FakeSession()
+        main._send_crawl_health_alert(
+            session, "arn:topic", PROJECT, self._unreadable(), ["openai.com"]
         )
         assert session.sns.published == []
 

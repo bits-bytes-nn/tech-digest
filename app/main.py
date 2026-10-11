@@ -111,7 +111,11 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         if (
             is_running_in_aws()
             and topic_arn
-            and (crawl_report.failed or crawl_report.likely_broken)
+            and (
+                crawl_report.failed
+                or crawl_report.likely_broken
+                or crawl_report.pages_unreadable
+            )
         ):
             _send_crawl_health_alert(
                 default_boto_session,
@@ -378,6 +382,7 @@ def _log_run_summary(
         # point: the empty count is ~12 every week and says nothing.
         "sources_likely_broken": len(crawl_report.likely_broken),
         "sources_failed": len(crawl_report.failed),
+        "sources_pages_unreadable": len(crawl_report.pages_unreadable),
         "posts_collected": crawl_report.total_posts,
         "posts_filtered_out": len(filtered_out_posts),
         "posts_in_digest": len(posts),
@@ -997,7 +1002,8 @@ def _send_crawl_health_alert(
     crawl_report: CrawlReport,
     expected_flaky: list[str],
 ) -> None:
-    """Notify when a crawl source failed, or produced nothing to filter.
+    """Notify when a crawl source failed, produced nothing to filter, or left
+    every post without its article page.
 
     Two triggers, and the second one is the point. A FAILED source is loud — the
     fetch itself errored. A source that fetched fine and offered ZERO items is just
@@ -1027,8 +1033,13 @@ def _send_crawl_health_alert(
 
     failed = unexpected(crawl_report.failed)
     broken = unexpected(crawl_report.likely_broken)
-    if not failed and not broken:
-        suppressed = crawl_report.failed + crawl_report.likely_broken
+    unreadable = unexpected(crawl_report.pages_unreadable)
+    if not failed and not broken and not unreadable:
+        suppressed = (
+            crawl_report.failed
+            + crawl_report.likely_broken
+            + crawl_report.pages_unreadable
+        )
         if suppressed:
             logger.info(
                 "All %d unhealthy source(s) are configured as expected-flaky; "
@@ -1042,11 +1053,14 @@ def _send_crawl_health_alert(
         # Named for what it is rather than "empty": the operator's next action is
         # to check the feed URL or the scraper's selector, not to wait a week.
         "Sources offering nothing": str(len(broken)),
+        # The feed is fine but its posts never reach the summarizer: check
+        # whether the site now blocks the crawler (a 403 or a bot challenge).
+        "Unreadable article pages": str(len(unreadable)),
         "Summary": crawl_report.summary_line(),
         "Detail": crawl_report.format_alert(),
     }
-    if broken:
-        fields["Check these"] = ", ".join(s.url for s in broken)
+    if broken or unreadable:
+        fields["Check these"] = ", ".join(s.url for s in broken + unreadable)
     _publish_alarm(
         boto_session,
         topic_arn,
