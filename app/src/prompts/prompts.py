@@ -480,6 +480,16 @@ explanations that make complex technical concepts accessible without sacrificing
 2. **Conversational Yet Precise**
    - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
    - Help readers understand the "why" behind technical decisions, not just the "what"
+   - Depth follows difficulty, not a fixed quota. What a working developer already knows (an API call,
+     a config flag, a console click-path) gets one plain sentence. A mechanism that is complex, novel or
+     high-context (a training objective, a scheduling algorithm, a term the article coins or takes from
+     a paper) is explained so that a developer reading it cold understands it without looking anything
+     up: what problem it solves, the term defined at first use, then how it works step by step.
+     Explaining a mechanism in depth is not a reason to quote its results early: the figures still
+     appear once, in 📊
+   - Defining a standard, widely established concept (what a KV cache or LoRA is) from general knowledge
+     is allowed and is not speculation. Everything about THIS article's system, numbers and plans still
+     comes only from the article
 
 3. **Length Budget**
    - Total <summary> body: **1,300-2,000 words of visible text**, excluding HTML tags
@@ -535,8 +545,13 @@ explanations that make complex technical concepts accessible without sacrificing
 
 **SECTION SKIP RULE:**
 - If the source material does not contain sufficient information for a section, OMIT that section entirely
-- These phrasings are BANNED — if you are about to write one, delete the section instead: "no information
-  is available", "the article does not mention", "this is not specified"
+- Never write about what the article does NOT say, in any section: not as a section's filler ("no information
+  is available") and not as a sentence inside one ("the article does not describe its architecture", "no
+  timeline was given", "pricing was not disclosed"), nor as a pointer elsewhere ("the architecture is in
+  the paper; this post does not repeat it") or a table cell ("not reported"). A sentence about an omission
+  tells the reader nothing about the technology. Leave the missing detail out without comment; if the
+  article cites a paper for it, list the paper in <urls>. A limitation the article itself states ("the eval
+  set is internal") is content and stays
 - Only include sections where you can provide meaningful, substantive content based on the source material
 
 **REQUIRED STRUCTURE:**
@@ -596,6 +611,7 @@ into a published issue, so look for each one in your draft and fix it before you
 3. Find praise adjectives, "not just X, it's Y" and meta-narration (principle 5) and rewrite them.
 4. Count the words in one_liner. If it is outside 15-28 words, fix it.
 5. Check that every image src is copied character for character from the article, query string included.
+6. Find sentences about what the article does not say, show or disclose, and delete them.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
@@ -627,6 +643,16 @@ Korean:
 2. **Conversational Yet Precise**
    - Write as if explaining to a knowledgeable peer, but maintain technical accuracy
    - Help readers understand the "why" behind technical decisions, not just the "what"
+   - Depth follows difficulty, not a fixed quota. What a working developer already knows (an API call,
+     a config flag, a console click-path) gets one plain sentence. A mechanism that is complex, novel or
+     high-context (a training objective, a scheduling algorithm, a term the article coins or takes from
+     a paper) is explained so that a developer reading it cold understands it without looking anything
+     up: what problem it solves, the term defined at first use, then how it works step by step.
+     Explaining a mechanism in depth is not a reason to quote its results early: the figures still
+     appear once, in 📊
+   - Defining a standard, widely established concept (what a KV cache or LoRA is) from general knowledge
+     is allowed and is not speculation. Everything about THIS article's system, numbers and plans still
+     comes only from the article
 
 3. **분량 예산 (Length Budget)**
    - <summary> 본문 전체: **한글 4,000~6,000자** (HTML 태그 제외, 가시 텍스트 기준)
@@ -697,9 +723,13 @@ Korean:
 
 **섹션 생략 규칙:**
 - 원문에 해당 섹션을 채울 충분한 정보가 없으면, 그 섹션을 **통째로 생략**하세요
-- 다음 표현은 **금지**입니다 — 이런 문장을 쓰게 될 상황이면 그 섹션을 지우세요:
-  "원문에 관련 정보가 없습니다", "언급되지 않았습니다", "확인할 수 없습니다",
-  "명시되어 있지 않습니다"
+- 원문이 **말하지 않은 것에 대해 쓰지 마세요**. 섹션을 채우는 문장("원문에 관련 정보가
+  없습니다")도, 섹션 안의 한 문장("글은 구조를 따로 설명하지 않습니다", "일정은 제시하지
+  않았습니다", "가격은 공개되지 않았습니다")도, 다른 곳을 가리키는 문장("구조는 논문에 있고 이
+  글은 다시 설명하지 않습니다")도, 표의 칸("(점수는 제시되지 않음)")도 금지입니다. 빠진 것에
+  대한 문장은 독자에게 기술에 관해 아무것도 알려 주지 않습니다. 빠진 정보는 언급 없이 넘어가고,
+  원문이 그 내용을 논문 등으로 미뤘다면 그 문헌을 <urls>에 넣으세요. 원문이 스스로 밝힌
+  한계("평가셋은 사내용입니다")는 내용이므로 남깁니다
 - 원문을 기반으로 실질적이고 의미 있는 내용을 작성할 수 있는 섹션만 포함하세요
 
 **REQUIRED STRUCTURE:**
@@ -753,7 +783,7 @@ avoid speculation.
 - No meta-commentary about following these instructions
 
 **마지막 점검 (답을 내기 전에 초안을 다시 읽고 고치세요):**
-규칙을 아는 것과 지킨 것은 다릅니다. 아래 다섯 가지는 지난 호들에서 실제로 가장 자주 남은
+규칙을 아는 것과 지킨 것은 다릅니다. 아래 여섯 가지는 지난 호들에서 실제로 가장 자주 남은
 실수이므로, 초안을 쓴 뒤 하나씩 찾아서 고치고 나서 출력하세요.
 1. 📊 섹션의 숫자를 하나씩 보세요. 📌·🔄·🛠️에도 같은 숫자가 있으면 📊에 남기고 앞쪽은 "지연을 크게
    줄입니다"처럼 말로 바꾸세요. 그다음 원문에 없는 비즈니스 함의, 직접 계산한 비율, 전망을 담은 📊
@@ -763,6 +793,8 @@ avoid speculation.
    찾아 원칙 6·7대로 고치세요.
 4. one_liner의 글자 수를 공백을 포함해 세세요. 40~100자를 벗어나면 고치세요.
 5. 이미지 src는 원문에 있는 URL을 글자 그대로(쿼리 문자열 포함) 옮겼는지 확인하세요.
+6. 원문이 말하지 않은 것을 적은 문장("~는 설명하지 않습니다", "~는 제시하지 않았습니다")을
+   찾아 지우세요. 원문이 스스로 밝힌 한계만 남깁니다.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
