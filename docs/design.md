@@ -225,6 +225,7 @@ tech-digest/
 - `filtering_model_id` / `summarization_model_id` / `greeting_model_id`: 단계별
   Bedrock 모델 ID(Claude 또는 GPT). **세 값 모두 필수이고 기본값이 없습니다.** 템플릿과
   배포된 두 스테이지는 GPT-6.1 Sol / Sonnet 5.5 / Haiku 5.5를 씁니다(필터 모델을 고른 이유는 §9).
+  `greeting_model_id`는 카드 제목 Title Case 정리(§12)에도 쓰입니다.
 - `filtering_enable_thinking` / `summarization_enable_thinking`(기본 False): 해당
   단계에서 확장 사고(extended thinking)를 켭니다.
 - `filtering_thinking_budget_tokens` / `summarization_thinking_budget_tokens`(기본 비움 =
@@ -693,7 +694,7 @@ GPT-6 Astra를 Converse로 호출합니다. 직접 호출해 확인한 요청 �
 ### `TokenUsageLogger`
 모든 LLM 호출의 토큰 사용량을 **어느 단계가 호출했는지**와 함께 로그로 남깁니다.
 Cost Explorer는 모델 단위로만 청구하는데, 필터링·요약·출력 교정이 같은 모델을 공유하고
-인사말과 교정이 또 같은 모델을 공유합니다. 특히 필터링(수집된 글마다 1회, 각각 전문을 실어
+인사말·제목 정리·교정이 또 같은 모델을 공유합니다. 특히 필터링(수집된 글마다 1회, 각각 전문을 실어
 보냄)은 요약(몇 건)과 비용 형태가 완전히 다르므로, 이 로그 없이 하는 최적화는 추측입니다.
 `get_model(stage=...)`로 붙이며, 콜백은 어떤 경우에도 생성을 실패시킬 수 없도록 모든 읽기를
 방어적으로 처리합니다.

@@ -1,5 +1,4 @@
 import json
-import re
 
 import boto3
 from langchain_core.output_parsers import StrOutputParser
@@ -9,8 +8,6 @@ from .logger import logger
 from .model_factory import BedrockLanguageModelFactory
 from .prompts import TitleCasePrompt
 from .utils import retry_with_backoff
-
-_CODE_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")
 
 
 def accept_recased(original: str, recased: object) -> str:
@@ -34,7 +31,10 @@ def parse_recased(answer: str, originals: list[str]) -> list[str]:
     Raises:
         ValueError: The answer is not a JSON array of the input's length.
     """
-    parsed = json.loads(_CODE_FENCE.sub("", answer.strip()))
+    # Only the array is parsed, so a code fence or a sentence around it does not
+    # cost the whole issue its casing.
+    start, end = answer.find("["), answer.rfind("]")
+    parsed = json.loads(answer[start : end + 1] if 0 <= start < end else answer)
     if not isinstance(parsed, list) or len(parsed) != len(originals):
         raise ValueError(f"expected a JSON array of {len(originals)} titles")
     return [accept_recased(o, r) for o, r in zip(originals, parsed, strict=True)]

@@ -48,6 +48,10 @@ class TestParseRecased:
             "Fine-Tuning gpt-oss with LoRA",
         ]
 
+    def test_a_sentence_around_the_array_is_tolerated(self):
+        answer = "Here are the titles:\n" + json.dumps(TITLES) + "\nDone."
+        assert parse_recased(answer, TITLES) == TITLES
+
     def test_a_code_fence_is_tolerated(self):
         answer = "```json\n" + json.dumps([t.upper() for t in TITLES]) + "\n```"
         assert parse_recased(answer, TITLES) == [t.upper() for t in TITLES]
@@ -84,3 +88,11 @@ class TestRecase:
 
     def test_no_titles_makes_no_call(self):
         assert self._caser(lambda _t: pytest.fail("called")).recase([]) == []
+
+
+def test_titles_with_braces_reach_the_prompt_verbatim():
+    from app.src.prompts import TitleCasePrompt
+
+    titles = json.dumps(["Using {placeholders} in f-strings"])
+    rendered = TitleCasePrompt.get_prompt().format_messages(titles=titles)
+    assert "Using {placeholders} in f-strings" in rendered[-1].content

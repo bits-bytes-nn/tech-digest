@@ -99,7 +99,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **SSM Parameter Store**. LangChain API key and Batch queue/definition names.
 - **SES**. newsletter delivery. **SNS** — run/health notifications.
 - **Bedrock (us-west-2)**. GPT-6.1 Sol (filter), Claude Sonnet 5.5 (summarize), Claude
-  Haiku 5.5 (greeting and output repair). Any model in the `LanguageModelId`
+  Haiku 5.5 (greeting, title casing and output repair). Any model in the `LanguageModelId`
   catalog in [`app/src/constants.py`](./app/src/constants.py) is selectable per
   stage, including OpenAI GPT-6 models; per-model request rules (thinking
   off-switches, effort, the GPT dialect) are in design.md §8.
