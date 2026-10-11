@@ -480,7 +480,7 @@ class Post(BaseModel):
             and len(visible_text(scraped_content)) > feed_text_len
         ):
             content = scraped_content
-        return content.replace("\u202f", " ")
+        return content
 
     @staticmethod
     def _scrape_full_content(url: str) -> str:

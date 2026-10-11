@@ -267,6 +267,21 @@ class TestPostFromEntry:
         assert post.title == "Hello World"
         assert post.source == "openai"
 
+    def test_image_urls_keep_their_exact_characters(self):
+        # The content used to have every U+202F turned into a space, which
+        # rewrote image URLs (macOS screenshot names) into ones that 403.
+        url = "https://cdn.example.com/Screenshot at 1.27.14\u202fPM.png"
+        body = "<p>" + ("word " * 400) + f'</p><img src="{url}">'
+        entry = feedparser.FeedParserDict(
+            title="T",
+            link="https://aws.amazon.com/blogs/machine-learning/x",
+            published="2026-05-30T10:00:00Z",
+            content=[{"value": body}],
+        )
+        post = Post.from_entry(entry)
+        assert url in post.content
+        assert post.images == [url]
+
     def test_thin_scrape_does_not_overwrite_richer_feed_content(self, monkeypatch):
         # A feed teaser below MIN_CONTENT_LENGTH triggers a scrape, but if the
         # scrape yields LESS visible text it must NOT replace the feed content
