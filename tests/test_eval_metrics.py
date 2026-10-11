@@ -194,3 +194,36 @@ class TestBandsHaveNoSecondScale:
     def test_out_of_grid_extremes_still_classify(self):
         assert band_of_score(1.0) == "included"
         assert band_of_score(0.0) == "reject"
+
+
+class TestEvalSets:
+    """The live eval is run by hand, so a typo in a set (a band name that does not
+    exist, a criteria the prompt has no rubric for) would only show up as a
+    confusing failure after paying for the calls."""
+
+    @pytest.fixture(params=["all", "amazon"])
+    def eval_set(self, request) -> dict:
+        import json
+        from pathlib import Path
+
+        name = (
+            "filtering_eval_set.json"
+            if request.param == "all"
+            else f"filtering_eval_set_{request.param}.json"
+        )
+        path = Path(__file__).parent / "eval_data" / name
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_labels_are_bands_and_ids_unique(self, eval_set):
+        from app.src.eval_metrics import ANCHOR_BANDS
+
+        ids = [a["id"] for a in eval_set["articles"]]
+        assert len(ids) == len(set(ids))
+        assert {a["expected_band"] for a in eval_set["articles"]} <= set(
+            ANCHOR_BANDS.values()
+        )
+
+    def test_criteria_has_a_rubric(self, eval_set):
+        from app.src.constants import FilteringCriteria
+
+        FilteringCriteria(eval_set["criteria"])

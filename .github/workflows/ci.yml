@@ -68,7 +68,9 @@ jobs:
       - name: Filtering eval harness (dry run — no AWS, no cost)
         # Validates the eval set + analysis wiring stay healthy. The live
         # scoring pass (real Bedrock, cost) is run manually, not in CI.
-        run: python scripts/eval_filtering.py
+        run: |
+          python scripts/eval_filtering.py --eval-set all
+          python scripts/eval_filtering.py --eval-set amazon
 
       - name: Upload coverage
         if: always()

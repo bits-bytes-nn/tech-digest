@@ -1,0 +1,110 @@
+{
+  "description": "Labeled eval set for the AMAZON filtering criteria that prod runs. Items are synthetic-but-representative: each mirrors a kind of post the prod feeds (AWS ML blog, Amazon Science) actually carry, written fresh rather than copied. Labels follow the rubric's wording and were fixed before any live run. Bands: included/high/strong/moderate/weak/reject; 'included' is the included-topic anchors, so a launch scored as ordinary content is a miss.",
+  "criteria": "amazon",
+  "included_topics": [
+    "Announcements of newly launched AWS AI services, features or models, where the launch is the post's main subject (not tutorials, customer case studies or roundups)"
+  ],
+  "excluded_topics": [
+    "Quantum Computing"
+  ],
+  "articles": [
+    {
+      "id": "model-launch-on-bedrock",
+      "expected_band": "included",
+      "title": "Introducing Nimbus 3 on Amazon Bedrock",
+      "link": "https://aws.amazon.com/blogs/machine-learning/introducing-nimbus-3-on-amazon-bedrock/",
+      "content": "Today we are announcing that Nimbus 3, a 400B-parameter mixture-of-experts model with 32B active parameters, is generally available on Amazon Bedrock in us-east-1, us-west-2 and eu-central-1. Nimbus 3 supports a 512K-token context window, native tool use and an optional reasoning mode whose depth you set per request with a reasoning_effort field (low, medium, high). On the vendor's internal coding benchmark it improves pass@1 from 61% to 72% over Nimbus 2, and it accepts image input up to 8 megapixels. The model is served through cross-Region inference profiles with the IDs us.nimbus.nimbus-3-v1:0 and global.nimbus.nimbus-3-v1:0. This post shows the Converse API call, how to enable the reasoning mode, how the model reports its reasoning tokens in usage, the quotas at launch (2,000 requests per minute per account), and pricing per million input and output tokens. Prompt caching is supported with a 5-minute TTL and a minimum cacheable prefix of 1,024 tokens."
+    },
+    {
+      "id": "feature-launch-with-mechanism",
+      "expected_band": "included",
+      "title": "Announcing KV-cache-aware routing for Amazon SageMaker AI inference endpoints",
+      "link": "https://aws.amazon.com/blogs/machine-learning/announcing-kv-cache-aware-routing-for-amazon-sagemaker-ai/",
+      "content": "Starting today, Amazon SageMaker AI inference endpoints can route requests by prompt prefix. When you enable the new RoutingStrategy=PREFIX_AWARE setting, the endpoint's router hashes the first 2,048 tokens of each request and sends requests that share a prefix to the instance that already holds those KV-cache blocks, falling back to least-outstanding-requests when that instance is above 85% of its concurrency limit. In our tests on a Llama-architecture 70B model with a 6,000-token shared system prompt, time to first token fell 43% at p50 and 58% at p99 at 200 concurrent users, and throughput per instance rose 1.6x. This post explains how the router tracks cache residency, why the fallback threshold exists, how scale-out redistributes prefixes, which container images support the feature, and the CloudWatch metrics (PrefixCacheHitRate, RouterFallbackCount) it adds. The feature is available in all commercial Regions at no additional cost."
+    },
+    {
+      "id": "monthly-launch-roundup",
+      "expected_band": "weak",
+      "title": "ICYMI: What shipped for AI builders on AWS in August",
+      "link": "https://aws.amazon.com/blogs/machine-learning/icymi-what-shipped-for-ai-builders-in-august/",
+      "content": "Here is everything that landed for AI builders on AWS last month. Amazon Bedrock added three new models from partner providers and expanded batch inference to two more Regions. AgentCore gained a browser tool update and new observability dashboards. SageMaker AI introduced faster endpoint startup for some container images. Strands Agents released version 1.9 with improved streaming. Amazon Q Developer can now explain more AWS errors in the console. Each item links to its launch page for details. Whether you are just starting out or scaling to production, these updates make it easier than ever to build with generative AI on AWS. Check out the links below, try the new features in your account, and tell us what you build. See you next month for another recap of the latest AI launches on AWS."
+    },
+    {
+      "id": "deep-aws-implementation-guide",
+      "expected_band": "strong",
+      "title": "Fine-tune a tool-using agent with multi-turn reinforcement learning on Amazon SageMaker AI",
+      "link": "https://aws.amazon.com/blogs/machine-learning/fine-tune-a-tool-using-agent-with-multi-turn-rl/",
+      "content": "This post walks through training a search agent with multi-turn reinforcement learning on SageMaker AI training jobs. We start from an 8B instruction-tuned model and an environment that exposes a web-search tool and a final-answer tool. Rollouts run on vLLM inside the training job; rewards combine exact-match answer accuracy with a 0.1 penalty per tool call beyond five. We use GRPO with a group size of 8, a KL coefficient of 0.02 and a learning rate of 1e-6, on four ml.p5.48xlarge instances for 14 hours. We show the reward-shaping code, the rollout batching that keeps GPU utilization above 80%, and the failure we hit with reward hacking (the agent learned to answer before searching) and how a format reward fixed it. On a held-out multi-hop QA set, exact match rose from 31% to 47%, and average tool calls fell from 6.2 to 3.9. All code is in the companion repository."
+    },
+    {
+      "id": "customer-case-study-with-architecture",
+      "expected_band": "strong",
+      "title": "How a logistics company cut incident triage time by 70% with Amazon Bedrock AgentCore",
+      "link": "https://aws.amazon.com/blogs/machine-learning/how-a-logistics-company-cut-incident-triage-time/",
+      "content": "A global logistics company built a multi-agent system on Amazon Bedrock AgentCore to triage production incidents. A supervisor agent receives a CloudWatch alarm, then delegates to three specialists: a log agent that queries CloudWatch Logs Insights, a metrics agent that compares the alarm window against a 14-day baseline, and a deployment agent that reads recent CodePipeline changes. Agents share state through AgentCore Memory with a 24-hour session TTL, and every tool call is authorized through AgentCore Identity with per-tool IAM roles. The team describes why they moved from one large prompt to specialists (context windows overflowed on noisy incidents), how they evaluate the system on 300 replayed incidents with a rubric scored by a second model, and the guardrail that stops the deployment agent from proposing rollbacks during a freeze. Median triage time fell from 47 to 14 minutes, and on-call escalations dropped 35% over three months."
+    },
+    {
+      "id": "console-click-through",
+      "expected_band": "weak",
+      "title": "Get started with Amazon Bedrock Knowledge Bases in five minutes",
+      "link": "https://aws.amazon.com/blogs/machine-learning/get-started-with-knowledge-bases-in-five-minutes/",
+      "content": "Want to chat with your documents? Amazon Bedrock Knowledge Bases makes it easy. In this post we show you how to get started in just a few clicks. First, open the Amazon Bedrock console and choose Knowledge Bases from the left menu. Choose Create knowledge base. Give it a name, choose your S3 bucket, and accept the default chunking and embedding settings. Choose Create. Once the sync finishes, choose Test knowledge base, pick a model, and type a question about your documents. That's it! You now have a working retrieval-augmented generation application without writing any code. To learn more, see the Amazon Bedrock documentation and try it in your own account today."
+    },
+    {
+      "id": "amazon-science-research",
+      "expected_band": "high",
+      "title": "Why do research agents generalize? A compression view",
+      "link": "https://www.amazon.science/blog/why-do-research-agents-generalize",
+      "content": "Amazon scientists studied why LLM-driven ML research agents, which iterate on a model by reading validation scores, rarely overfit the validation set even after hundreds of iterations. We frame each agent iteration as transmitting information about the validation set through a narrow channel: the agent sees one scalar score per submission. Using a minimum-description-length argument, we bound the number of bits an agent can extract and show the bound predicts when overfitting starts. Across 40 Kaggle-style tasks with three agent designs, the gap between validation and held-out test accuracy stayed under 1.2 points for agents that saw only the score, but grew to 6.8 points when agents also saw per-example errors. We release the task suite and the evaluation harness, and discuss what this implies for designing agent feedback loops: expose aggregates, not per-example signals, when the validation set must stay trustworthy."
+    },
+    {
+      "id": "amazon-research-without-naming-amazon",
+      "expected_band": "strong",
+      "title": "Graph-structured reasoning for root-cause analysis agents",
+      "link": "https://www.amazon.science/blog/graph-structured-reasoning-for-root-cause-analysis-agents",
+      "content": "Networks are graphs: devices, links and services form a topology through which failures propagate. We describe an agent that diagnoses outages by reasoning over that graph instead of over flat logs. The agent first builds a dependency graph from configuration and telemetry, then runs a learned propagation model, a graph neural network trained on 18 months of labeled incidents, to rank candidate root causes by how well each explains the observed alarms. An LLM planner chooses which diagnostic probes to run next, using the ranking as a prior and updating it after each probe. On 1,200 historical incidents the top-1 root-cause accuracy was 71%, against 48% for an LLM agent given the same telemetry as text, and median time to diagnosis fell from 26 to 9 minutes. We discuss why the graph prior matters most for cascading failures, where the first alarm is rarely the cause, and where the approach fails: incidents caused by changes the topology does not record."
+    },
+    {
+      "id": "amazon-science-non-ml",
+      "expected_band": "reject",
+      "title": "Proving Rust code correct with a verification-aware compiler",
+      "link": "https://www.amazon.science/blog/proving-rust-code-correct",
+      "content": "Rust's type system rules out many memory errors, but it cannot prove that a function does what its specification says. We describe how our teams use a verification tool that lets engineers write pre- and postconditions and loop invariants next to Rust code and discharges them with an SMT solver at compile time. We walk through verifying a lock-free queue: the invariants that capture its linearizability, the ghost state used to track logical contents, and the proof-engineering patterns that kept verification time under a minute per function. Across 40,000 lines of production systems code the effort found 11 bugs that tests had missed. We close with lessons on where full verification pays for itself and where property-based testing is enough."
+    },
+    {
+      "id": "governance-without-ml-depth",
+      "expected_band": "reject",
+      "title": "How AWS helps customers align with the new AI governance standard",
+      "link": "https://aws.amazon.com/blogs/machine-learning/aligning-with-the-new-ai-governance-standard/",
+      "content": "The new international standard for AI impact assessment asks organizations to document how their AI systems affect people and society. In this post we map the standard's clauses to AWS programs and resources. Our Responsible AI policy, service cards and compliance reports give customers documentation to reference in their own assessments. AWS Artifact provides on-demand access to audit reports. Our professional services teams can run governance workshops, and AWS Partners offer advisory services. We also describe how AWS participates in standards bodies and industry forums. Organizations that adopt a structured governance program build trust with regulators and customers. Contact your account team to learn how AWS can support your AI governance journey."
+    },
+    {
+      "id": "business-case-essay",
+      "expected_band": "reject",
+      "title": "Beyond hours saved: building the business case for agentic automation",
+      "link": "https://aws.amazon.com/blogs/machine-learning/beyond-hours-saved/",
+      "content": "Leaders often measure automation by hours saved, but that undersells agentic AI. In this post we share a framework for building a business case. Start by identifying processes with high variability and many handoffs. Estimate value along four dimensions: speed, quality, capacity and customer experience. Engage finance early and agree on how benefits will be measured. Run a pilot with a clear success metric, then scale. Plan for change management, because adoption depends on people as much as technology. Companies that treat agentic automation as a strategic capability rather than a cost-cutting tool see the biggest returns. Your AWS account team can help you run a value assessment workshop."
+    },
+    {
+      "id": "competitor-platform-focus",
+      "expected_band": "reject",
+      "title": "Deploying a RAG chatbot on Azure OpenAI Service",
+      "link": "https://techcommunity.microsoft.com/blog/azure-ai/deploying-a-rag-chatbot-on-azure-openai/",
+      "content": "This guide shows how to build a retrieval-augmented chatbot on Azure. We index documents in Azure AI Search with vector fields, generate embeddings with an Azure OpenAI embedding deployment, and answer questions with a GPT deployment through the Azure OpenAI chat completions API. We configure semantic ranking, set a top-k of 5, and add citations to the response. The app runs on Azure App Service with managed identity for keyless access to both services. Monitoring uses Azure Monitor and Application Insights. We close with cost tips for provisioned throughput units."
+    },
+    {
+      "id": "excluded-topic-launch",
+      "expected_band": "reject",
+      "title": "Announcing hybrid quantum-classical ML training in Amazon Braket",
+      "link": "https://aws.amazon.com/blogs/quantum-computing/announcing-hybrid-quantum-classical-ml-in-braket/",
+      "content": "Today Amazon Braket launches managed hybrid jobs for quantum machine learning. You can now train variational quantum circuits whose parameters are optimized by a classical PyTorch loop running on SageMaker-managed instances, with the quantum circuit evaluated on Braket simulators or QPUs. The new BraketQMLEstimator handles batching of circuit evaluations, parameter-shift gradients and checkpointing. On a 12-qubit quantum kernel classifier, the managed job reduced wall-clock training time by 3x compared with a self-managed loop. This post covers the architecture, the API, supported devices and pricing per task and per shot."
+    },
+    {
+      "id": "non-ml-aws-launch",
+      "expected_band": "reject",
+      "title": "Amazon RDS for PostgreSQL now supports in-place major version upgrades with blue/green switchover",
+      "link": "https://aws.amazon.com/blogs/database/rds-postgresql-in-place-major-version-upgrades/",
+      "content": "Amazon RDS for PostgreSQL now lets you run a major version upgrade through a blue/green deployment with a single API call. RDS creates a green environment on the new version, replicates changes with logical replication, runs pre-upgrade checks for incompatible extensions, and switches over in under a minute when you are ready. This post walks through the CLI commands, the replication lag metric to watch, how to handle sequences and large objects, and how to roll back before switchover. The feature is available in all commercial Regions."
+    }
+  ]
+}

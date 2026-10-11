@@ -19,6 +19,9 @@ Usage:
 
     # Live run — real Bedrock calls (cost!); requires AWS creds + config:
     python scripts/eval_filtering.py --live --repeats 3 --stage dev
+
+    # The AMAZON-criteria set, which prod runs:
+    python scripts/eval_filtering.py --eval-set amazon --live --stage prod
 """
 
 from __future__ import annotations
@@ -33,12 +36,12 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from app.src import logger
 from app.src.eval_metrics import ANCHOR_BANDS, build_report
 
-EVAL_SET = (
-    Path(__file__).resolve().parent.parent
-    / "tests"
-    / "eval_data"
-    / "filtering_eval_set.json"
-)
+EVAL_DIR = Path(__file__).resolve().parent.parent / "tests" / "eval_data"
+# One set per filtering criteria; each file names the criteria it scores with.
+EVAL_SETS = {
+    "all": EVAL_DIR / "filtering_eval_set.json",
+    "amazon": EVAL_DIR / "filtering_eval_set_amazon.json",
+}
 
 
 def load_eval_set(path: Path) -> dict:
@@ -99,6 +102,7 @@ def _score_live(
                 {
                     "post": article["content"],
                     "original_title": article["title"],
+                    "source_url": article.get("link", ""),
                     "included_topics": included,
                     "excluded_topics": excluded,
                 }
@@ -128,6 +132,9 @@ def main() -> int:
     )
     parser.add_argument("--repeats", type=int, default=3, help="Scorings per article.")
     parser.add_argument(
+        "--eval-set", choices=sorted(EVAL_SETS), default="all", help="Which set."
+    )
+    parser.add_argument(
         "--model",
         default=None,
         help="Filtering model id to score with instead of the stage config's "
@@ -144,9 +151,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    data = load_eval_set(EVAL_SET)
+    eval_set = EVAL_SETS[args.eval_set]
+    data = load_eval_set(eval_set)
     expected = {a["id"]: a["expected_band"] for a in data["articles"]}
-    logger.info("Loaded %d eval articles from %s", len(data["articles"]), EVAL_SET)
+    logger.info("Loaded %d eval articles from %s", len(data["articles"]), eval_set)
 
     if not args.live:
         # Exercise the full analysis wiring (build_report + format_table) at zero

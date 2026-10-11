@@ -116,6 +116,7 @@ class FilteringPrompt(BasePrompt):
     input_variables: list[str] = [
         "post",
         "original_title",
+        "source_url",
         "included_topics",
         "excluded_topics",
     ]
@@ -152,6 +153,8 @@ Your role:
 
 **ORIGINAL TITLE:**
 {original_title}
+
+**SOURCE URL:** {source_url}
 
 **CONTENT:**
 {post}
@@ -230,6 +233,8 @@ implementations.
 **ORIGINAL TITLE:**
 {original_title}
 
+**SOURCE URL:** {source_url}
+
 **CONTENT:**
 {post}
 
@@ -267,6 +272,8 @@ ACCEPT if content has:
 - Technical depth in AWS ML services (SageMaker, Bedrock, etc.)
 - Advanced ML understanding within AWS ecosystem
 - **High-quality AWS ML practical guides with deep insights and proven best practices**
+- ML research or engineering that Amazon itself publishes (an amazon.science or AWS blog source URL).
+  That is Amazon context even when the text names no AWS service: score it on its ML merit
 
 ---
 
@@ -291,7 +298,7 @@ anchor for other content:
 - **0.50** — Moderate: moderate AWS ML depth, or educational with some insight.
 - **0.35** — Weak: basic AWS ML tutorial with minimal depth.
 - **0.15** — Poor: marketing disguised as AWS technical content, or minimal AWS ML focus.
-- **0.05** — Not relevant: non-AWS vendor content, off-topic, or an excluded topic.
+- **0.05** — Not relevant: another vendor's platform or content, non-ML, or an excluded topic.
 
 **UNCERTAINTY:** When torn between two anchors, always choose the LOWER one. Promotional
 mixing or poor organisation is a reason to choose the lower anchor, never to adjust a score.
