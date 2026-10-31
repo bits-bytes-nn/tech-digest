@@ -7,6 +7,11 @@ from .model_factory import BedrockLanguageModelFactory
 from .prompts import GreetingPrompt, GreetingRevisionPrompt
 from .utils import retry_with_backoff
 
+# Output cap for the greeting call. Left unset, the request reserves the model's
+# full output maximum against the tokens-per-minute quota; this leaves ample room
+# for a paragraph plus the reasoning some models do whether asked or not.
+GREETING_MAX_TOKENS: int = 4096
+
 
 def measure_greeting(text: str, language: Language) -> int:
     """Length of a greeting in the unit its prompt budgets in.
@@ -30,11 +35,11 @@ class Greeter:
         self.greeting_model_id = greeting_model_id
         self.language = language
         llm_factory = BedrockLanguageModelFactory(boto_session=self.boto_session)
-        model_info = llm_factory.get_model_info(greeting_model_id)
-        if not model_info:
-            raise ValueError(f"Unsupported model ID: '{greeting_model_id.value}'")
         greeting_llm = llm_factory.get_model(
-            model_id=greeting_model_id, temperature=0.4, stage="greeting"
+            model_id=greeting_model_id,
+            temperature=0.4,
+            max_tokens=GREETING_MAX_TOKENS,
+            stage="greeting",
         )
         self.greeter = (
             GreetingPrompt.for_language(language).get_prompt()

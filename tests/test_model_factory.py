@@ -652,7 +652,6 @@ class TestClaude55AndFable51:
         _offline_factory().get_model(
             model_id,
             temperature=0.4,
-            top_k=50,
             max_tokens=4096,
             enable_thinking=enable_thinking,
         )
@@ -799,7 +798,6 @@ class TestOpenAIDialect:
         _offline_factory().get_model(
             model_id,
             temperature=0.0,
-            top_k=50,
             enable_thinking=enable_thinking,
             thinking_budget_tokens=8192,
             effort="high",
