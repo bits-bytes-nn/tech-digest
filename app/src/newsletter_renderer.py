@@ -260,8 +260,7 @@ class HtmlToImageConverter:
     DEFAULT_MAX_HEIGHT: int = 2000
     DEFAULT_OVERLAP: int = 50
     # Common Chrome/Chromium binary names; the Batch image installs
-    # google-chrome-stable. The Lambda base image ships NO browser, so image
-    # conversion is unsupported there (see chrome_available / convert()).
+    # google-chrome-stable.
     CHROME_BINARIES: tuple[str, ...] = (
         "google-chrome-stable",
         "google-chrome",
@@ -281,8 +280,8 @@ class HtmlToImageConverter:
         """Whether a Chrome/Chromium binary is on PATH (or set via env).
 
         Used to fail fast with a clear message instead of a cryptic
-        WebDriverException when ``convert_to_images`` is enabled in an
-        environment without a browser (notably the Lambda runtime image)."""
+        WebDriverException when ``convert_to_images`` is enabled where no
+        browser is installed (e.g. a local run)."""
         if os.environ.get("CHROME_BINARY"):
             return Path(os.environ["CHROME_BINARY"]).exists()
         return any(shutil.which(name) for name in cls.CHROME_BINARIES)
@@ -291,8 +290,7 @@ class HtmlToImageConverter:
     def _configure_chrome_options() -> Any:
         # Imported lazily: selenium + webdriver-manager + PIL are only needed for
         # the optional ``convert_to_images`` path, which is off by default. A
-        # module-level import paid their cost (and their import-time side effects)
-        # on every single run, including in the browserless Lambda image.
+        # module-level import paid their cost on every run.
         from selenium.webdriver.chrome.options import Options
 
         options = Options()
@@ -311,11 +309,9 @@ class HtmlToImageConverter:
         if not self.chrome_available():
             raise RuntimeError(
                 "HTML-to-image conversion requires a Chrome/Chromium browser, "
-                "but none was found on PATH. The AWS Lambda runtime image does "
-                "not include a browser — run with 'lambda_or_batch: batch' "
-                "(the Batch image installs google-chrome-stable) or set "
-                "'convert_to_images: false'. Set CHROME_BINARY to override the "
-                "browser path."
+                "but none was found on PATH. Set 'convert_to_images: false', or "
+                "set CHROME_BINARY to the browser path (the Batch image installs "
+                "google-chrome-stable)."
             )
         output_paths = []
         with self.driver_session() as driver:

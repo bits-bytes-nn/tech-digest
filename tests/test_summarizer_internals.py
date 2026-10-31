@@ -629,10 +629,8 @@ class TestFilterInputIsProseNotMarkup:
         )
         sent = self._captured_summary_input(s, _post("a", content=html))
         assert "Real article prose here." in sent
-        for gone in ("<nav>", "<script>", "<footer>", "data-track", "style="):
+        for gone in ("<nav>", "<script>", "<footer>", "data-track", "style=", "class="):
             assert gone not in sent
-        # class survives: the prompt asks for <pre><code class="highlight">.
-        assert 'class="wrap"' in sent
 
     def test_lazy_loaded_images_in_noscript_survive(self):
         """NVIDIA's blog leaves a data: placeholder in the visible markup and puts

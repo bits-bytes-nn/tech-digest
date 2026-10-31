@@ -74,7 +74,7 @@ def propagating_logger():
 def no_network(monkeypatch):
     """Fail any test that opens a real connection or resolves a real hostname.
 
-    Several tests reached openai.com and example.com through the scrape fallback
+    Several tests reached third-party sites through the scrape fallback
     in ``Post.from_entry``, and the request-layer tests resolved real names, so
     the suite's result depended on third-party sites and took 30s offline.
     Literal IP addresses still resolve: they need no network.

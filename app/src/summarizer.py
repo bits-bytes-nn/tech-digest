@@ -52,7 +52,7 @@ from .utils import (
 
 class SummarizerConfig:
     # Not codehilite (its markup depends on whether Pygments is installed, and
-    # the Lambda and Batch images do not ship it), toc (the sanitizer strips the
+    # the Batch image does not ship it), toc (the sanitizer strips the
     # heading ids), footnotes (its in-page "#fn:" links fail the scheme check,
     # leaving <a> tags without an href) or def_list (<dl> is not allow-listed,
     # so a term and its definition were unwrapped onto one line of bare text).
