@@ -9,8 +9,10 @@ and test runs writing into the real log file. Fake sessions only — no AWS.
 from __future__ import annotations
 
 import logging
+import re
 import runpy
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -173,6 +175,47 @@ class TestTestRunsKeepOutOfTheLogFile:
         assert not any(isinstance(h, logging.FileHandler) for h in configured.handlers)
 
 
+class TestLogFileOutsideAws:
+    """A local run keeps a dated log file; reconfiguring must not stack handlers."""
+
+    @pytest.fixture
+    def logs_root(self, monkeypatch, tmp_path):
+        # The module, not the `logger` object app.src re-exports under that name.
+        logger_module = sys.modules["app.src.logger"]
+        # _file_handler places logs/ three levels above logger.py (the repo root);
+        # point that resolution at a tmp tree instead of the real logs/.
+        fake_module = tmp_path / "app" / "src" / "logger.py"
+        monkeypatch.setattr(logger_module, "__file__", str(fake_module))
+        monkeypatch.delenv("LOG_TO_FILE", raising=False)
+        yield tmp_path.resolve()
+        probe = logging.getLogger("tech-digest-file-probe")
+        for handler in probe.handlers:
+            handler.close()
+        probe.handlers.clear()
+
+    def test_exactly_one_file_handler_in_the_logs_dir(self, logs_root):
+        from app.src.constants import LocalPaths
+        from app.src.logger import configure_logger
+
+        configure_logger("tech-digest-file-probe")
+        configured = configure_logger("tech-digest-file-probe")
+        [file_handler] = [
+            h for h in configured.handlers if isinstance(h, logging.FileHandler)
+        ]
+        path = Path(file_handler.baseFilename)
+        assert path.parent == logs_root / LocalPaths.LOGS_DIR.value
+        configured.info("probe line")
+        file_handler.flush()
+        assert "probe line" in path.read_text(encoding="utf-8")
+
+    def test_no_file_handler_in_aws(self, logs_root, monkeypatch):
+        from app.src.logger import configure_logger
+
+        monkeypatch.setenv("AWS_BATCH_JOB_ID", "job-1")
+        configured = configure_logger("tech-digest-file-probe")
+        assert not any(isinstance(h, logging.FileHandler) for h in configured.handlers)
+
+
 class TestRecipientsOverrideInTheContainer:
     """The container entrypoint's own guard, independent of run_batch."""
 
@@ -259,6 +302,22 @@ class TestArchiveKeys:
     ):
         assert self._suffix(monkeypatch, delivered=["a@x.com"], attempt="2") == (
             "retries/2"
+        )
+
+    def test_a_retry_outside_batch_is_keyed_by_the_utc_clock(self, monkeypatch):
+        # A local or Lambda rerun has no AWS_BATCH_JOB_ATTEMPT; the wall clock
+        # still keeps each rebuild apart from the delivered copy.
+        from datetime import UTC, datetime
+
+        class _Frozen(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                assert tz is UTC
+                return datetime(2026, 10, 10, 9, 30, 5, tzinfo=UTC)
+
+        monkeypatch.setattr(main, "datetime", _Frozen)
+        assert self._suffix(monkeypatch, delivered=["a@x.com"]) == (
+            "retries/20261010T093005"
         )
 
     @pytest.mark.parametrize(
@@ -391,3 +450,24 @@ class TestModelFailureAlertFromTheHandler:
         assert [m["Subject"] for m in sns.published] == [
             "[tech-digest] Model Failures — WARN"
         ]
+
+
+class TestMarkdownFailureStillSanitizes:
+    """The summary is rendered with ``| safe``. When markdown conversion raises,
+    the fallback must still escape and sanitize, never pass model text through."""
+
+    def test_script_and_event_handlers_do_not_survive(self, monkeypatch):
+        from app.src import summarizer
+
+        def _broken(*args, **kwargs):
+            raise RuntimeError("markdown extension crashed")
+
+        monkeypatch.setattr(summarizer.markdown, "markdown", _broken)
+        output = summarizer.SummaryOutput(
+            summary='<script>alert(1)</script><img src=x onerror="alert(2)">'
+        )
+        html = output.summary.lower()
+        assert "<script" not in html
+        assert "<img" not in html
+        # Escaped text may still spell the attribute name; it must not be markup.
+        assert not re.search(r"<[^>]*onerror", html)

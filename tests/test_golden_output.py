@@ -262,12 +262,21 @@ class _FakeSession:
         return self.clients[service]
 
 
-def _run_issue(monkeypatch, tmp_path, language: Language) -> dict[str, Any]:
+def _run_issue(
+    monkeypatch,
+    tmp_path,
+    language: Language,
+    seed: dict[str, bytes] | None = None,
+    get_model=None,
+) -> dict[str, Any]:
+    """Run the handler once; ``seed`` pre-populates the bucket (a prior attempt's
+    ledger, say) and ``get_model`` replaces the fake model factory."""
     config = main.Config.from_yaml(str(CI_CONFIG))
     config.newsletter.send_emails = True
     s3 = _FakeS3(
         {
             "tech-digest/recipients/recipients-dev.txt": "\n".join(RECIPIENTS).encode(),
+            **(seed or {}),
         }
     )
     ses = _FakeSES()
@@ -279,7 +288,9 @@ def _run_issue(monkeypatch, tmp_path, language: Language) -> dict[str, Any]:
         PostCollector, "from_urls", classmethod(lambda cls, urls: _FakeCollector())
     )
     monkeypatch.setattr(
-        BedrockLanguageModelFactory, "get_model", _fake_get_model(language)
+        BedrockLanguageModelFactory,
+        "get_model",
+        get_model or _fake_get_model(language),
     )
     monkeypatch.setattr(time, "sleep", lambda _s: None)
     monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
@@ -311,7 +322,12 @@ def _run_issue(monkeypatch, tmp_path, language: Language) -> dict[str, Any]:
         for key, body in s3.objects.items()
         if key.startswith("tech-digest/deliveries/")
     }
-    return {"messages": messages, "s3_keys": sorted(s3.objects), "ledgers": ledgers}
+    return {
+        "messages": messages,
+        "s3_keys": sorted(s3.objects),
+        "ledgers": ledgers,
+        "objects": s3.objects,
+    }
 
 
 def _check(name: str, actual: str) -> None:
@@ -353,3 +369,56 @@ def test_the_delivered_issue_matches_its_snapshot(monkeypatch, tmp_path, languag
         "TorchNeuron, Amazon\u2019s New PyTorch Backend",
         "Evaluating Models with Bedrock \u2013 Part 2",
     ]
+
+
+def test_a_retry_after_a_partial_send_serves_only_the_rest(monkeypatch, tmp_path):
+    """A Batch retry of a run that reached reader.one before dying: one message,
+    to reader.two, and the rebuild archived beside (not over) the delivered copy."""
+    ledger_key = f"tech-digest/deliveries/delivered-dev-{END_DATE}-ko.json"
+    canonical_key = f"tech-digest/newsletters/newsletter-dev-{END_DATE}-ko.html"
+    delivered_copy = b"<html>the issue reader.one received</html>"
+    monkeypatch.setenv("AWS_BATCH_JOB_ATTEMPT", "2")
+
+    run = _run_issue(
+        monkeypatch,
+        tmp_path,
+        Language.KO,
+        seed={
+            ledger_key: json.dumps(
+                {"stage": "dev", "delivered": [RECIPIENTS[0]]}
+            ).encode(),
+            canonical_key: delivered_copy,
+        },
+    )
+
+    assert [m["destinations"] for m in run["messages"]] == [[RECIPIENTS[1]]]
+    assert run["messages"][0]["headers"]["To"] == RECIPIENTS[1]
+    assert run["ledgers"] == {ledger_key: {"stage": "dev", "delivered": RECIPIENTS}}
+    retry_key = f"tech-digest/newsletters/retries/2/newsletter-dev-{END_DATE}-ko.html"
+    assert retry_key in run["s3_keys"]
+    assert run["objects"][canonical_key] == delivered_copy
+
+
+def test_short_answer_stages_cap_their_output(monkeypatch, tmp_path):
+    """Filter, greeting and title-case calls pass an explicit max_tokens: left
+    unset, each request reserves the model's full output maximum against the
+    per-minute token quota."""
+    from app.src.greeter import GREETING_MAX_TOKENS
+    from app.src.summarizer import Summarizer
+    from app.src.title_caser import TITLE_CASE_MAX_TOKENS
+
+    fake = _fake_get_model(Language.KO)
+    requested: dict[str, int | None] = {}
+
+    def get_model(self, model_id, *, stage=None, **kwargs):
+        requested.setdefault(stage, kwargs.get("max_tokens"))
+        return fake(self, model_id, stage=stage, **kwargs)
+
+    _run_issue(monkeypatch, tmp_path, Language.KO, get_model=get_model)
+    assert requested["filtering"] == Summarizer.FILTER_MAX_TOKENS
+    assert requested["greeting"] == GREETING_MAX_TOKENS
+    assert requested["title-case"] == TITLE_CASE_MAX_TOKENS
+    # Enough for a reasoning model to think and still answer.
+    assert min(requested[s] or 0 for s in ("filtering", "greeting", "title-case")) >= (
+        4096
+    )
