@@ -236,10 +236,9 @@ NON_CONTENT_TAGS: frozenset[str] = frozenset(
     {"script", "style", "svg", "iframe", "form", "nav", "footer", "template"}
 )
 # Attributes worth keeping. Everything else — class hooks, data-*, inline styles,
-# tracking ids — is markup the model has no use for. ``class`` survives because
-# the summarization prompt asks for ``<pre><code class="highlight">`` blocks.
+# tracking ids — is markup the model has no use for.
 CONTENT_ATTRIBUTES: frozenset[str] = frozenset(
-    {"src", "href", "alt", "srcset", "colspan", "rowspan", "class"}
+    {"src", "href", "alt", "srcset", "colspan", "rowspan"}
 )
 
 

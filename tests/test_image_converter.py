@@ -1,5 +1,5 @@
-"""Tests for HtmlToImageConverter's browser-availability guard, which fixes the
-silent Lambda failure (no Chrome in the Lambda runtime image)."""
+"""Tests for HtmlToImageConverter's browser-availability guard: with no Chrome
+installed, image conversion fails fast with a clear message."""
 
 from __future__ import annotations
 
