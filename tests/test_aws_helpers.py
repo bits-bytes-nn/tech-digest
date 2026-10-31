@@ -8,7 +8,12 @@ import email
 from pathlib import Path
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import (
+    ClientError,
+    EndpointConnectionError,
+    NoCredentialsError,
+    ReadTimeoutError,
+)
 
 from app.src.aws_helpers import (
     check_and_download_from_s3,
@@ -273,6 +278,30 @@ class TestSubmitBatchJob:
         assert submit_batch_job(_FakeSession(_Batch()), "n", "q", "d") is None
 
 
+class _FakeClock:
+    """``time`` for aws_helpers: sleeping advances the clock instead of waiting."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+@pytest.fixture
+def fake_clock(monkeypatch) -> _FakeClock:
+    from app.src import aws_helpers
+
+    clock = _FakeClock()
+    monkeypatch.setattr(aws_helpers, "time", clock)
+    return clock
+
+
 class TestWaitForBatchJob:
     def test_succeeded(self):
         class _Batch:
@@ -306,12 +335,84 @@ class TestWaitForBatchJob:
             is True
         )
 
-    def test_client_error_returns_false(self):
+    def test_a_permanent_client_error_returns_false(self, fake_clock):
         class _Batch:
             def describe_jobs(self, jobs):
-                raise _client_error("ServerException")
+                raise _client_error("AccessDeniedException")
 
         assert wait_for_batch_job_completion(_FakeSession(_Batch()), "job-1") is False
+        assert fake_clock.sleeps == []
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            _client_error("TooManyRequestsException"),
+            _client_error("ThrottlingException"),
+            _client_error("ServerException"),
+            EndpointConnectionError(endpoint_url="https://batch.example"),
+            ReadTimeoutError(endpoint_url="https://batch.example"),
+        ],
+        ids=["too-many-requests", "throttling", "server", "connection", "read-timeout"],
+    )
+    def test_a_transient_error_keeps_polling(self, fake_clock, error):
+        # A throttled status call says nothing about the job: returning False here
+        # made run_batch report "failed" while the job went on to send.
+        calls = iter([error, error])
+
+        class _Batch:
+            def describe_jobs(self, jobs):
+                raised = next(calls, None)
+                if raised is not None:
+                    raise raised
+                return {"jobs": [{"status": "SUCCEEDED"}]}
+
+        assert (
+            wait_for_batch_job_completion(
+                _FakeSession(_Batch()), "job-1", poll_interval_seconds=30
+            )
+            is True
+        )
+        assert fake_clock.sleeps == [30, 30]
+
+    def test_a_non_transient_botocore_error_returns_false(self, fake_clock):
+        class _Batch:
+            def describe_jobs(self, jobs):
+                raise NoCredentialsError()
+
+        assert wait_for_batch_job_completion(_FakeSession(_Batch()), "job-1") is False
+
+    def test_transient_errors_stop_at_the_timeout(self, fake_clock):
+        class _Batch:
+            def describe_jobs(self, jobs):
+                raise _client_error("TooManyRequestsException")
+
+        assert (
+            wait_for_batch_job_completion(
+                _FakeSession(_Batch()),
+                "job-1",
+                poll_interval_seconds=30,
+                timeout_seconds=100,
+            )
+            is False
+        )
+        # Polls at t=0, 30, 60, 90; t=120 is past the deadline.
+        assert fake_clock.sleeps == [30, 30, 30, 30]
+
+    def test_a_job_still_running_at_the_timeout_returns_false(self, fake_clock):
+        class _Batch:
+            def describe_jobs(self, jobs):
+                return {"jobs": [{"status": "RUNNING"}]}
+
+        assert (
+            wait_for_batch_job_completion(
+                _FakeSession(_Batch()),
+                "job-1",
+                poll_interval_seconds=60,
+                timeout_seconds=100,
+            )
+            is False
+        )
+        assert fake_clock.sleeps == [60, 60]
 
     def test_waiter_outlasts_the_longest_possible_job(self):
         """The waiter must not give up before the job it waits on can, or a long

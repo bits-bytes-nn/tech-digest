@@ -29,8 +29,6 @@ def main(job_prefix: str, **kwargs: Any) -> None:
         raise ValueError(
             "Batch job queue or definition name not found in SSM parameters"
         )
-    # ``datetime.UTC``, not ``pytz.timezone("UTC")``: pytz was in the image for
-    # this one line, and the stdlib has carried a UTC constant since 3.11.
     timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     job_name = f"{config.resources.project_name}-{config.resources.stage}-{job_prefix}-{timestamp}"
     sanitized_params = sanitize_parameters(kwargs)
@@ -69,29 +67,20 @@ def get_batch_job_names(
 
 
 def sanitize_parameters(params: dict[str, Any]) -> dict[str, str]:
-    result = {}
-    for key, value in params.items():
-        if value is None:
-            result[key] = AppConstants.NULL_STRING
-        elif (
-            key == "recipients"
-            and isinstance(value, str)
-            and value != AppConstants.NULL_STRING
-        ):
-            result[key] = value.replace(" ", ",")
-        else:
-            result[key] = str(value)
-    return result
+    """Batch job parameters as strings, an unset one as the null sentinel.
+
+    Every one is sent because the job command names each as ``Ref::<key>``, and an
+    unsubstituted ``Ref::`` reaches ``main.cli`` verbatim; ``main.cli`` decodes the
+    sentinel back to "not given".
+    """
+    return {
+        key: AppConstants.NULL_STRING if value is None else str(value)
+        for key, value in params.items()
+    }
 
 
 def is_valid_date(date_str: str) -> bool:
-    """Whether ``date_str`` is an accepted ``--end-date`` (or the null sentinel).
-
-    Renamed from ``validate_date``: ``newsletter_renderer`` had a function of the
-    same name that normalizes a date to a string instead of answering a question
-    about one, and two same-named functions with different return types in one
-    codebase is a trap for whoever greps next.
-    """
+    """Whether ``date_str`` is an accepted ``--end-date`` (or the null sentinel)."""
     if not date_str or date_str == AppConstants.NULL_STRING:
         return True
     try:
@@ -130,9 +119,7 @@ if __name__ == "__main__":
         logger.error("Invalid date format for --end-date. Expected format: YYYY-MM-DD")
         sys.exit(1)
 
-    end_date = args.end_date if args.end_date is not None else AppConstants.NULL_STRING
-    language = args.language if args.language is not None else AppConstants.NULL_STRING
-    recipients_str = AppConstants.NULL_STRING
+    recipients: str | None = None
     if args.recipients and args.recipients[0].lower() != AppConstants.NULL_STRING:
         valid_emails = [email for email in args.recipients if validate_email(email)]
         if len(valid_emails) < len(args.recipients):
@@ -141,21 +128,21 @@ if __name__ == "__main__":
                 len(args.recipients) - len(valid_emails),
             )
         if not valid_emails:
-            # Falling back to null here meant "use the S3 recipients list": a test
-            # send to one mistyped address went to every subscriber instead.
+            # No recipients means "the whole S3 list": a mistyped test address
+            # must stop here, not reach every subscriber.
             logger.error(
                 "--recipients was given but none of the addresses is valid; "
                 "refusing to fall back to the full recipients list."
             )
             sys.exit(1)
-        recipients_str = " ".join(valid_emails)
+        recipients = ",".join(valid_emails)
 
     try:
         main(
             "newsletter",
-            end_date=end_date,
-            language=language,
-            recipients=recipients_str,
+            end_date=args.end_date,
+            language=args.language,
+            recipients=recipients,
         )
     except Exception as e:
         logger.error("Failed to submit or execute batch job: %s", e)
