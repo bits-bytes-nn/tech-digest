@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.src.constants import FilteringCriteria, Language
+from app.domain.constants import FilteringCriteria, Language
 from app.src.prompts.prompts import FilteringPrompt, SummarizationPrompt
 
 
@@ -190,7 +190,7 @@ class TestCachingIsOnlyEnabledWhenItCanHit:
     """
 
     def _summarizer(self, **overrides):
-        from app.src.constants import LanguageModelId
+        from app.domain.constants import LanguageModelId
         from app.src.summarizer import Summarizer, SummarizerSettings
 
         base = {

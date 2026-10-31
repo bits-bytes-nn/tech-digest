@@ -115,7 +115,7 @@ KO_SENTENCE_END_SYLLABLES = "다요죠"
 # colon IS at a boundary yet legitimately introduces the list — so skip it when
 # a <ul>/<ol> follows past the intervening closing tags / <br>.
 #
-# ``summarizer._postprocess_summary`` corrects exactly what this matches, and the
+# ``summary._postprocess_summary`` corrects exactly what this matches, and the
 # ``terminal_colon`` dimension counts exactly what this matches, so the two agree
 # by construction. They did not before: the rubric ran a simpler ``[다요죠]:``
 # over the markup-stripped text, where a preserved list colon is followed by a

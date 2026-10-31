@@ -15,8 +15,8 @@ from pydantic import (
 )
 from pydantic_core import PydanticUndefined
 
-from app.src import EnvVars, LanguageModelId
-from app.src.summarizer import SummarizationOptions
+from app.domain.constants import EnvVars, LanguageModelId
+from app.domain.summary import SummarizationOptions
 
 # AWS EventBridge cron has exactly six fields:
 #   cron(minutes hours day-of-month month day-of-week year)

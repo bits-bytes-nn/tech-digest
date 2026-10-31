@@ -1,8 +1,10 @@
 import boto3
 from langchain_core.output_parsers import StrOutputParser
 
-from .constants import Language, LanguageModelId
-from .logger import logger
+from app.domain.constants import Language, LanguageModelId
+from app.domain.text import measure_greeting
+from app.logger import logger
+
 from .model_factory import BedrockLanguageModelFactory
 from .prompts import GreetingPrompt, GreetingRevisionPrompt
 from .utils import retry_with_backoff
@@ -11,17 +13,6 @@ from .utils import retry_with_backoff
 # full output maximum against the tokens-per-minute quota; this leaves ample room
 # for a paragraph plus the reasoning some models do whether asked or not.
 GREETING_MAX_TOKENS: int = 4096
-
-
-def measure_greeting(text: str, language: Language) -> int:
-    """Length of a greeting in the unit its prompt budgets in.
-
-    Korean is budgeted in characters (a Korean syllable carries roughly as much
-    as an English word, so word counts are meaningless); English in words.
-    """
-    if language is Language.KO:
-        return len(text.strip())
-    return len(text.split())
 
 
 class Greeter:

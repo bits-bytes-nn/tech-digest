@@ -8,8 +8,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.src.constants import LanguageModelId
-from app.src.feed_parser import Post
+from app.domain.constants import LanguageModelId
+from app.domain.post import Post
 from app.src.summarizer import Summarizer, SummarizerSettings
 
 
@@ -68,7 +68,7 @@ class TestFilterPosts:
         # The chain is faked everywhere else, so a key the prompt requires but
         # _filter_posts stops sending would KeyError on every real call while CI
         # stays green.
-        from app.src.prompts import FilteringPrompt
+        from app.src.prompts.prompts import FilteringPrompt
 
         seen: list[dict] = []
 
@@ -737,7 +737,7 @@ class TestUnusableSummariesDoNotShip:
         assert s._summarize_posts([_post("a")]) == []
 
     def test_english_floor_applies_to_english_runs(self):
-        from app.src.constants import Language
+        from app.domain.constants import Language
 
         s = _summarizer(language=Language.EN)
         short = "<p>" + "A short English answer. " * 20 + "</p>"
@@ -760,7 +760,7 @@ class TestUnusableSummariesDoNotShip:
 
 class TestSanitizerDropsComments:
     def test_outlook_conditional_comment_is_removed(self):
-        from app.src.summarizer import _sanitize_html
+        from app.domain.summary import _sanitize_html
 
         html = (
             '<p>ok</p><!--[if mso]><a href="javascript:alert(1)">x</a>'
@@ -774,8 +774,9 @@ class TestOneLinerKeepsAngleBrackets:
     def test_escaped_generics_survive_the_parse_and_the_cleanup(self):
         # The parser read one_liner as text (decoding once) and _clean_one_liner
         # decoded again, so "List&lt;String&gt;" reached the card as "List".
+        from app.domain.summary import SummaryOutput
         from app.src.prompts.prompts import SummarizationPrompt
-        from app.src.summarizer import Summarizer, SummaryOutput
+        from app.src.summarizer import Summarizer
         from app.src.utils import HTMLTagOutputParser
 
         parser = HTMLTagOutputParser(
@@ -817,12 +818,12 @@ class TestSanitizerAllowList:
         ],
     )
     def test_active_content_is_removed(self, html, forbidden):
-        from app.src.summarizer import _sanitize_html
+        from app.domain.summary import _sanitize_html
 
         assert forbidden not in _sanitize_html(html)
 
     def test_allowed_content_survives(self):
-        from app.src.summarizer import _sanitize_html
+        from app.domain.summary import _sanitize_html
 
         html = '<p>See <a href="https://ok.example">this</a> and <strong>that</strong>.</p>'
         assert _sanitize_html(html) == html
@@ -906,7 +907,7 @@ class TestFailureReasonsAreRecognisable:
         ],
     )
     def test_filter_failures(self, response):
-        from app.src.summarizer import MODEL_FAILURE_PREFIXES
+        from app.domain.summary import MODEL_FAILURE_PREFIXES
 
         [reason] = self._reasons_after_filter(response)
         assert reason.startswith(MODEL_FAILURE_PREFIXES), reason
@@ -924,20 +925,20 @@ class TestFailureReasonsAreRecognisable:
         ],
     )
     def test_summary_failures(self, response):
-        from app.src.summarizer import MODEL_FAILURE_PREFIXES
+        from app.domain.summary import MODEL_FAILURE_PREFIXES
 
         [reason] = self._reasons_after_summary(response)
         assert reason.startswith(MODEL_FAILURE_PREFIXES), reason
 
     @pytest.mark.parametrize("response", [{"score": "0.2", "reason": "Off topic."}])
     def test_a_low_score_verdict_is_not_a_failure(self, response):
-        from app.src.summarizer import MODEL_FAILURE_PREFIXES
+        from app.domain.summary import MODEL_FAILURE_PREFIXES
 
         [reason] = self._reasons_after_filter(response)
         assert not reason.startswith(MODEL_FAILURE_PREFIXES)
 
     def test_a_thin_post_is_not_a_failure(self):
-        from app.src.summarizer import MODEL_FAILURE_PREFIXES
+        from app.domain.summary import MODEL_FAILURE_PREFIXES
 
         s = _summarizer(min_content_length=600)
         s._gate_by_content_length([_post("thin", content="<p>short</p>")])
@@ -949,7 +950,7 @@ class TestBackticksBecomeCode:
     """Markdown is not processed inside HTML, so backticks would show verbatim."""
 
     def test_a_backtick_span_in_prose_becomes_code(self):
-        from app.src.summarizer import _postprocess_summary
+        from app.domain.summary import _postprocess_summary
 
         out = _postprocess_summary("<p>Set `--tp 2` and `PD_BUFFER` first.</p>")
         assert out == (
@@ -957,13 +958,13 @@ class TestBackticksBecomeCode:
         )
 
     def test_backticks_inside_a_code_block_are_left_alone(self):
-        from app.src.summarizer import _postprocess_summary
+        from app.domain.summary import _postprocess_summary
 
         html = "<pre><code>echo `date`</code></pre>"
         assert _postprocess_summary(html) == html
 
     def test_escaped_text_in_a_span_stays_escaped(self):
-        from app.src.summarizer import _postprocess_summary
+        from app.domain.summary import _postprocess_summary
 
         out = _postprocess_summary("<p>Check `a &lt; b` here.</p>")
         assert out == "<p>Check <code>a &lt; b</code> here.</p>"

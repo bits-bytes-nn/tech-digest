@@ -9,8 +9,9 @@ from typing import ClassVar
 
 import pytest
 
-from app.src.constants import Language
-from app.src.newsletter_renderer import BuildConfiguration, NewsletterBuilder
+from app.domain.constants import Language
+from app.domain.newsletter import BuildConfiguration
+from app.src.newsletter_renderer import NewsletterBuilder
 
 LOGOS = {
     "aws": "https://cdn.example.com/aws.png",
@@ -208,7 +209,7 @@ class TestChromeDefaultsAreReachable:
     """
 
     def test_unset_fields_use_the_declared_defaults(self):
-        from app.src.newsletter_renderer import BuildConfiguration
+        from app.domain.newsletter import BuildConfiguration
 
         config = BuildConfiguration(
             stage="dev", date_suffix="2026-08-19", first_section_intro="hi"
@@ -227,7 +228,7 @@ class TestChromeDefaultsAreReachable:
     def test_empty_header_title_is_rejected_not_silently_shipped(self):
         from pydantic import ValidationError
 
-        from app.src.newsletter_renderer import Header
+        from app.domain.newsletter import Header
 
         with pytest.raises(ValidationError):
             Header(title="", description="d", thumbnail="t", publish_date="2026-08-19")
@@ -235,7 +236,7 @@ class TestChromeDefaultsAreReachable:
     def test_main_omits_unset_chrome_so_defaults_apply(self, tmp_path, monkeypatch):
         """The composition root must not pass "" for an unset field."""
         import app.main as main
-        from app.src.newsletter_renderer import BuildConfiguration
+        from app.domain.newsletter import BuildConfiguration
 
         captured = {}
 

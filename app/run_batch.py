@@ -6,14 +6,12 @@ from typing import Any
 import boto3
 
 from app.configs import Config
-from app.src import (
-    AppConstants,
-    SSMParams,
+from app.domain.alarms import validate_email
+from app.domain.constants import AppConstants, SSMParams
+from app.logger import is_running_in_aws, logger
+from app.src.aws_helpers import (
     get_ssm_param_value,
-    is_running_in_aws,
-    logger,
     submit_batch_job,
-    validate_email,
     wait_for_batch_job_completion,
 )
 

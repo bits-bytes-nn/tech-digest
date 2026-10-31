@@ -27,14 +27,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
 from app import main
-from app.src.constants import Language
-from app.src.feed_parser import (
-    CrawlReport,
-    Post,
-    PostCollector,
-    SourceHealth,
-    SourceStatus,
-)
+from app.domain.constants import Language
+from app.domain.crawl import CrawlReport, SourceHealth, SourceStatus
+from app.domain.post import Post
+from app.src.feed_parser import PostCollector
 from app.src.model_factory import BedrockLanguageModelFactory
 
 GOLDEN_DIR = Path(__file__).parent / "fixtures" / "golden"

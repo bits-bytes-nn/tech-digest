@@ -14,7 +14,7 @@ from app.configs.config import (
     Scraping,
     Summarization,
 )
-from app.src.constants import FilteringCriteria, LanguageModelId
+from app.domain.constants import FilteringCriteria, LanguageModelId
 
 
 class TestResources:
@@ -174,7 +174,7 @@ class TestSummarizationSwitchesReachTheSummarizer:
         "field", ["filter_on_visible_text", "summarize_on_cleaned_html"]
     )
     def test_false_in_yaml_reaches_summarizer_settings(self, field):
-        from app.src import SummarizerSettings
+        from app.src.summarizer import SummarizerSettings
 
         section = Summarization(
             filtering_criteria=FilteringCriteria.ALL,

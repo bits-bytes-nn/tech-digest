@@ -5,20 +5,20 @@ from __future__ import annotations
 
 import pytest
 
-from app.src.constants import Language
-from app.src.newsletter_renderer import (
+from app.domain.constants import Language
+from app.domain.newsletter import (
     GMAIL_CLIP_BYTES,
     Article,
     BuildConfiguration,
     Footer,
     Header,
     NewsletterData,
-    NewsletterRenderer,
     Section,
     collapse_html_whitespace,
     estimate_reading_minutes,
     normalize_date,
 )
+from app.src.newsletter_renderer import NewsletterRenderer
 
 
 class TestValidateDate:

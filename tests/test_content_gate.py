@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.src.feed_parser import Post
+from app.domain.post import Post
 
 
 def _post(content: str) -> Post:
@@ -38,12 +38,12 @@ class TestPostTextLength:
         self, monkeypatch, caplog, propagating_logger
     ):
         """Returning the raw HTML on failure let markup clear the content gate."""
-        from app.src import feed_parser
+        from app.domain import content
 
         def broken(*_a, **_k):
             raise RuntimeError("parser blew up")
 
-        monkeypatch.setattr(feed_parser, "BeautifulSoup", broken)
+        monkeypatch.setattr(content, "BeautifulSoup", broken)
         html = "<div class='x'>" + "<span></span>" * 200 + "</div>"
         with caplog.at_level("WARNING"):
             assert _post(html).text_length() == 0
@@ -56,7 +56,7 @@ class TestContentLengthGate:
     def _make_summarizer(self, min_len: int):
         # Build a Summarizer-like object without triggering Bedrock setup by
         # using __new__ and setting only the attributes the gate touches.
-        from app.src.constants import LanguageModelId
+        from app.domain.constants import LanguageModelId
         from app.src.summarizer import Summarizer, SummarizerSettings
 
         s = Summarizer.__new__(Summarizer)

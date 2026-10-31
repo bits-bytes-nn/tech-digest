@@ -8,7 +8,7 @@ from langchain_core.prompts import (
     SystemMessagePromptTemplate,
 )
 
-from ..constants import FilteringCriteria, Language
+from app.domain.constants import FilteringCriteria, Language
 
 
 @dataclass(frozen=True)

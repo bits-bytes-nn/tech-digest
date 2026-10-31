@@ -72,7 +72,8 @@ def collect(stage: str, weeks: int) -> Path:
     Feeds keep only their latest items, so older weeks come back thinner than
     they were live; the per-week counts make that visible.
     """
-    from app.src import PostCollector, get_date_range
+    from app.domain.post import get_date_range
+    from app.src.feed_parser import PostCollector
 
     config = _config(stage)
     today = datetime.now(UTC).date()
@@ -119,8 +120,9 @@ def score(
     own filter step (same input preparation, retries and response checks)."""
     import boto3
 
-    from app.src import Post, Summarizer, SummarizerSettings
-    from app.src.summarizer import MODEL_FAILURE_PREFIXES
+    from app.domain.post import Post
+    from app.domain.summary import MODEL_FAILURE_PREFIXES
+    from app.src.summarizer import Summarizer, SummarizerSettings
 
     config = _config(stage)
     candidates = json.loads(_candidates_path(stage).read_text(encoding="utf-8"))
@@ -180,7 +182,8 @@ def _load_scores(stage: str, label: str, variant: str) -> dict[str, dict[str, An
 
 def _lineup(candidates: list[dict[str, Any]], scores: dict, settings: Any) -> list:
     """The posts the pipeline would ship for one week, using its own selection."""
-    from app.src import Post, Summarizer
+    from app.domain.post import Post
+    from app.domain.summary import select_for_digest
 
     posts = []
     for c in candidates:
@@ -195,14 +198,12 @@ def _lineup(candidates: list[dict[str, Any]], scores: dict, settings: Any) -> li
         )
         post.score = s
         posts.append(post)
-    return Summarizer.select_for_digest(
-        posts, settings.max_posts, settings.max_per_source
-    )
+    return select_for_digest(posts, settings.max_posts, settings.max_per_source)
 
 
 def compare(stage: str, before: str, after: str) -> int:
-    from app.src import SummarizerSettings
-    from app.src.eval_metrics import band_of_score, is_anchor
+    from app.domain.eval_metrics import band_of_score, is_anchor
+    from app.src.summarizer import SummarizerSettings
 
     config = _config(stage)
     settings = SummarizerSettings.model_validate(config.summarization.model_dump())

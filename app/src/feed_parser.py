@@ -1,53 +1,35 @@
 # NOTE: If there is no RSS feed available, you need to create a custom scraper here
 
 import ipaddress
-import re
 import socket
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from email.utils import parsedate_to_datetime
-from enum import Enum
 from html import unescape
-from typing import ClassVar, Protocol, TypeAlias
+from typing import ClassVar, Protocol
 from urllib.parse import urljoin, urlparse
 
 import feedparser
 import requests
 from bs4 import BeautifulSoup, Tag
 from feedparser.exceptions import CharacterEncodingOverride
-from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import RequestException
 
-from .constants import DEFAULT_TAGS, MAX_TAGS
-from .logger import logger
+from app.domain.content import visible_text
+from app.domain.crawl import CrawlReport, SourceHealth, SourceStatus
+from app.domain.post import (
+    Post,
+    is_date_in_range,
+    is_safe_url,
+    normalize_title_key,
+    parse_published_date,
+    try_parse_published_date,
+)
+from app.logger import logger
 
 # Cap on redirects we will follow per request. Bounds redirect-chain abuse and
 # keeps a misbehaving source from looping us.
 MAX_REDIRECTS: int = 5
-
-# Only these URL schemes may appear in a rendered link (article link, resource
-# links). The summary/link fields ultimately originate from scraped/feed
-# content and are rendered into the outbound email, so an unchecked scheme like
-# ``javascript:`` or ``data:`` would be a phishing / injection vector. Shared
-# by the summarizer's link sanitizer and the Post/Article link validators so
-# there is a single allow-list.
-SAFE_URL_SCHEMES: frozenset[str] = frozenset({"http", "https", "mailto"})
-
-
-def is_safe_url(url: str) -> bool:
-    """True only for absolute URLs whose scheme is explicitly allow-listed.
-
-    Rejects ``javascript:``, ``data:``, ``vbscript:``, scheme-relative
-    ``//evil`` and bare/relative strings — none of which belong in a trusted
-    outbound link.
-    """
-    try:
-        scheme = urlparse(url.strip()).scheme.lower()
-    except (ValueError, AttributeError):
-        return False
-    return scheme in SAFE_URL_SCHEMES
 
 
 def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -123,31 +105,17 @@ def _host_resolves_to_blocked(host: str) -> bool:
     return False
 
 
-# A value of ``ScraperConfig.SOURCE_MAPPING``, or "unknown". The map is the only
-# thing that produces a source, so it is the list.
-SourceType: TypeAlias = str
-
-
 class ScraperConfig:
     # Measured across every configured host: only these two ever held the
     # article. Otherwise <body> is used, unless the feed carries its own body.
     CONTENT_SELECTORS: ClassVar[list[str]] = ["article", "main"]
     # Share of a page's visible text a CONTENT_SELECTORS match must hold before it
-    # is preferred over the whole <body>. See ``Post._scrape_full_content``.
+    # is preferred over the whole <body>. See ``_scrape_full_content``.
     CONTENT_CONTAINER_MIN_SHARE: ClassVar[float] = 0.5
-    # Tried after ``datetime.fromisoformat``, which already covers every ISO
-    # shape: RFC 822 for feeds, "May 29, 2026" for index pages.
-    DATE_FORMATS: ClassVar[tuple[str, ...]] = (
-        "%a, %d %b %Y %H:%M:%S GMT",
-        "%a, %d %b %Y %H:%M:%S %z",
-        "%b %d, %Y",
-        "%B %d, %Y",
-    )
     # Visible-text length below which a feed entry is a teaser and the article
     # page is fetched instead. Not ``scraping.min_content_length``, the ~600-char
     # gate on whether a post is worth summarizing at all.
     FULL_SCRAPE_TEXT_THRESHOLD: ClassVar[int] = 3000
-    MARKDOWN_IMAGE_PATTERN: ClassVar[re.Pattern] = re.compile(r"!\[.*?]\((.*?)\)")
     # A full, realistic browser header set. The Sec-Fetch-* / Sec-Ch-Ua and
     # Upgrade-Insecure-Requests headers reduce 403s from anti-bot filters that
     # reject bare User-Agent requests. One set: over 90 days of Batch logs, no
@@ -167,112 +135,12 @@ class ScraperConfig:
         "Sec-Fetch-User": "?1",
     }
     REQUEST_TIMEOUT: ClassVar[int] = 30
-    SOURCE_MAPPING: ClassVar[dict[str, SourceType]] = {
-        "airbnb-engineering": "airbnb",
-        "amazon.science": "amazon",
-        "aws.amazon.com": "aws",
-        "deepmind.google": "google",
-        "research.google": "google",
-        "huggingface.co": "huggingface",
-        "linkedin.com": "linkedin",
-        "engineering.fb.com": "meta",
-        "microsoft.com": "microsoft",
-        "netflixtechblog.com": "netflix",
-        "netflix-techblog": "netflix",  # Medium publication slug
-        "developer.nvidia.com": "nvidia",
-        "blog.palantir.com": "palantir",
-        "palantir": "palantir",  # Medium @-handle
-        "palantir.medium.com": "palantir",  # the same feed links here too
-        "pinterest-engineering": "pinterest",
-        "pinterest_engineering": "pinterest",  # Medium @-handle
-        "qwenlm.github.io": "qwen",
-        # Independent authors. Each needs its own entry: ``max_per_source``
-        # counts by source, so unmapped feeds share one "unknown" cap.
-        # Underscores become spaces in ``Article.source_label``.
-        "eugeneyan.com": "eugene_yan",
-        "sebastianraschka.com": "sebastian_raschka",
-        "magazine.sebastianraschka.com": "sebastian_raschka",
-        "philschmid.de": "phil_schmid",
-        # NOTE: add new sources here
-    }
 
 
 class SourceFetchError(Exception):
     """Raised when a source cannot be fetched at all (network error, anti-bot
     block, HTTP error) — as opposed to fetching successfully but finding no
     posts. The collector uses this to mark a source FAILED vs. EMPTY."""
-
-
-def visible_text(html: str) -> str:
-    """The readable prose in an HTML string, site furniture and markup stripped.
-
-    Single source of truth for "what a reader actually sees", used by the
-    scrape decision, the content-sufficiency gate and the relevance filter so
-    all three agree on what counts as content — and agree with the summarizer,
-    which receives ``content_html`` and so never sees ``NON_CONTENT_TAGS``.
-
-    Counting those tags would let a JavaScript-rendered page's menus and script
-    data clear the gate while the summarizer receives little more than a title.
-    """
-    if not html:
-        return ""
-    try:
-        soup = BeautifulSoup(html, "html.parser")
-        for tag in soup(list(NON_CONTENT_TAGS)):
-            tag.decompose()
-        return soup.get_text(separator=" ", strip=True)
-    except Exception as e:
-        # Never the raw HTML: markup would count as prose at the content gate.
-        logger.warning("Could not extract visible text, counting none: %s", e)
-        return ""
-
-
-# Elements that carry site furniture rather than article content. ``noscript`` is
-# deliberately ABSENT: lazy-loading pages put the real <img src> there and leave a
-# ``data:image/svg+xml`` placeholder in the visible markup, so dropping it would
-# throw away exactly the figures the summary is supposed to include (verified on
-# NVIDIA's blog, where 7 of 15 images live in noscript).
-NON_CONTENT_TAGS: frozenset[str] = frozenset(
-    {"script", "style", "svg", "iframe", "form", "nav", "footer", "template"}
-)
-# Attributes worth keeping. Everything else — class hooks, data-*, inline styles,
-# tracking ids — is markup the model has no use for.
-CONTENT_ATTRIBUTES: frozenset[str] = frozenset(
-    {"src", "href", "alt", "srcset", "colspan", "rowspan"}
-)
-
-
-def content_html(html: str) -> str:
-    """``html`` with site furniture and decorative attributes removed.
-
-    The summarizer needs HTML, not prose: code blocks, tables and image URLs all
-    live in the markup, which is why the filter's visible-text shortcut cannot be
-    reused here. But most of that markup is not the article — it is navigation,
-    scripts, inline styles and class hooks.
-
-    Measured over one issue's three articles with the Bedrock token counter,
-    dropping it cuts summarization input from 85,947 to 53,954 tokens (-37%) while
-    leaving every ``<pre>``, ``<table>`` and article ``<img>`` in place. Less noise
-    around the article is also one less thing for the model to mistake for
-    content — a related-posts carousel reads a lot like a list of findings.
-    """
-    if not html:
-        return ""
-    try:
-        soup = BeautifulSoup(html, "html.parser")
-        for tag in soup(list(NON_CONTENT_TAGS)):
-            tag.decompose()
-        for tag in soup.find_all(True):
-            tag.attrs = {
-                key: value
-                for key, value in tag.attrs.items()
-                if key in CONTENT_ATTRIBUTES
-            }
-        return str(soup)
-    except Exception as e:
-        # Never let input shaping cost the post: fall back to the raw HTML.
-        logger.warning("Could not clean content HTML, using it as-is: %s", e)
-        return html
 
 
 def parse_page(response: requests.Response) -> BeautifulSoup:
@@ -438,186 +306,105 @@ def is_email_renderable_image(url: str) -> bool:
         return content_type.strip().lower() in EMAIL_IMAGE_TYPES
 
 
-class Post(BaseModel):
-    title: str
-    link: str
-    published_date: datetime
-    content: str = ""
-    images: list[str] = Field(default_factory=list)
-    source: SourceType = "unknown"
-    summary: str = ""
-    # Single-sentence lede produced alongside the summary; rendered above the
-    # article body so a multi-article digest can be skimmed.
-    one_liner: str = ""
-    tags: list[str] = Field(default_factory=list)
-    urls: list[str] = Field(default_factory=list)
-    score: float = 0.0
-    # The feed carried only a teaser and the article page could not be read
-    # (blocked, failed or unparseable). Crawl health counts these per source; it
-    # is run state, not part of the saved post.
-    page_unreadable: bool = Field(default=False, exclude=True)
+def post_from_entry(entry: feedparser.FeedParserDict) -> Post:
+    """Build a Post from a feed entry or a scraper-built ``FeedParserDict``.
 
-    @field_validator("tags", mode="before")
-    @classmethod
-    def validate_tags(cls, v):
-        if not v:
-            return list(DEFAULT_TAGS)
-        # Preserve the source ordering (tags are emitted most-significant-first)
-        # while de-duplicating, then cap. dict.fromkeys keeps first-seen order;
-        # sorting here would discard relevance and drop important trailing tags.
-        unique_tags = list(dict.fromkeys(tag for tag in v if isinstance(tag, str)))
-        return unique_tags[:MAX_TAGS]
+    ``source`` is always DERIVED from the link via ``SOURCE_MAPPING``, never
+    read off the entry: that map is the single source of truth, and a
+    per-scraper source would be a second copy of it that could drift.
+    """
+    link_str = getattr(entry, "link", "")
+    content, page_unreadable = _extract_content_from_entry(entry, link_str)
+    return Post(
+        # Some feeds escape the title twice (Amazon Science sends
+        # "don&amp;#8217;t"), so feedparser hands back "don&#8217;t" and the
+        # card showed the entity literally. Decoding is idempotent on a
+        # title that was already plain text.
+        title=unescape(getattr(entry, "title", "No Title")).strip(),
+        link=link_str,
+        published_date=parse_published_date(entry_date_text(entry)),
+        source=Post._determine_source(link_str),
+        content=content,
+        # ``summary`` is not seeded from the feed's teaser: it is the slot
+        # the LLM summary lands in, and a teaser there could ship as the
+        # article body of a post whose summarization failed.
+        images=Post._extract_images(content, link_str),
+        page_unreadable=page_unreadable,
+    )
 
-    @classmethod
-    def from_entry(cls, entry: feedparser.FeedParserDict) -> "Post":
-        """Build a Post from a feed entry or a scraper-built ``FeedParserDict``.
 
-        ``source`` is always DERIVED from the link via ``SOURCE_MAPPING``, never
-        read off the entry: that map is the single source of truth, and a
-        per-scraper source would be a second copy of it that could drift.
-        """
-        link_str = getattr(entry, "link", "")
-        content, page_unreadable = cls._extract_content_from_entry(entry, link_str)
-        return cls(
-            # Some feeds escape the title twice (Amazon Science sends
-            # "don&amp;#8217;t"), so feedparser hands back "don&#8217;t" and the
-            # card showed the entity literally. Decoding is idempotent on a
-            # title that was already plain text.
-            title=unescape(getattr(entry, "title", "No Title")).strip(),
-            link=link_str,
-            published_date=parse_published_date(entry_date_text(entry)),
-            source=cls._determine_source(link_str),
-            content=content,
-            # ``summary`` is not seeded from the feed's teaser: it is the slot
-            # the LLM summary lands in, and a teaser there could ship as the
-            # article body of a post whose summarization failed.
-            images=cls._extract_images(content, link_str),
-            page_unreadable=page_unreadable,
-        )
-
-    @classmethod
-    def _extract_content_from_entry(
-        cls, entry: feedparser.FeedParserDict, link: str
-    ) -> tuple[str, bool]:
-        """The post's content, and whether the article page was needed but could
-        not be read."""
-        content_items = getattr(entry, "content", [])
-        content = (
-            content_items[0].get("value")
-            if content_items
-            else getattr(entry, "summary", "")
-        )
-        # Visible text, not raw HTML length, so the scrape decision agrees with
-        # the content gate on what a short post is.
-        feed_text_len = len(visible_text(content))
-        if feed_text_len >= ScraperConfig.FULL_SCRAPE_TEXT_THRESHOLD:
-            return content, False
-        # An entry with its own body (content:encoded) holds the article or its
-        # lead; the page's whole <body> is that article plus the site around it
-        # (amazon.science: the article is 16% of the page), so it is no better.
-        # A summary-only feed has nothing better, so <body> is still taken there.
-        scraped_content = cls._scrape_full_content(
-            link, body_fallback=not (content_items and feed_text_len)
-        )
-        # None: the page could not be read. "": it was read but holds no article
-        # container we trust, so a teaser kept from the feed is still unreadable.
-        if not scraped_content:
-            return content, True
-        # A thin page (JS-rendered, consent wall) must not replace a fuller feed
-        # body and push the post below the content gate.
-        if len(visible_text(scraped_content)) > feed_text_len:
-            content = scraped_content
+def _extract_content_from_entry(
+    entry: feedparser.FeedParserDict, link: str
+) -> tuple[str, bool]:
+    """The post's content, and whether the article page was needed but could
+    not be read."""
+    content_items = getattr(entry, "content", [])
+    content = (
+        content_items[0].get("value")
+        if content_items
+        else getattr(entry, "summary", "")
+    )
+    # Visible text, not raw HTML length, so the scrape decision agrees with
+    # the content gate on what a short post is.
+    feed_text_len = len(visible_text(content))
+    if feed_text_len >= ScraperConfig.FULL_SCRAPE_TEXT_THRESHOLD:
         return content, False
+    # An entry with its own body (content:encoded) holds the article or its
+    # lead; the page's whole <body> is that article plus the site around it
+    # (amazon.science: the article is 16% of the page), so it is no better.
+    # A summary-only feed has nothing better, so <body> is still taken there.
+    scraped_content = _scrape_full_content(
+        link, body_fallback=not (content_items and feed_text_len)
+    )
+    # None: the page could not be read. "": it was read but holds no article
+    # container we trust, so a teaser kept from the feed is still unreadable.
+    if not scraped_content:
+        return content, True
+    # A thin page (JS-rendered, consent wall) must not replace a fuller feed
+    # body and push the post below the content gate.
+    if len(visible_text(scraped_content)) > feed_text_len:
+        content = scraped_content
+    return content, False
 
-    @staticmethod
-    def _scrape_full_content(url: str, *, body_fallback: bool) -> str | None:
-        """The article's HTML from its own page.
 
-        Returns None if the page cannot be fetched or parsed, and "" if it holds
-        no trusted article container and ``body_fallback`` is off.
+def _scrape_full_content(url: str, *, body_fallback: bool) -> str | None:
+    """The article's HTML from its own page.
 
-        The container chosen is the one that HOLDS the prose, not the first
-        selector that matches: on Hugging Face's blog ``<article>`` is a
-        near-empty wrapper (82 visible characters against 21,669 on the page).
-        """
-        if not url or not (response := _make_robust_request(url)):
+    Returns None if the page cannot be fetched or parsed, and "" if it holds
+    no trusted article container and ``body_fallback`` is off.
+
+    The container chosen is the one that HOLDS the prose, not the first
+    selector that matches: on Hugging Face's blog ``<article>`` is a
+    near-empty wrapper (82 visible characters against 21,669 on the page).
+    """
+    if not url or not (response := _make_robust_request(url)):
+        return None
+    try:
+        soup = parse_page(response)
+        body = soup.find("body")
+        if body is None:
             return None
-        try:
-            soup = parse_page(response)
-            body = soup.find("body")
-            if body is None:
-                return None
-            # get_text on the parsed element, not visible_text on its string: the
-            # latter would re-parse every candidate.
-            body_length = len(body.get_text(separator=" ", strip=True))
-            best: Tag | None = None
-            best_length = 0
-            for selector in ScraperConfig.CONTENT_SELECTORS:
-                for element in soup.select(selector):
-                    length = len(element.get_text(separator=" ", strip=True))
-                    if length > best_length:
-                        best, best_length = element, length
-            # A narrower container excludes nav/footer chrome, but is trusted only
-            # if it holds most of the page's prose: the HF wrapper held 0.4%, a
-            # real <article> 60-90% (NVIDIA: 94%).
-            if best is not None and best_length >= body_length * (
-                ScraperConfig.CONTENT_CONTAINER_MIN_SHARE
-            ):
-                return str(best)
-            return str(body) if body_fallback else ""
-        except Exception as e:
-            logger.error(f"Error parsing content for '{url}': {e}")
-            return None
-
-    @staticmethod
-    def _determine_source(url: str) -> SourceType:
-        if not url:
-            return "unknown"
-        parsed_url = urlparse(url)
-        domain = parsed_url.netloc.lower().removeprefix("www.")
-        if domain == "medium.com":
-            path_parts = parsed_url.path.strip("/").split("/")
-            if path_parts and path_parts[0]:
-                # Medium slugs/handles are case-insensitive (e.g. the feed
-                # "@Pinterest_Engineering" maps to the lowercase key).
-                handle = path_parts[0].lstrip("@").lower()
-                source = ScraperConfig.SOURCE_MAPPING.get(handle)
-                if source is not None:
-                    return source
-        return ScraperConfig.SOURCE_MAPPING.get(domain, "unknown")
-
-    def text_length(self) -> int:
-        """Length of the post's *visible* text, ignoring HTML markup.
-
-        Used by the content-sufficiency gate: a post whose HTML is large only
-        because of boilerplate/markup (nav bars, scripts, style) but whose
-        readable prose is thin should not reach the summarizer, where it would
-        otherwise produce an empty or low-quality summary.
-        """
-        return len(visible_text(self.content))
-
-    @staticmethod
-    def _extract_images(content_html: str, base_url: str) -> list[str]:
-        if not content_html:
-            return []
-        try:
-            soup = BeautifulSoup(content_html, "html.parser")
-            image_urls: set[str] = {
-                urljoin(base_url, img["src"])
-                for img in soup.find_all("img")
-                if img.get("src")
-            }
-            # Resolve markdown image URLs against base_url too (same as <img
-            # src> above), so relative paths like ![](/img/x.png) aren't dropped
-            # by the http filter below.
-            image_urls.update(
-                urljoin(base_url, m)
-                for m in ScraperConfig.MARKDOWN_IMAGE_PATTERN.findall(content_html)
-            )
-            return [url for url in image_urls if url.startswith("http")]
-        except Exception as e:
-            logger.warning(f"Failed to extract images from '{base_url}': {e}")
-            return []
+        # get_text on the parsed element, not visible_text on its string: the
+        # latter would re-parse every candidate.
+        body_length = len(body.get_text(separator=" ", strip=True))
+        best: Tag | None = None
+        best_length = 0
+        for selector in ScraperConfig.CONTENT_SELECTORS:
+            for element in soup.select(selector):
+                length = len(element.get_text(separator=" ", strip=True))
+                if length > best_length:
+                    best, best_length = element, length
+        # A narrower container excludes nav/footer chrome, but is trusted only
+        # if it holds most of the page's prose: the HF wrapper held 0.4%, a
+        # real <article> 60-90% (NVIDIA: 94%).
+        if best is not None and best_length >= body_length * (
+            ScraperConfig.CONTENT_CONTAINER_MIN_SHARE
+        ):
+            return str(best)
+        return str(body) if body_fallback else ""
+    except Exception as e:
+        logger.error(f"Error parsing content for '{url}': {e}")
+        return None
 
 
 @contextmanager
@@ -638,56 +425,6 @@ def force_ipv4():
         socket.getaddrinfo = original_getaddrinfo
 
 
-def is_date_in_range(
-    target_date: datetime, start_date: datetime, end_date: datetime
-) -> bool:
-    """``start <= target < end``: half-open, so a post dated exactly on a
-    boundary belongs to one weekly window, not two (see ``get_date_range``)."""
-    target_utc = (
-        target_date.astimezone(UTC)
-        if target_date.tzinfo
-        else target_date.replace(tzinfo=UTC)
-    )
-    return start_date.astimezone(UTC) <= target_utc < end_date.astimezone(UTC)
-
-
-def try_parse_published_date(date_str: str) -> datetime | None:
-    """Parse a date string to an aware UTC datetime, or return None on failure.
-
-    This is the fail-CLOSED primitive used by the date-range gate: a post whose
-    date cannot be parsed must be EXCLUDED, not silently treated as "now" (which
-    would let undated/unparseable posts slip into every weekly window). Use
-    ``parse_published_date`` only where a non-null sort key is required and the
-    post has already cleared the gate.
-    """
-    if not isinstance(date_str, str) or not date_str:
-        return None
-    try:
-        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        # An offset-less ISO date is UTC, as in the strptime branch below.
-        # ``astimezone`` would read it as the container's local time instead, and
-        # the Batch image sets TZ=Asia/Seoul: "2026-10-04" became 10-03 15:00 UTC
-        # and fell out of a window starting on 10-04.
-        return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
-    except (ValueError, TypeError):
-        pass
-    try:
-        # RFC 822, the RSS date format, including the named zones ("PDT", "EST")
-        # that strptime's %z rejects.
-        dt = parsedate_to_datetime(date_str)
-        return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
-    except (ValueError, TypeError, IndexError):
-        pass
-    for fmt in ScraperConfig.DATE_FORMATS:
-        try:
-            dt = datetime.strptime(date_str, fmt)
-            return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
-        except (ValueError, TypeError):
-            continue
-    logger.warning(f"Failed to parse date '{date_str}' with any known format.")
-    return None
-
-
 def entry_date_text(entry: feedparser.FeedParserDict) -> str:
     """The publication-date text of a feed entry, or "" if it carries none.
 
@@ -704,16 +441,6 @@ def entry_date_text(entry: feedparser.FeedParserDict) -> str:
     offers, and using it beats dropping the post.
     """
     return getattr(entry, "published", "") or getattr(entry, "updated", "")
-
-
-def parse_published_date(date_str: str) -> datetime:
-    """Parse a date string, falling back to ``now(UTC)`` when unparseable.
-
-    Used for Post construction where a sort key must always exist. For the
-    in/out-of-window decision use ``try_parse_published_date`` so undated posts
-    are dropped rather than dated to the present moment.
-    """
-    return try_parse_published_date(date_str) or datetime.now(UTC)
 
 
 class PostFetcher(Protocol):
@@ -784,7 +511,7 @@ class RssFetcher:
                     # One malformed entry (e.g. a link urlparse rejects) must
                     # cost that entry, not every valid post in the feed.
                     try:
-                        posts.append(Post.from_entry(entry))
+                        posts.append(post_from_entry(entry))
                     except Exception as e:
                         skipped += 1
                         logger.error(
@@ -902,7 +629,7 @@ class GenericPageScraper:
                 if pub_date is not None and is_date_in_range(
                     pub_date, start_date, end_date
                 ):
-                    posts.append(Post.from_entry(entry_data))
+                    posts.append(post_from_entry(entry_data))
             except Exception as e:
                 logger.error(f"Error processing item from {self.page_url}: {e}")
         self.candidates = self._dated
@@ -974,165 +701,6 @@ class ScraperRegistry:
     @classmethod
     def create_fetchers(cls, urls: list[str]) -> list[PostFetcher]:
         return [cls.get_fetcher(url) for url in urls]
-
-
-class SourceStatus(str, Enum):
-    """Health status of a single crawl source for one run."""
-
-    OK = "ok"  # fetched successfully and produced posts in range
-    EMPTY = "empty"  # fetched successfully but no posts in the date window
-    FAILED = "failed"  # the fetch itself errored (network, parse, anti-bot)
-
-
-@dataclass
-class SourceHealth:
-    url: str
-    fetcher: str
-    status: SourceStatus
-    #: Posts this source contributed to the digest, after cross-source dedup.
-    post_count: int = 0
-    #: Posts it returned that a previous source had already provided.
-    duplicates: int = 0
-    #: Items with a readable date the source offered BEFORE the date window.
-    #: It separates the two reasons a source can be EMPTY: a quiet blog offers a
-    #: back catalogue the window filters out; a moved feed or a broken scraper
-    #: offers nothing. Only the second needs a person (``likely_broken``).
-    #:
-    #: ``None`` means the fetcher did not report a count — unknown, NOT zero.
-    candidates: int | None = None
-    #: Contributed posts whose article page was needed but could not be read
-    #: (``Post.page_unreadable``).
-    unreadable_pages: int = 0
-    #: The feed did not reach back to the window start (``RssFetcher.truncated``).
-    truncated: bool = False
-    error: str | None = None
-
-
-@dataclass
-class CrawlReport:
-    """Aggregate health of all sources for a single crawl run."""
-
-    sources: list[SourceHealth] = field(default_factory=list)
-
-    @property
-    def failed(self) -> list[SourceHealth]:
-        return [s for s in self.sources if s.status is SourceStatus.FAILED]
-
-    @property
-    def empty(self) -> list[SourceHealth]:
-        return [s for s in self.sources if s.status is SourceStatus.EMPTY]
-
-    @property
-    def ok(self) -> list[SourceHealth]:
-        return [s for s in self.sources if s.status is SourceStatus.OK]
-
-    @property
-    def likely_broken(self) -> list[SourceHealth]:
-        """EMPTY sources that offered NOTHING for the date window to filter.
-
-        A feed that moved, or a scraper whose selector stopped matching: the fetch
-        itself succeeded, so the source is not FAILED, but there was no material at
-        any date. Distinct from a blog that was simply quiet, which offers its back
-        catalogue and has the window filter it out.
-
-        Deliberately NOT a fourth ``SourceStatus``: "fetched fine, produced no
-        posts in range" is accurate for both, so the inference lives here instead
-        of in a state every caller has to handle.
-
-        ``candidates is None`` (a fetcher that reports no count) is excluded —
-        unknown is not zero, and guessing here would page on the unknown case.
-        """
-        return [s for s in self.empty if s.candidates == 0]
-
-    @property
-    def pages_unreadable(self) -> list[SourceHealth]:
-        """OK sources whose every contributed post lacked a readable article page.
-
-        The feed fetched, so the source reads as healthy, yet each post carries
-        only its teaser and dies at the content gate (e.g. article pages behind a
-        Cloudflare challenge). Some unreadable pages among readable ones are
-        transient errors and are not reported.
-        """
-        return [
-            s for s in self.ok if s.post_count and s.unreadable_pages == s.post_count
-        ]
-
-    @property
-    def truncated(self) -> list[SourceHealth]:
-        """Sources whose feed did not reach back to the window start."""
-        return [s for s in self.sources if s.truncated]
-
-    @property
-    def total_posts(self) -> int:
-        return sum(s.post_count for s in self.sources)
-
-    def summary_line(self) -> str:
-        broken = len(self.likely_broken)
-        empty = f"{len(self.empty)} empty"
-        if broken:
-            empty += f" ({broken} with nothing to filter)"
-        ok = f"{len(self.ok)} ok"
-        if unreadable := len(self.pages_unreadable):
-            ok += f" ({unreadable} with unreadable article pages)"
-        return f"{ok}, {empty}, {len(self.failed)} failed ({self.total_posts} posts)"
-
-    @staticmethod
-    def _empty_reason(source: SourceHealth) -> str:
-        """Why this source produced nothing, in the reader's terms."""
-        if source.candidates is None:
-            return "no count reported"
-        if source.candidates == 0:
-            return "offered 0 items — LIKELY BROKEN (moved feed or stale selector)"
-        return f"offered {source.candidates} item(s), none in the date window"
-
-    def format_alert(self) -> str:
-        """Human-readable health report for SNS/email notification."""
-        lines = [f"Crawl source health: {self.summary_line()}", ""]
-        if self.failed:
-            lines.append("FAILED sources (need attention):")
-            lines.extend(
-                f"  - {s.url} [{s.fetcher}]: {s.error or 'unknown error'}"
-                for s in self.failed
-            )
-            lines.append("")
-        if self.pages_unreadable:
-            lines.append("Sources whose article pages could not be read:")
-            lines.extend(
-                f"  - {s.url} [{s.fetcher}]: {s.unreadable_pages} of "
-                f"{s.post_count} post(s) left with only the feed teaser"
-                for s in self.pages_unreadable
-            )
-            lines.append("")
-        if self.empty:
-            lines.append("Empty sources (no posts in window):")
-            lines.extend(
-                f"  - {s.url} [{s.fetcher}]: {self._empty_reason(s)}"
-                for s in self.empty
-            )
-            lines.append("")
-        lines.append("Healthy sources:")
-        lines.extend(
-            f"  - {s.url}: {s.post_count} posts"
-            + (f" ({s.duplicates} deduped)" if s.duplicates else "")
-            for s in self.ok
-        )
-        return "\n".join(lines)
-
-
-def normalize_title_key(title: str) -> str:
-    """Canonical key for exact-duplicate detection across sources.
-
-    Several configured feeds carry the SAME announcement under different URLs
-    (deepmind.google and research.google both map to source ``google``; an AWS
-    post is also syndicated to Medium), which link-only dedup would show as two
-    identical cards.
-
-    This is deliberately an EXACT match after normalization — case, whitespace
-    and punctuation are folded, nothing else. No fuzzy/similarity scoring, so it
-    can never merge two genuinely different articles.
-    """
-    folded = re.sub(r"[^\w\s]", " ", title.casefold())
-    return " ".join(folded.split())
 
 
 class PostCollector:

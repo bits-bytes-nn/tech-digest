@@ -52,12 +52,15 @@ from constructs import Construct
 
 sys.path.append(str(Path(__file__).parent.parent))
 from app.configs import Config
-from app.src import AppConstants, EnvVars, SSMParams, logger
-from app.src.constants import (
+from app.domain.constants import (
     BATCH_ATTEMPT_TIMEOUT_MINUTES,
     BATCH_ATTEMPTS,
     BATCH_RUNNABLE_LIMIT_MINUTES,
+    AppConstants,
+    EnvVars,
+    SSMParams,
 )
+from app.logger import logger
 
 # Paths kept out of the image build context, shared by both image assets so they
 # cannot drift apart. Patterns are relative to the context directory (``app/``).

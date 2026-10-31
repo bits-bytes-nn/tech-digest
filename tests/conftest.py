@@ -69,10 +69,10 @@ def sample_article_data() -> dict:
 def propagating_logger():
     """Let ``caplog`` see the app logger.
 
-    ``app.src.logger`` sets ``propagate = False`` so container logs aren't emitted
+    ``app.logger`` sets ``propagate = False`` so container logs aren't emitted
     twice, which also stops pytest's root-handler capture from seeing them.
     """
-    from app.src.logger import logger
+    from app.logger import logger
 
     original = logger.propagate
     logger.propagate = True

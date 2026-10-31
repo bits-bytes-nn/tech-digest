@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.src.constants import LanguageModelId
+from app.domain.constants import LanguageModelId
 from app.src.model_factory import BedrockCrossRegionModelHelper, TokenUsageLogger
 
 MODEL = LanguageModelId.CLAUDE_V5_SONNET

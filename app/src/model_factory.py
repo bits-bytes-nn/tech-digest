@@ -18,8 +18,8 @@ from langchain_aws import ChatBedrock, ChatBedrockConverse
 from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel
 
-from .constants import DEFAULT_PROJECT_NAME, EnvVars, LanguageModelId
-from .logger import logger
+from app.domain.constants import DEFAULT_PROJECT_NAME, EnvVars, LanguageModelId
+from app.logger import logger
 
 
 class TokenUsageLogger(BaseCallbackHandler):

@@ -33,8 +33,8 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from app.src import logger
-from app.src.eval_metrics import ANCHOR_BANDS, build_report
+from app.domain.eval_metrics import ANCHOR_BANDS, build_report
+from app.logger import logger
 
 EVAL_DIR = Path(__file__).resolve().parent.parent / "tests" / "eval_data"
 # One set per filtering criteria; each file names the criteria it scores with.
@@ -68,7 +68,8 @@ def _score_live(
 
     os.environ.setdefault("CONFIG_FILE_SUFFIX", stage)
     from app.configs import Config
-    from app.src import FilteringCriteria, Summarizer, SummarizerSettings
+    from app.domain.constants import FilteringCriteria
+    from app.src.summarizer import Summarizer, SummarizerSettings
 
     config = Config.load()
     # --profile overrides the config's profile_name; an empty/None profile means

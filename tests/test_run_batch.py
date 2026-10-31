@@ -9,10 +9,11 @@ import sys
 import boto3
 import pytest
 
-import app.src
+import app.logger as app_logger
 from app import main as app_main
 from app import run_batch
 from app.configs import Config
+from app.src import aws_helpers
 
 
 class TestSanitizeParameters:
@@ -100,8 +101,8 @@ class _Cfg:
 
 @pytest.fixture
 def batch_calls(monkeypatch) -> dict:
-    """Stub config, session, SSM and Batch at the ``app.src`` exports, which both
-    the imported module and a ``__main__`` re-execution read from."""
+    """Stub config, session, SSM and Batch both on ``run_batch`` and in the
+    modules that define them, which a ``__main__`` re-execution imports from."""
     calls: dict = {"submitted": [], "waited": []}
     monkeypatch.setattr(Config, "load", classmethod(lambda cls: _Cfg()))
     monkeypatch.setattr(boto3, "Session", lambda **k: object())
@@ -124,10 +125,11 @@ def batch_calls(monkeypatch) -> dict:
         calls["waited"].append(job_id)
         return calls.get("wait_result", True)
 
-    for module in (app.src, run_batch):
+    for module in (aws_helpers, run_batch):
         monkeypatch.setattr(module, "get_ssm_param_value", get_param)
         monkeypatch.setattr(module, "submit_batch_job", submit)
         monkeypatch.setattr(module, "wait_for_batch_job_completion", wait)
+    for module in (app_logger, run_batch):
         monkeypatch.setattr(module, "is_running_in_aws", lambda: False)
     return calls
 

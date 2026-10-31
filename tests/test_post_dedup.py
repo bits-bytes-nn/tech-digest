@@ -11,11 +11,8 @@ from datetime import UTC, datetime
 
 import feedparser
 
-from app.src.feed_parser import (
-    Post,
-    PostCollector,
-    normalize_title_key,
-)
+from app.domain.post import Post, normalize_title_key
+from app.src.feed_parser import PostCollector, post_from_entry
 
 
 class _StubFetcher:
@@ -142,7 +139,7 @@ class TestSourceMapping:
         )
 
     def test_underscored_source_renders_as_a_readable_name(self):
-        from app.src.newsletter_renderer import Article
+        from app.domain.newsletter import Article
 
         article = Article.model_validate(
             {
@@ -173,7 +170,7 @@ class TestSummaryNotSeededFromFeed:
             published="2026-06-01",
             summary="<p>Short teaser from the feed.</p>",
         )
-        post = Post.from_entry(entry)
+        post = post_from_entry(entry)
         assert post.summary == ""
 
     def test_feed_summary_is_still_used_as_content(self):
@@ -185,5 +182,5 @@ class TestSummaryNotSeededFromFeed:
             published="2026-06-01",
             summary="<p>" + "text " * 200 + "</p>",
         )
-        post = Post.from_entry(entry)
+        post = post_from_entry(entry)
         assert "text" in post.content

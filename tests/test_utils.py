@@ -9,15 +9,13 @@ import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeoutError
 from langchain_core.exceptions import OutputParserException
 
+from app.domain.alarms import format_alarm, validate_email, validate_emails
+from app.domain.post import get_date_range
 from app.src.utils import (
     BatchProcessor,
     HTMLTagOutputParser,
-    format_alarm,
-    get_date_range,
     is_retryable,
     retry_with_backoff,
-    validate_email,
-    validate_emails,
 )
 
 
@@ -115,7 +113,7 @@ class TestGetDateRange:
         # A post published on a run day after the job ran must land in the next
         # issue. The old window ended at 23:59:59 on the run day and the next one
         # started there, so such a post fell between the two.
-        from app.src.feed_parser import is_date_in_range
+        from app.domain.post import is_date_in_range
 
         this_week = get_date_range("2026-10-10", days_back=7)
         next_week = get_date_range("2026-10-17", days_back=7)
@@ -125,7 +123,7 @@ class TestGetDateRange:
         assert is_date_in_range(published_after_the_run, *next_week)
 
     def test_a_boundary_post_belongs_to_one_issue(self):
-        from app.src.feed_parser import is_date_in_range
+        from app.domain.post import is_date_in_range
 
         boundary = datetime(2026, 10, 10, tzinfo=UTC)
         weeks = [get_date_range(d, days_back=7) for d in ("2026-10-10", "2026-10-17")]

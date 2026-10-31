@@ -1,9 +1,9 @@
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
 
-from .constants import EnvVars, LocalPaths
+from app.domain.constants import EnvVars, LocalPaths
+from app.paths import REPO_ROOT
 
 LOG_FORMAT: str = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 LOGGER_NAME: str = "app"
@@ -30,7 +30,7 @@ def _resolve_level(name: str) -> int:
 
 
 def _file_handler(formatter: logging.Formatter) -> logging.FileHandler:
-    logs_dir = Path(__file__).resolve().parent.parent.parent / LocalPaths.LOGS_DIR.value
+    logs_dir = REPO_ROOT / LocalPaths.LOGS_DIR.value
     logs_dir.mkdir(parents=True, exist_ok=True)
     name, ext = LocalPaths.LOGS_FILE.value.rsplit(".", 1)
     timestamp = datetime.now().strftime("%Y-%m-%d")

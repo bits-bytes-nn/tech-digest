@@ -12,12 +12,12 @@ from botocore.exceptions import BotoCoreError, ClientError, HTTPClientError
 from botocore.exceptions import ConnectionError as BotoConnectionError
 from bs4 import BeautifulSoup, NavigableString
 
-from .constants import (
+from app.domain.constants import (
     BATCH_ATTEMPT_TIMEOUT_MINUTES,
     BATCH_ATTEMPTS,
     BATCH_RUNNABLE_LIMIT_MINUTES,
 )
-from .logger import logger
+from app.logger import logger
 
 DEFAULT_BATCH_POLL_INTERVAL: int = 30
 # The longest a submitted job can live: queued in RUNNABLE until the queue cancels
