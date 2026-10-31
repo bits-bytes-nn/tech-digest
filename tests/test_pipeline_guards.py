@@ -124,6 +124,39 @@ class TestGreetingFailureKeepsTheIssue:
         assert intro == main.FALLBACK_INTRO[language]
 
 
+class TestGreetingContext:
+    def test_the_greeting_sees_the_summary_opening_not_only_the_lede(self, monkeypatch):
+        from app.src.feed_parser import Post
+
+        seen = {}
+
+        class _Greeter:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def greet(self, context=None):
+                seen["context"] = context
+                return "hi"
+
+        monkeypatch.setattr(main, "Greeter", _Greeter)
+        monkeypatch.setattr(main, "_save_greeting_to_file", lambda *a: None)
+
+        class _Config:
+            class summarization:
+                greeting_model_id = "unused"
+
+        post = Post(
+            title="SOCI images",
+            link="https://x.example/s",
+            published_date="2026-10-28",
+            one_liner="Image pulls drop from minutes to seconds.",
+            summary="<h3>📌 개요</h3><p>Lazy loading <em>starts</em> jobs early.</p><p>x</p>",
+        )
+        main._generate_greeting([post], "2026-10-31", _Config(), None, Language.KO)
+        assert "Image pulls drop from minutes to seconds." in seen["context"]
+        assert "summary opening: Lazy loading starts jobs early." in seen["context"]
+
+
 class TestTitleCaseFailureKeepsTheTitles:
     def test_an_unavailable_caser_leaves_titles_alone(self, monkeypatch):
         from app.src.feed_parser import Post
