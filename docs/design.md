@@ -11,11 +11,11 @@
 | 하려는 일 | 볼 곳 |
 | --- | --- |
 | 전체가 어떻게 돌아가는지 한 번에 보기 | [1. 시스템 개요](#1-시스템-개요), [2. 다이어그램](#2-아키텍처-다이어그램) |
-| 크롤링할 블로그 추가·수정 | [6. 크롤링 & 파싱](#6-크롤링--파싱-appsrcfeed_parserpy) |
-| 요약 품질이 마음에 안 들 때 | [9. 프롬프트](#9-프롬프트--프롬프트-캐싱-appsrcpromptspromptspy), [10. 필터링 & 요약](#10-필터링--요약-appsrcsummarizerpy) |
-| 메일 모양·레이아웃 손보기 | [13. 렌더링](#13-뉴스레터-렌더링-appsrcnewsletter_rendererpy), [14. 템플릿](#14-이메일-템플릿-apptemplates) |
-| 새 모델로 갈아타기 | [5. 상수](#5-상수--enum-appsrcconstantspy), [8. 모델 팩토리](#8-bedrock-모델-팩토리-appsrcmodel_factorypy--배치-처리-appsrcutilspy) |
-| 비용이 얼마나 드는지, 어디에 쓰이는지 | [8. 모델 팩토리](#8-bedrock-모델-팩토리-appsrcmodel_factorypy--배치-처리-appsrcutilspy), [13. 렌더링](#13-뉴스레터-렌더링-appsrcnewsletter_rendererpy) |
+| 크롤링할 블로그 추가·수정 | [6. 크롤링 & 파싱](#6-크롤링--파싱-appadaptersfeedspy) |
+| 요약 품질이 마음에 안 들 때 | [9. 프롬프트](#9-프롬프트--프롬프트-캐싱-appapplicationpromptspromptspy), [10. 필터링 & 요약](#10-필터링--요약-appapplicationsummarizepy) |
+| 메일 모양·레이아웃 손보기 | [13. 렌더링](#13-뉴스레터-렌더링-appadaptersrenderingpy), [14. 템플릿](#14-이메일-템플릿-apptemplates) |
+| 새 모델로 갈아타기 | [5. 상수](#5-상수--enum-appdomainconstantspy), [8. 모델 팩토리](#8-bedrock-모델-팩토리-appadaptersbedrockpy--배치-처리-appapplicationllm_batchingpy) |
+| 비용이 얼마나 드는지, 어디에 쓰이는지 | [8. 모델 팩토리](#8-bedrock-모델-팩토리-appadaptersbedrockpy--배치-처리-appapplicationllm_batchingpy), [13. 렌더링](#13-뉴스레터-렌더링-appadaptersrenderingpy) |
 | 메일이 안 왔을 때, 알림을 받았을 때 | [22. 운영 런북](#22-운영-런북), [SNS 알림](#sns-알림), [7. 크롤러 헬스](#7-크롤러-헬스-추적) |
 | 왜 다르게 만들지 않았는지 | [23. 알려진 한계](#23-알려진-한계--향후-과제) |
 | 어떤 결정이 어떤 측정과 사고에서 나왔는지 | [`CHANGELOG.md`](./CHANGELOG.md) |
@@ -31,17 +31,17 @@
 2. [아키텍처 다이어그램](#2-아키텍처-다이어그램)
 3. [저장소 구조](#3-저장소-구조)
 4. [설정 (`app/configs/`)](#4-설정-appconfigs)
-5. [상수 & Enum (`app/src/constants.py`)](#5-상수--enum-appsrcconstantspy)
-6. [크롤링 & 파싱 (`app/src/feed_parser.py`)](#6-크롤링--파싱-appsrcfeed_parserpy)
+5. [상수 & Enum (`app/domain/constants.py`)](#5-상수--enum-appdomainconstantspy)
+6. [크롤링 & 파싱 (`app/adapters/feeds.py`)](#6-크롤링--파싱-appadaptersfeedspy)
 7. [크롤러 헬스 추적](#7-크롤러-헬스-추적)
-8. [Bedrock 모델 팩토리 (`model_factory.py`) & 배치 처리 (`utils.py`)](#8-bedrock-모델-팩토리-appsrcmodel_factorypy--배치-처리-appsrcutilspy)
-9. [프롬프트 & 프롬프트 캐싱 (`app/src/prompts/prompts.py`)](#9-프롬프트--프롬프트-캐싱-appsrcpromptspromptspy)
-10. [필터링 & 요약 (`app/src/summarizer.py`)](#10-필터링--요약-appsrcsummarizerpy)
+8. [Bedrock 모델 팩토리 (`bedrock.py`) & 배치 처리 (`llm_batching.py`)](#8-bedrock-모델-팩토리-appadaptersbedrockpy--배치-처리-appapplicationllm_batchingpy)
+9. [프롬프트 & 프롬프트 캐싱 (`app/application/prompts/prompts.py`)](#9-프롬프트--프롬프트-캐싱-appapplicationpromptspromptspy)
+10. [필터링 & 요약 (`app/application/summarize.py`)](#10-필터링--요약-appapplicationsummarizepy)
 11. [콘텐츠 충분성 게이트](#11-콘텐츠-충분성-게이트)
-12. [인사말 생성 (`app/src/greeter.py`)](#12-인사말-생성-appsrcgreeterpy)
-13. [뉴스레터 렌더링 (`app/src/newsletter_renderer.py`)](#13-뉴스레터-렌더링-appsrcnewsletter_rendererpy)
+12. [인사말 생성 (`app/application/greet.py`)](#12-인사말-생성-appapplicationgreetpy)
+13. [뉴스레터 렌더링 (`app/adapters/rendering.py`)](#13-뉴스레터-렌더링-appadaptersrenderingpy)
 14. [이메일 템플릿 (`app/templates/`)](#14-이메일-템플릿-apptemplates)
-15. [AWS 헬퍼 (`app/src/aws_helpers.py`)](#15-aws-헬퍼-appsrcaws_helperspy)
+15. [AWS 헬퍼 (`app/adapters/aws.py`)](#15-aws-헬퍼-appadaptersawspy)
 16. [오케스트레이션 (`app/main.py`)](#16-오케스트레이션-appmainpy)
 17. [배치 제출 (`app/run_batch.py`)](#17-배치-제출-apprun_batchpy)
 18. [인프라 코드 (`scripts/deploy_infra.py`)](#18-인프라-코드-scriptsdeploy_infrapy)
@@ -109,8 +109,10 @@ Bedrock·S3·SSM·SES·SNS 연동까지. 파이프라인 다이어그램은 여�
 ```
 tech-digest/
 ├── app/
-│   ├── main.py                  # 오케스트레이션 / Batch 진입점
+│   ├── main.py                  # Batch 진입점 + 컴포지션 루트 (어댑터를 만들어 서비스에 연결)
 │   ├── run_batch.py             # Batch 잡 제출 및 대기 CLI
+│   ├── logger.py                # 로깅 + AWS 환경 감지
+│   ├── paths.py                 # 패키지·저장소 루트 경로의 기준점
 │   ├── Dockerfile-batch         # Batch 이미지 (Python 3.12 + Chrome)
 │   ├── configs/
 │   │   ├── config.py            # Pydantic 설정 모델 + YAML 로더
@@ -118,20 +120,33 @@ tech-digest/
 │   │   ├── config-ci-batch.yaml # CI synth 검증 (커밋됨)
 │   │   ├── config-dev.yaml      # 개발 설정 (gitignore)
 │   │   └── config-prod.yaml     # 운영 설정 (gitignore)
-│   ├── src/
-│   │   ├── feed_parser.py       # 수집: RSS + 스크레이퍼 + 헬스
-│   │   ├── summarizer.py        # 콘텐츠 게이트 + LLM 필터 + LLM 요약
-│   │   ├── greeter.py           # LLM 인사말 생성기
-│   │   ├── title_caser.py       # LLM 제목 Title Case 정리
-│   │   ├── newsletter_renderer.py # Jinja2 렌더 + Selenium HTML→이미지
-│   │   ├── aws_helpers.py       # S3 / SES / SNS / SSM / Batch 헬퍼
-│   │   ├── model_factory.py     # Bedrock 모델 레지스트리 + 모델 생성
-│   │   ├── eval_metrics.py      # 필터 점수 지표 (순수 함수)
-│   │   ├── quality_metrics.py   # 출력 품질 루브릭 (순수 함수)
-│   │   ├── utils.py             # BatchProcessor, 태그 파서, 알람 포맷, 날짜
+│   ├── domain/                  # 입출력이 없는 규칙
 │   │   ├── constants.py         # 상수·Enum (모델, 경로, 환경변수, Batch 한도)
-│   │   ├── logger.py            # 로깅 + AWS 환경 감지
-│   │   └── prompts/prompts.py   # 필터링 / 요약 / 인사말 프롬프트
+│   │   ├── post.py              # Post 모델, URL 스킴·날짜 규칙, 소스 매핑, 중복 키
+│   │   ├── content.py           # 가시 텍스트와 본문 HTML 판정
+│   │   ├── crawl.py             # 소스 헬스 (SourceHealth, CrawlReport)
+│   │   ├── summary.py           # 요약 새니타이저·후처리, 콘텐츠 게이트, 라인업 선정
+│   │   ├── newsletter.py        # 뷰 모델, BuildConfiguration, UI 문구, 클립 한계
+│   │   ├── text.py              # 제목 Title Case와 인사말 길이 검사
+│   │   ├── alarms.py            # 알람 형식, 이메일 주소 검증
+│   │   ├── eval_metrics.py      # 필터 점수 지표
+│   │   └── quality_metrics.py   # 출력 품질 루브릭
+│   ├── application/             # 포트에 대고 쓴 서비스
+│   │   ├── ports.py             # 서비스가 바깥에 기대하는 인터페이스 (Protocol)
+│   │   ├── pipeline.py          # 수집 → 필터·요약 → 빌드·보관
+│   │   ├── delivery.py          # 수신자 해석, 발송 루프, 전달 원장
+│   │   ├── alerts.py            # 운영 알림과 그 트리거
+│   │   ├── summarize.py         # LLM 필터 + LLM 요약 (Summarizer)
+│   │   ├── greet.py             # LLM 인사말 생성기
+│   │   ├── title_case.py        # LLM 제목 Title Case 정리
+│   │   ├── llm_batching.py      # BatchProcessor, 재시도, 태그 파서
+│   │   └── prompts/prompts.py   # 필터링 / 요약 / 인사말 / 제목 프롬프트
+│   ├── adapters/                # 바깥 시스템과 말하는 코드
+│   │   ├── http.py              # 요청 계층, SSRF 가드, 메일 이미지 확인
+│   │   ├── feeds.py             # 수집: RSS + 스크레이퍼 + 수집기
+│   │   ├── bedrock.py           # Bedrock 모델 레지스트리 + 모델 생성
+│   │   ├── aws.py               # S3 / SES / SNS / SSM / Batch 헬퍼와 포트 구현
+│   │   └── rendering.py         # Jinja2 렌더 + Selenium HTML→이미지
 │   ├── templates/               # Jinja2 HTML 이메일 파셜
 │   │   ├── _styles.html         # 뉴스레터·단일 글이 공유하는 단일 스타일시트
 │   │   ├── main_contents.html   # 공유 아티클 카드 매크로
@@ -152,9 +167,19 @@ tech-digest/
 └── .github/workflows/           # ci.yml(lint, type-check, test, cdk synth), workflow-lint.yml(actionlint)
 ```
 
-> **임포트 경로.** 모든 코드가 `app` 패키지 하나를 루트로 `app.configs`, `app.src`처럼
-> 임포트합니다. 진입점은 저장소 루트에서 `python -m app.main`, `python -m app.run_batch`로
-> 실행합니다. Batch 이미지는 패키지를 `/srv/app`에 두고 `/srv`에서 같은 명령으로 실행합니다.
+**계층과 의존 방향.** 코드는 세 계층으로 나뉩니다. `domain`은 입출력이 없는 규칙이고,
+`application`은 `ports.py`의 인터페이스에 대고 쓴 서비스이며, `adapters`가 Bedrock·AWS·HTTP·템플릿
+같은 바깥 시스템과 말합니다. 의존은 안쪽으로만 향합니다. 어댑터는 포트와 도메인만 알고, 서비스는
+도메인만 알며, 도메인은 둘 다 모릅니다. 셋을 모두 보는 곳은 `main.py` 하나이고, 여기서 어댑터를
+만들어 서비스에 넘깁니다. 포트는 바깥 시스템을 떼어 놓을 때만 둡니다. 모델 제공자
+(`ChatModelProvider`), 수집(`PostSource`), 저장소(`ObjectStore`), 메일(`Mailer`),
+알림(`AlarmPublisher`), 렌더러(`NewsletterBuilderPort`)가 그렇습니다. 로컬 CLI인
+`run_batch.py`는 AWS 어댑터를 직접 부릅니다. `tests/test_architecture.py`가 소스의 임포트를
+읽어 이 규칙을 검사합니다(§20).
+
+> **임포트 경로.** 모든 코드가 `app` 패키지 하나를 루트로 `app.domain`, `app.application`,
+> `app.adapters`, `app.configs`처럼 임포트합니다. 진입점은 저장소 루트에서
+> `python -m app.main`, `python -m app.run_batch`로 실행합니다. Batch 이미지는 패키지를 `/srv/app`에 두고 `/srv`에서 같은 명령으로 실행합니다.
 
 ---
 
@@ -208,7 +233,7 @@ tech-digest/
   제외됩니다(§7). 지금은 dev·prod 모두 비어 있습니다.
 
 ### `Summarization`
-필드는 `summarizer.SummarizationOptions` 한 곳에 선언합니다. 설정 쪽
+필드는 `domain/summary.py`의 `SummarizationOptions` 한 곳에 선언합니다. 설정 쪽
 `app.configs.Summarization`은 여기에 `greeting_model_id`를 더하고, 요약기 쪽
 `SummarizerSettings`는 실행 시점에만 아는 값을 더합니다(§10). 두 벌을 따로 두면
 템플릿에 적힌 키가 한쪽에만 생겨 조용히 무시되기 때문입니다. `tests/test_config.py`가
@@ -262,7 +287,7 @@ tech-digest/
 
 ---
 
-## 5. 상수 & Enum (`app/src/constants.py`)
+## 5. 상수 & Enum (`app/domain/constants.py`)
 
 - `AutoNamedEnum`. `auto()`로 선언한 멤버가 자기 이름을 소문자 값으로 갖게
   하는 `str, Enum` 베이스입니다(`Language.KO.value == "ko"`).
@@ -273,7 +298,7 @@ tech-digest/
 - **Batch 수명 한도.** `BATCH_ATTEMPT_TIMEOUT_MINUTES`(90, 시도 하나의 실행 시간
   한도), `BATCH_ATTEMPTS`(2, 즉 재시도 1회), `BATCH_RUNNABLE_LIMIT_MINUTES`(120,
   배치되지 못한 잡을 취소하기까지의 RUNNABLE 시간). `scripts/deploy_infra.py`가 큐와
-  잡 정의에 이 값을 설정하고, `aws_helpers`의 대기 시간이 같은 값에서 유도됩니다(§15,
+  잡 정의에 이 값을 설정하고, `adapters/aws.py`의 대기 시간이 같은 값에서 유도됩니다(§15,
   §18). 한쪽만 바꾸면 `run_batch.py`가 아직 도는 잡을 실패로 보고하게 되므로 한 곳에
   둡니다.
 - `EnvVars`. 앱이 읽는 환경변수 이름을 한곳에 모았습니다. 설정 suffix,
@@ -286,7 +311,7 @@ tech-digest/
   (**Opus 5.5**, **Sonnet 5.5**, **Haiku 5.5**, **Fable 5.1**, Opus 5, Sonnet 5,
   Opus 4.5/4.6/4.7/4.8, Sonnet 4.6, Haiku 4.5)와 OpenAI **GPT-6.1 Sol / Terra**,
   **GPT-6 Sol / Luna / Astra**가 들어 있습니다.
-  새 모델을 추가할 때는 여기와 `model_factory.py`의 `_LANGUAGE_MODEL_INFO` **양쪽에**
+  새 모델을 추가할 때는 여기와 `adapters/bedrock.py`의 `_LANGUAGE_MODEL_INFO` **양쪽에**
   함께 넣어야 합니다. **이 enum의 모든 멤버는 `_LANGUAGE_MODEL_INFO`에 항목이 있어야
   하고, 테스트가 그걸 검사합니다.** enum은 설정이 고를 수 있는 선택지이므로, 여기 있는
   값을 골랐다가 `Summarizer` 생성 시점에 `Unsupported model ID`로 죽으면 안 됩니다.
@@ -304,10 +329,14 @@ tech-digest/
 
 ---
 
-## 6. 크롤링 & 파싱 (`app/src/feed_parser.py`)
+## 6. 크롤링 & 파싱 (`app/adapters/feeds.py`)
 
-이 프로젝트에서 가장 크고 가장 방어적인 모듈입니다. URL 목록을 받아서 중복을 제거하고
-날짜로 거른 `Post` 목록과 헬스 리포트를 내놓습니다.
+이 프로젝트에서 가장 크고 가장 방어적인 부분입니다. URL 목록을 받아서 중복을 제거하고
+날짜로 거른 `Post` 목록과 헬스 리포트를 내놓습니다. 코드는 네 곳에 나뉩니다. 페처·스크레이퍼·
+수집기는 `adapters/feeds.py`, 요청 계층과 SSRF 가드는 `adapters/http.py`, `Post` 모델과 URL·날짜
+규칙은 `domain/post.py`, 본문 판정(`visible_text`, `content_html`)은 `domain/content.py`에
+있습니다. 헬스 리포트(§7)는 `domain/crawl.py`입니다. 파이프라인은 수집기를 `PostSource`
+포트로만 봅니다.
 
 방어적인 이유는 단순합니다. 상대가 우리 코드가 아닙니다. 남의 사이트들이 각자 편한 대로
 마크업과 피드를 바꾸고, 어떤 곳은 우리를 봇으로 보고 막고, 날짜를 어디에 둘지도 제각각입니다.
@@ -372,7 +401,7 @@ URL에 맞는 스크레이퍼를 돌려주고, 맞는 게 없으면 `RssFetcher`
 #### 요청 계층
 
 `_make_robust_request`가 기사와 인덱스 페이지를 가져오는 입구이고, `_try_request`에
-`ScraperConfig.REQUEST_HEADERS`를 넘깁니다. SSRF 검사는 그 아래 `_get_following_redirects`가
+`REQUEST_HEADERS`를 넘깁니다. SSRF 검사는 그 아래 `_get_following_redirects`가
 첫 요청을 포함한 모든 홉에서 하므로, 호출자가 따로 검사하지 않습니다.
 
 - **헤더는 한 세트입니다.** `Sec-Fetch-*`, `Sec-Ch-Ua`, `Upgrade-Insecure-Requests`까지
@@ -423,8 +452,8 @@ URL에 맞는 스크레이퍼를 돌려주고, 맞는 게 없으면 `RssFetcher`
 (`dict.fromkeys`). 모델이 관련도 높은 순서로 태그를 나열하므로, 알파벳순으로 정렬하면
 중요한 태그가 단지 뒤로 밀렸다는 이유로 잘려 나갑니다.
 
-`from_entry`가 `feedparser` 엔트리(또는 스크레이퍼가 만든 `FeedParserDict`)를 `Post`로
-바꿉니다. 콘텐츠를 뽑고, 소스를 판정하고, 날짜를 파싱하고, 이미지를 모읍니다. 제목은
+`feeds.post_from_entry`가 `feedparser` 엔트리(또는 스크레이퍼가 만든 `FeedParserDict`)를
+`Post`로 바꿉니다. 글 페이지를 받아 올 수 있어서 `Post` 모델이 아니라 어댑터에 둡니다. 콘텐츠를 뽑고, 소스를 판정하고, 날짜를 파싱하고, 이미지를 모읍니다. 제목은
 HTML 엔티티를 한 번 더 풉니다. 제목을 두 번 이스케이프해 보내는 피드가 있어서, 그대로 두면
 카드에 `&#8217;`이 글자 그대로 보입니다. `source`는 엔트리에서 읽지 않고 항상 링크에서
 유도합니다.
@@ -463,7 +492,7 @@ HTML 엔티티를 한 번 더 풉니다. 제목을 두 번 이스케이프해 �
 
 ### 소스를 어떻게 식별하는가
 
-`ScraperConfig.SOURCE_MAPPING`이 도메인이나 핸들을 표준 소스명으로 매핑하는 유일한
+`domain/post.py`의 `SOURCE_MAPPING`이 도메인이나 핸들을 표준 소스명으로 매핑하는 유일한
 출처입니다. 일반 도메인뿐 아니라 Medium 퍼블리케이션 슬러그와 `@`핸들(`netflix-techblog`,
 `palantir`, `pinterest_engineering`)까지 넣어 두어서, Medium에 호스팅된 피드도 올바른
 로고를 찾습니다. 매핑에 없는 링크는 `unknown`이 됩니다.
@@ -483,7 +512,7 @@ alt 텍스트로 읽습니다. 로고 항목이 없는 소스는 `unknown` 로�
 #### 파싱은 실패하면 막습니다
 
 `try_parse_published_date`가 기본 파서입니다. `datetime.fromisoformat`을 먼저 시도하고,
-안 되면 `ScraperConfig.DATE_FORMATS`(피드의 RFC 822 두 가지, 인덱스 페이지의
+안 되면 `DATE_FORMATS`(피드의 RFC 822 두 가지, 인덱스 페이지의
 "May 29, 2026" 형식 두 가지)를 차례로 시도하고, 끝내 못 읽으면 `None`을 돌려줍니다. 모든
 날짜 윈도우 게이트가 이 함수를 씁니다. 그래야 날짜를 못 읽은 글이 "지금"으로 간주되어 매주
 다이제스트에 끼는 일이 없습니다. 렌더러의 `normalize_date`도 같은 파서를 씁니다(§13).
@@ -605,7 +634,7 @@ Empty sources (no posts in window):
 ### 크롤 헬스 알림의 트리거
 
 AWS에서 실행하다 소스가 `FAILED`, `likely_broken`, `pages_unreadable` 중 하나가 되면 `main.py`가 크롤 헬스
-알림을 발행합니다(`_send_crawl_health_alert`, 알림 전체 목록은 [SNS 알림](#sns-알림)).
+알림을 발행합니다(`alerts.send_crawl_health_alert`, 알림 전체 목록은 [SNS 알림](#sns-알림)).
 깨진 소스가 다이제스트에서 조용히 사라지는 대신 바로 손쓸 수 있는 이메일이 됩니다.
 
 - **조용한 블로그는 이 알림을 띄우지 않습니다.** 후보가 0이 아니기 때문입니다. 평소에도
@@ -625,10 +654,12 @@ AWS에서 실행하다 소스가 `FAILED`, `likely_broken`, `pages_unreadable` �
 
 ---
 
-## 8. Bedrock 모델 팩토리 (`app/src/model_factory.py`) & 배치 처리 (`app/src/utils.py`)
+## 8. Bedrock 모델 팩토리 (`app/adapters/bedrock.py`) & 배치 처리 (`app/application/llm_batching.py`)
 
-모델 레지스트리와 모델 생성은 `model_factory.py`에 있고, `utils.py`는 서로 관련 없는 작은
-헬퍼(배치 처리, 태그 파서, 재시도, 알람 포맷, 날짜)만 담습니다.
+모델 레지스트리와 모델 생성은 Bedrock 어댑터 `adapters/bedrock.py`에 있고, 모든 LLM 호출이
+함께 쓰는 배치 처리·재시도·태그 파서는 `application/llm_batching.py`에 있습니다. 서비스는
+팩토리를 직접 만들지 않고 `ChatModelProvider` 포트(`get_model`, `get_model_info`,
+`is_converse`)로 받습니다(§16).
 
 ### `LanguageModelInfo`와 `_LANGUAGE_MODEL_INFO`
 모델별 역량 메타데이터 레지스트리입니다(컨텍스트 윈도우, 최대 출력 토큰, 프롬프트
@@ -729,7 +760,7 @@ Cost Explorer는 모델 단위로만 청구하는데, 필터링·요약·출력 
 
 ### `BedrockLanguageModelFactory`
 단일 클래스입니다. 생성자가 타임아웃(읽기 300초)과 커넥션 풀을 갖춘 boto3 `bedrock-runtime`
-클라이언트를 만듭니다. botocore 재시도는 끕니다. 재시도는 `utils.retry_with_backoff`가 맡고, 두
+클라이언트를 만듭니다. botocore 재시도는 끕니다. 재시도는 `llm_batching.retry_with_backoff`가 맡고, 두
 계층이 함께 재시도하면 멈춘 호출 하나가 시도마다 4 × 300초를 잡아먹습니다.
 
 `get_model`의 옵션(`temperature`, `max_tokens`, `enable_thinking`,
@@ -745,7 +776,8 @@ Cost Explorer는 모델 단위로만 청구하는데, 필터링·요약·출력 
 어느 백엔드가 도는지가 **모든 파라미터의 위치**를 결정합니다(Converse는 최상위
 kwargs / `additional_model_request_fields`, ChatBedrock은 `model_kwargs` 아래).
 Converse가 필요한 조건은 크로스 리전 프로파일, 사고 활성, GPT 모델이고, 이를 묶은 하나의
-`use_converse` 플래그를 헬퍼들에 내려보냅니다.
+`use_converse` 플래그를 헬퍼들에 내려보냅니다. 프롬프트 캐시 표식도 백엔드마다 형식이 달라서,
+요약기는 `is_converse`로 만들어진 모델이 Converse인지 물어 프롬프트를 고릅니다(§9).
 
 ### `BatchProcessor` (Pydantic 모델)
 동시 LLM 호출을 **배치 우선, 순차 폴백** 전략으로 돌립니다. 작업을 청크로 나눠 제한된
@@ -783,19 +815,19 @@ Converse가 필요한 조건은 크로스 리전 프로파일, 사고 활성, GP
 버그가 처리 중이던 파싱 오류의 판정을 물려받아 재시도되기 때문입니다.
 
 ### 기타 헬퍼
-- `validate_email(s)` / `validate_emails(list)`. pydantic `EmailStr`이 쓰는
+- `validate_email(s)` / `validate_emails(list)`(`domain/alarms.py`). pydantic `EmailStr`이 쓰는
   `email_validator`에 위임합니다. 손으로 쓴 정규식은 태그 붙은 로컬파트나 국제화 도메인을
   잘못 떨어뜨리고, 떨어진 주소는 다이제스트를 조용히 못 받는 독자입니다. MX 조회는 하지
   않습니다.
-- `get_date_range`. 선택적 종료일과 조회 기간으로 날짜 윈도우를 계산합니다(§6).
-- `measure_execution_time`. 실행 시간을 재는 데코레이터로, **동기 함수만** 감쌉니다.
+- `get_date_range`(`domain/post.py`). 선택적 종료일과 조회 기간으로 날짜 윈도우를 계산합니다(§6).
+- `measure_execution_time`(`llm_batching.py`). 실행 시간을 재는 데코레이터로, **동기 함수만** 감쌉니다.
   파이프라인 전체가 동기이고 LangChain `.batch()`는 이벤트 루프가 아니라 스레드로
   펼칩니다.
-- `format_alarm`. 모든 SNS 알림의 공통 형식입니다([SNS 알림](#sns-알림)).
+- `format_alarm`(`domain/alarms.py`). 모든 SNS 알림의 공통 형식입니다([SNS 알림](#sns-알림)).
 
 ---
 
-## 9. 프롬프트 & 프롬프트 캐싱 (`app/src/prompts/prompts.py`)
+## 9. 프롬프트 & 프롬프트 캐싱 (`app/application/prompts/prompts.py`)
 
 ### `BasePrompt`
 
@@ -985,7 +1017,7 @@ KO의 원칙 6·7은 문체 규칙이고 우선순위가 분량·구체성(원�
 
 "Peccy" 페르소나로 인트로를 씁니다. `for_language`로 EN/KO를 고릅니다. 컨텍스트로는 그 주
 글마다 제목, 카드에 이미 실린 `one_liner`, 요약 첫 단락의 앞 300자를 넘깁니다
-(`main._generate_greeting`). 제목만 주면 모델이 글들에 없는 공통 주제를 지어내고, `one_liner`만
+(`pipeline._generate_greeting`). 제목만 주면 모델이 글들에 없는 공통 주제를 지어내고, `one_liner`만
 주면 카드의 리드를 되풀이하는 것 말고는 할 말이 없습니다.
 
 - 글들이 실제로 주제를 공유하면 그것을 구체적으로 짚고, 그렇지 않으면 억지로 묶지 말고 두세
@@ -1005,10 +1037,14 @@ KO의 원칙 6·7은 문체 규칙이고 우선순위가 분량·구체성(원�
 
 ---
 
-## 10. 필터링 & 요약 (`app/src/summarizer.py`)
+## 10. 필터링 & 요약 (`app/application/summarize.py`)
 
-이 모듈이 다이제스트의 품질을 사실상 결정합니다. 어떤 글을 실을지 고르고, 어떻게 쓸지
-지시하고, 모델이 돌려준 결과를 검사하는 일이 모두 여기서 벌어집니다.
+이 단계가 다이제스트의 품질을 사실상 결정합니다. 어떤 글을 실을지 고르고, 어떻게 쓸지
+지시하고, 모델이 돌려준 결과를 검사하는 일이 모두 여기서 벌어집니다. 모델을 부르는 서비스
+`Summarizer`는 `application/summarize.py`에 있고, 모델 없이 정해지는 규칙(콘텐츠 게이트,
+라인업 선정, 요약 HTML 새니타이저와 후처리, `SummaryOutput`, 실패 사유 접두사)은
+`domain/summary.py`에 있습니다. `Summarizer`는 `ChatModelProvider`와 이미지 확인 함수를
+생성자로 받습니다.
 
 ### 파이프라인 순서와 그 순서인 이유
 
@@ -1023,6 +1059,9 @@ KO의 원칙 6·7은 문체 규칙이고 우선순위가 분량·구체성(원�
 어차피 버려질 글을 요약하면 그만큼 그냥 돈을 태우는 셈입니다.
 
 ### 라인업 선정 (`_select_for_digest`)
+
+규칙은 `domain/summary.py`의 `select_for_digest`에 있고, `_select_for_digest`는 설정값을 넘겨
+부르기만 합니다.
 
 정렬 키는 점수 내림차순, 같으면 게시일 최신순입니다. 앵커 점수가 거칠어서 동점이 잦은데,
 2차 키가 없으면 같은 입력에도 순서가 달라집니다.
@@ -1092,7 +1131,7 @@ lazy-loading처럼 파서가 놓친 이미지도 두 번째 조건으로 살아�
 src(모델이 macOS 스크린샷 이름의 U+202F를 일반 공백으로 옮긴 경우)는 원문 URL로 되돌립니다.
 
 출처가 맞아도 메일에서 보이지 않는 이미지가 있습니다. `_drop_unrenderable_images`는 남은
-이미지를 하나씩 받아 보고(`feed_parser.is_email_renderable_image`), 응답이 PNG·JPEG·GIF가 아니거나
+이미지를 하나씩 받아 보고(`http.is_email_renderable_image`, 요약기는 생성자 인자 `image_probe`로 받습니다), 응답이 PNG·JPEG·GIF가 아니거나
 받아지지 않으면 원문이 같은 그림에 대해 적어 둔 다른 판본(`srcset`, `data-src`, `<picture>`의
 `<source>`)을 차례로 확인해 메일에서 보이는 첫 판본으로 바꿉니다. 메일 화면에는 2배 해상도면 충분하므로
 1600px 이하 중 가장 큰 것부터 봅니다. 맞는 판본이 없으면 figure를 캡션째 지웁니다. 확인은 이미지당
@@ -1167,10 +1206,10 @@ SSRF 검사를 거칩니다. 남은 src는 `_encode_image_srcs`가 URL에 그대
 Haiku 5.5, `scripts/put_inference_profiles.py`도 이 기본값을 읽어 같은 모델의 프로파일을
 만듭니다), 호의 언어 `language`, 그리고 `scraping` 섹션에서 오는 `min_content_length`입니다.
 
-필드 이름이 `summarization` 설정 섹션과 같기 때문에, 컴포지션 루트인 `main.py`가
+필드 이름이 `summarization` 설정 섹션과 같기 때문에, `pipeline.fetch_and_filter_posts`가
 `SummarizerSettings.model_validate(cfg.summarization.model_dump() | {...})` 한 줄로
-만듭니다. 키를 다시 나열할 필요가 없고, `app.src`가 `app.configs`를 임포트해서 의존 방향이
-뒤집히는 일도 생기지 않습니다.
+만듭니다. 키를 다시 나열할 필요가 없고, `Summarizer`는 설정 트리를 읽지 않고 검증된 설정만
+받습니다.
 
 ### 체인 구성
 
@@ -1182,7 +1221,7 @@ Haiku이고, 형식이 깨진 출력을 복구하는 역할만 합니다. 프롬
 
 ### 출력 품질 루브릭
 
-`eval_filtering`이 "올바른 글을 골랐는가"를 재는 반면, 이쪽(`app/src/quality_metrics.py`)은
+`eval_filtering`이 "올바른 글을 골랐는가"를 재는 반면, 이쪽(`app/domain/quality_metrics.py`)은
 "글이 잘 써졌는가"를 잽니다. 독자가 실제로 받는 부분이므로 프롬프트 튜닝은 이 숫자에
 끌려가야 합니다.
 
@@ -1260,7 +1299,7 @@ CHANGELOG에 있습니다.
 
 읽을 만한 본문이 거의 없는 글(티저, 링크만 있는 항목, 대부분이 보일러플레이트인 페이지)이
 요약기까지 가면 요약기가 실패하거나 거의 빈 요약, 또는 지어낸 요약을 내놓습니다. 그래서
-`Summarizer.process_posts`의 맨 앞에 게이트를 둡니다.
+`Summarizer.process_posts`의 맨 앞에 게이트(`summary.gate_by_content_length`)를 둡니다.
 
 1. `Post.text_length()`로 **가시** 문자 수를 잽니다.
 2. `scraping.min_content_length`(기본 **600**)보다 짧은 글을 제외합니다.
@@ -1284,7 +1323,7 @@ CHANGELOG에 있습니다.
 
 ---
 
-## 12. 인사말 생성 (`app/src/greeter.py`)
+## 12. 인사말 생성 (`app/application/greet.py`)
 
 `Greeter`는 설정된 언어로 `prompt | llm | StrOutputParser` 체인을 만들고
 `greet(context)`를 노출합니다. 모델 호출은 `retry_with_backoff`로 감쌉니다.
@@ -1293,7 +1332,7 @@ CHANGELOG에 있습니다.
 **생성 → 검증 → 1회 수정.** 인사말은 첫 아티클 카드 **위**에 놓이므로, 길어지면
 실제 콘텐츠가 화면 아래로 밀려납니다. 분량은 저렴한 인사말 모델이 가장 자주 놓치는
 제약이면서 산술로 정확히 검증할 수 있는 제약이므로, `greet()`는 초안을 만든 뒤
-`measure_greeting()`으로 길이를 재고(KO는 문자 수, EN은 단어 수) 창을 벗어나면 측정값을
+`measure_greeting()`(`domain/text.py`)으로 길이를 재고(KO는 문자 수, EN은 단어 수) 창을 벗어나면 측정값을
 프롬프트에 되먹여 한 번 다시 씁니다(`GreetingRevisionPrompt`).
 
 이 루프의 실패 모드는 모두 안전한 쪽으로 닫아 뒀습니다.
@@ -1306,11 +1345,11 @@ CHANGELOG에 있습니다.
 마지막으로 KO 인사말의 "이번주"를 "이번 주"로 고칩니다. 모델이 계속 틀리는 띄어쓰기 하나라
 프롬프트 규칙으로 두는 것보다 코드에서 고치는 편이 확실합니다.
 
-인사말 생성이 끝내 실패하면 `main.py`가 호의 언어에 맞는 고정 문장(`FALLBACK_INTRO`)으로
+인사말 생성이 끝내 실패하면 `pipeline.py`가 호의 언어에 맞는 고정 문장(`FALLBACK_INTRO`)으로
 대신하고 발송을 계속합니다. 이 시점에는 요약 비용을 이미 다 냈으므로, 인사말 하나 때문에
 호를 잃으면 안 됩니다.
 
-### 제목 Title Case (`app/src/title_caser.py`)
+### 제목 Title Case (`app/application/title_case.py`)
 
 피드마다 문장형 대소문자와 Title Case가 섞여 있어 한 호 안에서도 카드 제목 모양이
 달랐습니다. 인사말 전에 `TitleCaser`가 실릴 제목들을 JSON 배열 하나로 인사말 모델에 보내고
@@ -1318,7 +1357,7 @@ CHANGELOG에 있습니다.
 이유는 `gpt-oss`, `vLLM`, `d1`처럼 소문자로 쓰는 제품·모델 이름을 일반 단어와 구분하는
 일이 단어 목록으로는 안 되기 때문입니다.
 
-모델은 대소문자만 판단하고 나머지는 코드가 검사합니다. `accept_recased`는 답이 원 제목과
+모델은 대소문자만 판단하고 나머지는 코드가 검사합니다. `accept_recased`(`domain/text.py`)는 답이 원 제목과
 대소문자만 다를 때만 받아들이고, 단어를 더하거나 번역하거나 문장부호를 바꾼 답은 그 제목만
 원래대로 둡니다. 다만 둥근 따옴표·아포스트로피(’ “ ”)와 대시(– —)를 곧은 기호로 바꾼 것은
 문구 변경으로 보지 않습니다. 이때는 답의 대소문자만 가져오고 기호는 피드 제목의 것을 씁니다.
@@ -1326,7 +1365,7 @@ CHANGELOG에 있습니다.
 
 ---
 
-## 13. 뉴스레터 렌더링 (`app/src/newsletter_renderer.py`)
+## 13. 뉴스레터 렌더링 (`app/adapters/rendering.py`)
 
 글 JSON과 인사말을 받아 메일로 보낼 HTML 한 덩어리를 만드는 단계입니다. 여기서
 신경 쓸 일이 두 가지 있습니다. 하나는 모델이 만든 HTML을 그대로 렌더하면서도 안전을
@@ -1335,6 +1374,7 @@ CHANGELOG에 있습니다.
 ### 뷰 모델
 
 `Article`, `Header`, `Section`, `Footer`, `NewsletterData`가 타입이 붙은 뷰 모델입니다.
+`BuildConfiguration`, UI 문구, 클립 한계와 함께 렌더러와 떨어진 `domain/newsletter.py`에 있습니다.
 `Article`은 날짜를 검증하고 점수를 0-1로 제한하며, 링크 스킴을 허용 목록으로 검사하고,
 접근성 alt 텍스트에 쓰는 `source_label`을 노출합니다. `one_liner`(한 문장 리드)와
 `reading_minutes`도 여기 있습니다.
@@ -1470,13 +1510,13 @@ Chrome이나 Chromium 바이너리가 없으면 `chrome_available()`이 이를 �
   텍스트로 남습니다.
 - **읽는 시간**. 발행일 옆에 `읽는 시간 N분`으로 표시합니다.
 - **UI 문구 현지화**. `published_on` / `view_more` / `resources` / `reading_time` /
-  `relevance`를 `newsletter_renderer.UI_LABELS`에서 언어별로 받습니다. 템플릿에 문구를
+  `relevance`를 `domain/newsletter.py`의 `UI_LABELS`에서 언어별로 받습니다. 템플릿에 문구를
   하드코딩하면 한국어 본문을 영어 문구가 감쌉니다. 라벨은 `NewsletterData.labels`(계산
   필드) 한 곳에서 나오므로 두 템플릿이 같은 출처를 씁니다.
 
 ---
 
-## 15. AWS 헬퍼 (`app/src/aws_helpers.py`)
+## 15. AWS 헬퍼 (`app/adapters/aws.py`)
 
 boto3 위에 얹은, 얇고 로깅이 잘 된 래퍼들입니다. 실패해도 실행을 이어 가야 하는
 지점에서는 예외를 호출자에게 던지지 않고, 명확한 성공/실패 신호를 돌려줍니다.
@@ -1505,23 +1545,31 @@ boto3 위에 얹은, 얇고 로깅이 잘 된 래퍼들입니다. 실패해도 �
   상태 조회가 스로틀링, Batch 서버 오류, 연결 오류로 실패하면 잡에 대해 알려 주는 것이 없으므로
   같은 대기 한도 안에서 계속 폴링합니다. 그 밖의 오류(만료된 자격 증명, 거부된 호출)는 "잡이
   아직 돌고 있을 수 있다"는 오류 로그와 함께 `False`를 돌려줍니다.
+- `S3ObjectStore`, `SesMailer`, `SnsAlarmPublisher`. 애플리케이션 포트 `ObjectStore`, `Mailer`,
+  `AlarmPublisher`의 구현입니다. 버킷이나 토픽을 묶어 둘 뿐 위 함수에 그대로 위임하므로 로그와
+  실패 신호가 같습니다. `run_batch.py`는 포트를 거치지 않고 Batch 함수를 직접 부릅니다.
 
 ---
 
 ## 16. 오케스트레이션 (`app/main.py`)
 
 `handler(event, context)`가 파이프라인의 단일 진입점이고, Batch 컨테이너에서는 `cli()`가 이를
-호출합니다. 흐름은 다음과 같습니다.
+호출합니다. `main.py`는 컴포지션 루트라서 제어 흐름과 어댑터 생성만 맡고, 단계별 일은
+`application/pipeline.py`(수집 → 필터·요약 → 빌드·보관), `application/delivery.py`(수신자, 발송
+루프, 전달 원장), `application/alerts.py`(알림)가 포트를 통해 합니다(§3). 어댑터는 처음 쓰는
+자리에서 만듭니다. 모델 클라이언트는 그 단계가 돌 때 만들므로, 요약할 글이 없는 실행은 Bedrock
+클라이언트를 만들지 않습니다. 작업 디렉터리(`ROOT_DIR`, AWS에서는 `/tmp`)도 `main.py`가 정해
+넘깁니다. 흐름은 다음과 같습니다.
 
 1. 설정을 로드하고 `_boto_sessions(config)`로 기본 리전 세션과 Bedrock 리전 세션을
    만듭니다. 리전은 설정에서, 프로파일은 로컬에서만 `profile_name`을 쓰고 AWS 안에서는
    쓰지 않습니다. 세션은 모듈을 임포트할 때가 아니라 실행마다 만듭니다.
 2. `_setup_aws_env`가 AWS에서는 LangChain API 키를 SSM에서 채워 넣습니다.
-3. `_fetch_and_filter_posts`. 글을 수집한 뒤, 설정 섹션을
+3. `pipeline.fetch_and_filter_posts`. 글을 수집한 뒤, 설정 섹션을
    `SummarizerSettings`로 옮겨 담아(§10) `Summarizer.process_posts`에 위임합니다
    (게이트 → 필터 → 라인업 선정 → 요약). 글 목록, 날짜 suffix,
    제외 목록, 그리고 `CrawlReport`를 돌려줍니다.
-4. `_log_run_summary`가 실행 퍼널을 JSON 한 줄(`RUN_SUMMARY {...}`)로 남깁니다.
+4. `pipeline.log_run_summary`가 실행 퍼널을 JSON 한 줄(`RUN_SUMMARY {...}`)로 남깁니다.
    소스 ok/empty/failed 수, 글 페이지를 못 읽은 소스 수, 윈도우 시작까지 닿지 않은 피드 수
    (`sources_truncated`), 수집 수, 탈락 수, 최종 라인업(소스·점수·제목). 수백 줄의 산문
    로그를 읽어 퍼널을 재구성하는 대신 CloudWatch Logs Insights로 바로 질의·추세화할 수
@@ -1531,10 +1579,10 @@ boto3 위에 얹은, 얇고 로깅이 잘 된 래퍼들입니다. 실패해도 �
 6. 살아남은 글이 하나도 없으면 200으로 종료합니다. 수집은 됐는데 전량 탈락했다면 그 전에
    빈 다이제스트 알림을 발행합니다. 호가 비지 않았어도 일부 글을 모델 호출 실패로 잃었다면
    모델 실패 알림을 보냅니다.
-7. `_process_posts_and_create_newsletter`. 제목을 Title Case로 맞추고(§12), 글 JSON을
+7. `pipeline.process_posts_and_create_newsletter`. 제목을 Title Case로 맞추고(§12), 글 JSON을
    영속화하고, 인사말을 생성하고(§12), HTML을 빌드하고, 산출물을 S3에 업로드합니다. 클립 한계를 넘었으면 클립
    알림을 발행합니다.
-8. 이메일이 켜져 있으면 수신자를 해석하고(CLI 인자 또는 S3 파일), **이미 이 호를 받은
+8. 이메일이 켜져 있으면 `delivery.process_newsletter_emails`가 수신자를 해석하고(CLI 인자 또는 S3 파일), **이미 이 호를 받은
    수신자를 건너뛴 뒤**(아래 "전달 원장"), 수신자마다 간격을 두고 발송합니다. 결과는
    `DeliveryOutcome`(해석된 수, 원장으로 건너뛴 수, 수신 거부로 건너뛴 수, 시도한 수, 성공 수,
    실패 목록)으로 돌려줍니다.
@@ -1557,24 +1605,24 @@ boto3 위에 얹은, 얇고 로깅이 잘 된 래퍼들입니다. 실패해도 �
 
 ### SNS 알림
 
-알림은 이 절이 정본입니다. 앱이 보내는 알림은 모두 `utils.format_alarm()`으로 형식을
+알림은 이 절이 정본입니다. 앱이 보내는 알림은 모두 `alarms.format_alarm()`으로 형식을
 통일하고(제목 `[<project>] <event> — <STATUS>`, 정렬된 필드, 말미 UTC 타임스탬프),
-`main._publish_alarm()` 한 곳을 지나 발행합니다. 알림은 부수 채널이므로 SNS 발행 오류는
+`alerts._publish_alarm()` 한 곳을 지나 `AlarmPublisher` 포트(구현은 `SnsAlarmPublisher`)로 발행합니다. 알림은 부수 채널이므로 SNS 발행 오류는
 로그만 남기고 삼킵니다. 몇몇 알림은 발송 루프 **전에** 나가므로, 여기서 예외가 새면 호를 다
 만들어 놓고 아무에게도 보내지 못합니다. 앱 알림은 AWS에서 실행 중이고 `TOPIC_ARN`이 있을
 때만 나가며, 전원 발송에 성공한 정상 실행에서는 아무 알림도 보내지 않습니다.
 
 | 이벤트 | 함수 | 언제 | 왜 따로 알리는가 |
 | --- | --- | --- | --- |
-| `Crawl Health` — ALERT | `_send_crawl_health_alert` | 예상 밖 `FAILED` 소스, 후보 0개 소스, 글 페이지를 전부 못 읽은 소스가 있을 때 | 깨진 소스는 다이제스트에서 조용히 빠질 뿐입니다(§7) |
-| `Empty Digest` — ALERT | `_maybe_send_empty_digest_alert` | 수집은 됐는데 살아남은 글이 0편일 때 | 실행은 200으로 끝나고 메일만 안 나갑니다. 탈락 사유 집계를 실어 대량 모델 실패와 엄격했을 뿐인 한 주를 구분하게 합니다 |
-| `Model Failures` — WARN | `_maybe_send_model_failure_alert` | 호는 나가지만 일부 글을 모델 호출 실패로 잃었을 때 | 실패한 자리는 백필되므로 호가 얇아진 것만 남습니다 |
-| `Newsletter Clipped` — ALERT | `_maybe_send_clipped_newsletter_alert` | 렌더 크기가 `GMAIL_CLIP_BYTES`를 넘을 때 | 발송은 성공하고 뒤쪽 카드만 안 보입니다(§13) |
-| `No Recipients` — ALERT | `_send_no_recipients_alert` | 한 통도 시도하지 않았을 때(수신자 0명이거나 전원 SES 수신 거부). SES 수신 거부 주소를 뺀 전원을 원장이 덮은 재시도는 제외 | 모든 상태가 성공인데 읽는 사람이 없습니다. 부분 실패 알림은 실패한 수신자를 보고 울리므로 이 경우를 못 잡습니다. 확인할 S3 객체 경로와 수신 거부된 수를 찍어 줍니다 |
-| `Newsletter Delivery` — ALERT | `_maybe_send_partial_delivery_alert` | 일부 수신자에게 발송이 실패했을 때 | 크롤 요약 줄을 함께 싣습니다 |
-| `Newsletter Delivery` — FAILED | `_send_failure_notification` | `handler`에서 처리되지 않은 예외가 났을 때 | 오류 메시지를 싣습니다 |
+| `Crawl Health` — ALERT | `send_crawl_health_alert` | 예상 밖 `FAILED` 소스, 후보 0개 소스, 글 페이지를 전부 못 읽은 소스가 있을 때 | 깨진 소스는 다이제스트에서 조용히 빠질 뿐입니다(§7) |
+| `Empty Digest` — ALERT | `maybe_send_empty_digest_alert` | 수집은 됐는데 살아남은 글이 0편일 때 | 실행은 200으로 끝나고 메일만 안 나갑니다. 탈락 사유 집계를 실어 대량 모델 실패와 엄격했을 뿐인 한 주를 구분하게 합니다 |
+| `Model Failures` — WARN | `maybe_send_model_failure_alert` | 호는 나가지만 일부 글을 모델 호출 실패로 잃었을 때 | 실패한 자리는 백필되므로 호가 얇아진 것만 남습니다 |
+| `Newsletter Clipped` — ALERT | `maybe_send_clipped_newsletter_alert` | 렌더 크기가 `GMAIL_CLIP_BYTES`를 넘을 때 | 발송은 성공하고 뒤쪽 카드만 안 보입니다(§13) |
+| `No Recipients` — ALERT | `send_no_recipients_alert` | 한 통도 시도하지 않았을 때(수신자 0명이거나 전원 SES 수신 거부). SES 수신 거부 주소를 뺀 전원을 원장이 덮은 재시도는 제외 | 모든 상태가 성공인데 읽는 사람이 없습니다. 부분 실패 알림은 실패한 수신자를 보고 울리므로 이 경우를 못 잡습니다. 확인할 S3 객체 경로와 수신 거부된 수를 찍어 줍니다 |
+| `Newsletter Delivery` — ALERT | `maybe_send_partial_delivery_alert` | 일부 수신자에게 발송이 실패했을 때 | 크롤 요약 줄을 함께 싣습니다 |
+| `Newsletter Delivery` — FAILED | `send_failure_notification` | `handler`에서 처리되지 않은 예외가 났을 때 | 오류 메시지를 싣습니다 |
 
-모델 실패 판정은 탈락 사유의 접두사로 합니다. 접두사는 `summarizer.MODEL_FAILURE_PREFIXES`
+모델 실패 판정은 탈락 사유의 접두사로 합니다. 접두사는 `summary.MODEL_FAILURE_PREFIXES`
 한 곳에서 정의하고 요약기의 모든 실패 사유가 이 상수로 만들어지므로, 사유 문구를 바꿔도
 알림이 조용히 끊기지 않습니다.
 
@@ -1596,7 +1644,7 @@ Batch 잡 정의의 재시도(`BATCH_ATTEMPTS` 2, 즉 재시도 1회)는 `main.p
 타깃의 `retry_attempts=2`는 잡 제출 자체가 실패했을 때만 다시 제출하므로 이미 돈 실행을
 반복하지는 않습니다.
 
-가드는 **수신자 단위**입니다. 피해가 측정되는 단위가 수신자이기 때문이고, 그래서 루프
+가드는 **수신자 단위**이고, `application/delivery.py`가 `ObjectStore` 포트로 원장을 읽고 씁니다. 피해가 측정되는 단위가 수신자이기 때문이고, 그래서 루프
 중간에 죽은 실행의 재시도는 아직 못 받은 독자에게만 보냅니다. 호 단위 마커는 "전부" 아니면
 "없음"만 말할 수 있어서, 못 받은 독자를 영구히 빠뜨리거나 전원에게 다시 보냅니다.
 
@@ -1686,7 +1734,7 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
 - **컴퓨트**. EC2 스팟 + 온디맨드 컴퓨트 환경의 Batch 잡 정의(2 vCPU / 2 GiB)입니다.
   EventBridge 스케줄에 연결되고, 스케줄 타깃에는 재시도 2회와 데드레터 큐가 붙습니다.
 
-  Batch 한도는 `app/src/constants.py`의 세 상수에서 옵니다(§5). 잡 정의의 시도 타임아웃은
+  Batch 한도는 `app/domain/constants.py`의 세 상수에서 옵니다(§5). 잡 정의의 시도 타임아웃은
   `BATCH_ATTEMPT_TIMEOUT_MINUTES`(90분), 시도 횟수는 `BATCH_ATTEMPTS`(2), 큐의 RUNNABLE
   한도는 `BATCH_RUNNABLE_LIMIT_MINUTES`(120분)입니다. `run_batch.py`의 대기 한도가 같은
   상수에서 유도되므로(§15) 한쪽만 바뀌는 일이 없습니다. 90분은 Bedrock 스로틀링이 심한 주에도
@@ -1793,6 +1841,13 @@ fixture(`no_network`)가 실제 연결과 호스트 이름 조회를 막아, 테
 컴포넌트 표 행 수가 같은지를 검사합니다. 문서의 수치를 실측과 대조하는 검사는 두지 않으므로,
 이 문서에는 금방 낡는 테스트 개수나 커버리지 수치를 적지 않습니다.
 
+**계층.** `tests/test_architecture.py`는 `app/` 아래 소스의 임포트를 AST로 읽어 의존 방향(§3)을
+검사합니다. 도메인은 애플리케이션·어댑터·설정과 AWS SDK·HTTP·브라우저·LLM 라이브러리를,
+서비스는 어댑터와 AWS SDK·HTTP·`langchain_aws`를 임포트하지 못하고, 어댑터는 포트 말고는
+애플리케이션을 임포트하지 못합니다. 함수 안의 지연 임포트도 셉니다. 예외는 하나입니다. 재시도
+판정을 맡은 `llm_batching.py`는 `langchain_aws`가 그대로 다시 던지는 botocore 예외를 알아봐야
+해서 `botocore.exceptions`의 예외 클래스만 임포트합니다(§8).
+
 의존성 락은 §19, 출력 품질 루브릭은 아래 평가 하네스에서 다룹니다.
 
 ### 평가 하네스 두 개
@@ -1805,7 +1860,7 @@ fixture(`no_network`)가 실제 연결과 호스트 이름 조회를 막아, 테
 `all`은 `tests/eval_data/filtering_eval_set.json`, prod이 쓰는 `amazon`은
 `filtering_eval_set_amazon.json`입니다. 항목은 실제 피드에 오는 글 유형을 본뜬 합성 글이고(저장소가
 공개라 원문을 옮기지 않습니다), 라벨은 루브릭 문구를 따라 라이브 실행 전에 정합니다. 결과를 보고
-라벨을 고치면 평가가 모델에 맞춰질 뿐입니다. CI 드라이런은 두 세트를 모두 검증합니다. 지표 계산은 `app/src/eval_metrics.py`의 순수 함수가
+라벨을 고치면 평가가 모델에 맞춰질 뿐입니다. CI 드라이런은 두 세트를 모두 검증합니다. 지표 계산은 `app/domain/eval_metrics.py`의 순수 함수가
 맡고 `tests/test_eval_metrics.py`가 그 함수들을 검증합니다. 기본은 드라이런이라 AWS를
 부르지 않고 비용도 없습니다. `--live`를 주면 운영 `Summarizer`의 필터 체인을 그대로 써서
 실제 Bedrock으로 점수를 매기고, `--model`로 설정을 바꾸지 않고 후보 모델을 채점합니다.
@@ -1829,7 +1884,7 @@ fixture(`no_network`)가 실제 연결과 호스트 이름 조회를 막아, 테
 따로 출력합니다. `--compare`로 두 실행을 비교하면 프롬프트를 고친 효과를 짐작이 아니라
 숫자로 확인할 수 있습니다. 채점은 AWS 호출과 비용이 없고, 같은 원문으로 요약을 다시 만드는
 `--regenerate`만 Bedrock 비용이 듭니다. 한국어가 아닌 실행은 채점하지 않고 거부합니다.
-지표는 `app/src/quality_metrics.py`의 순수 함수이고 `tests/test_quality_metrics.py`가
+지표는 `app/domain/quality_metrics.py`의 순수 함수이고 `tests/test_quality_metrics.py`가
 검증합니다.
 
 ### CI
@@ -1986,7 +2041,7 @@ CI 잡을 필수 검사로 둔 브랜치 보호가 걸려 있어 PR로만 바뀝
   지우는 판단이라 정리 작업으로 처리하지 않고 남겨 둡니다.
 - **`app/assets/`의 파일은 코드가 읽지 않습니다.** 로고 PNG는 뉴스레터가 CDN
   (`cdn.jsdelivr.net`)에서 받으므로 앱이 참조하지 않고, CDN 목록과도 어긋납니다. 수신자
-  파일도 `main.py`가 `ROOT_DIR / assets`에 쓰는데 `ROOT_DIR`은 로컬에서 **저장소 루트**여서
+  파일도 발송 단계(`delivery.py`)가 `ROOT_DIR / assets`에 쓰는데 `ROOT_DIR`은 로컬에서 **저장소 루트**여서
   `app/assets/recipients-*.txt`는 읽히지 않는 잔재입니다. CDN 원본일 수 있어 지우지
   않았습니다. 이미지 빌드에서는 수신자 파일을 제외합니다(§19).
 

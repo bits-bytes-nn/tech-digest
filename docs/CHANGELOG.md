@@ -722,6 +722,17 @@
   두 이름으로 두 번 로드됐습니다. Lambda 이미지는 `app` 패키지 없이 `main.py`만 복사해 핸들러가
   임포트 단계에서 실패할 수 있었습니다. Batch 이미지는 패키지를 `app/`에 두고
   `python -m app.main`으로 실행합니다. Lambda 이미지는 같은 날 Lambda 경로와 함께 지웠습니다(인프라).
+- **2026-11-01** `app/src`를 계층 셋으로 나눴습니다. 입출력이 없는 규칙은 `app/domain`, 포트에
+  대고 쓴 서비스는 `app/application`, Bedrock·AWS·HTTP·템플릿과 말하는 코드는 `app/adapters`로
+  옮겼고, `main.py`에 있던 파이프라인·발송·알림 함수도 `application`의 `pipeline.py`·
+  `delivery.py`·`alerts.py`로 나왔습니다. 그전에는 규칙 하나를 시험하려 해도 boto3·requests·
+  LangChain을 함께 임포트해야 했고, 발송과 알림 테스트는 `main`의 모듈 속성을 패치해 AWS 호출을
+  막았습니다. 서비스는 이제 `ChatModelProvider`·`ObjectStore`·`Mailer`·`AlarmPublisher` 같은
+  포트를 받고, `main.py`가 어댑터를 만들어 넘깁니다. 의존 방향은 `tests/test_architecture.py`가
+  임포트를 읽어 고정합니다. 동작은 바꾸지 않았고, 발송되는 호와 S3 키·원장을 고정한 스냅샷
+  테스트(`tests/test_golden_output.py`)가 단계마다 그대로 통과했습니다. `Post.from_entry`는 글
+  페이지를 받아 올 수 있어서 `feeds.post_from_entry`가 됐고, 로그 디렉터리는 `logger.py` 위치에서
+  상위 디렉터리를 세는 대신 `app/paths.py`의 `REPO_ROOT`에서 찾습니다.
 - 베이스 이미지는 digest로 고정했지만 Python 의존성은 `>=` 범위뿐이어서 이미지 빌드마다 다시
   해석됐습니다. `requirements.lock`을 도입했습니다. CI가 락을 constraints로 쓰기 전에는 핵심
   패키지 12개가 이미지와 전부 달랐고 langchain은 1.2 대 1.3이었습니다.

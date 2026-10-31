@@ -384,7 +384,7 @@ class TestRegisteredScrapersResolveToAMappedSource:
     """Each index-page scraper's own URL must resolve to a real source.
 
     The registry used to pair every scraper with a hardcoded ``SourceType`` that
-    ``Post.from_entry`` then ignored. Removing it means ``SOURCE_MAPPING`` is the
+    ``post_from_entry`` then ignored. Removing it means ``SOURCE_MAPPING`` is the
     only definition — which is only safe if each scraper's configured URL is in
     that map. Otherwise its posts would silently render the "unknown" logo and
     share one ``max_per_source`` bucket.

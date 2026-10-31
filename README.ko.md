@@ -73,15 +73,20 @@ Amazon Bedrock 기반(필터 GPT-6.1 Sol, 요약 Claude) · AWS 위에서 CDK로
 
 ### 핵심 구성 요소
 
+`app/` 아래 코드는 세 계층으로 나뉩니다. `domain/`은 입출력이 없는 규칙, `application/`은
+`application/ports.py`의 인터페이스에 대고 쓴 서비스, `adapters/`는 Bedrock·AWS·웹·템플릿과
+말하는 코드입니다. 의존은 안쪽으로만 향하고, `main.py`가 계층을 연결하며,
+`tests/test_architecture.py`가 이 규칙을 검사합니다([design.md §3](./docs/design.md#3-저장소-구조)).
+
 | 모듈 | 책임 |
 | --- | --- |
-| `feed_parser.py` | RSS 파싱 + HTML 스크레이핑(BeautifulSoup4), 소스별 헬스 추적 |
-| `summarizer.py` | 콘텐츠 게이트 → 관련성 필터 → 랭킹/캡 → 요약까지, 모두 Bedrock으로 |
-| `model_factory.py` | Bedrock 모델 역량 레지스트리 + LangChain 채팅 모델 생성, 비용 귀속 프로파일 |
-| `quality_metrics.py` | 결정적 출력 품질 루브릭 (순수 함수) |
-| `eval_metrics.py` | 필터 점수 지표 (순수 함수) |
-| `newsletter_renderer.py` | Jinja2 기반 HTML 생성(반응형, 다크모드, 현지화, 크기 검사) |
-| `aws_helpers.py` | S3, SES, SNS, SSM, Batch 연동 |
+| `adapters/feeds.py` | RSS 파싱 + HTML 스크레이핑(BeautifulSoup4), 소스별 헬스 추적 |
+| `application/summarize.py` | 콘텐츠 게이트 → 관련성 필터 → 랭킹/캡 → 요약까지, 모두 Bedrock으로 |
+| `adapters/bedrock.py` | Bedrock 모델 역량 레지스트리 + LangChain 채팅 모델 생성, 비용 귀속 프로파일 |
+| `domain/quality_metrics.py` | 결정적 출력 품질 루브릭 (순수 함수) |
+| `domain/eval_metrics.py` | 필터 점수 지표 (순수 함수) |
+| `adapters/rendering.py` | Jinja2 기반 HTML 생성(반응형, 다크모드, 현지화, 크기 검사) |
+| `adapters/aws.py` | S3, SES, SNS, SSM, Batch 연동 |
 
 ### 파이프라인
 
@@ -98,7 +103,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
   저장합니다.
 - **SES**로 뉴스레터를 전달하고, **SNS**로는 문제가 있을 때만 알림을 보냅니다.
 - **Bedrock(us-west-2)**. GPT-6.1 Sol(필터), Claude Sonnet 5.5(요약), Claude Haiku 5.5(인사말,
-  제목 Title Case, 출력 복구). [`app/src/constants.py`](./app/src/constants.py)의 `LanguageModelId`
+  제목 Title Case, 출력 복구). [`app/domain/constants.py`](./app/domain/constants.py)의 `LanguageModelId`
   카탈로그에 있는 모델은 OpenAI GPT-6 모델을 포함해 스테이지별로 골라 쓸 수 있습니다.
   모델별 요청 규칙(thinking 끄기 값, effort, GPT 호출 방식)은 design.md §8에 있습니다.
 
@@ -146,7 +151,7 @@ newsletter:
   header_title: "Weekly AI Tech Blog Digest"
 ```
 
-> 모델 ID는 [`app/src/constants.py`](./app/src/constants.py)의 `LanguageModelId`
+> 모델 ID는 [`app/domain/constants.py`](./app/domain/constants.py)의 `LanguageModelId`
 > 카탈로그에서 가져다 씁니다.
 
 ---
@@ -177,7 +182,7 @@ python scripts/put_inference_profiles.py --stage dev   # 계정/스테이지마�
 - Billing → 비용 할당 태그에서 `Project` 태그를 활성화해야 Cost Explorer에 나타납니다(최대
   24시간, 소급 적용 안 됨).
 
-자세한 내용은 [design.md §8](./docs/design.md#8-bedrock-모델-팩토리-appsrcmodel_factorypy--배치-처리-appsrcutilspy)을 참고하세요.
+자세한 내용은 [design.md §8](./docs/design.md#8-bedrock-모델-팩토리-appadaptersbedrockpy--배치-처리-appapplicationllm_batchingpy)을 참고하세요.
 
 ### 로컬 실행
 

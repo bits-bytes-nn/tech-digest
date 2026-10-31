@@ -8,7 +8,7 @@ site-layout change or a selector regression is caught offline.
 
 Network is fully stubbed: ``_fetch_page`` returns the fixture soup and
 ``_make_robust_request`` is neutralized so the full-article scrape that
-``Post.from_entry`` triggers never hits the wire.
+``post_from_entry`` triggers never hits the wire.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def window() -> tuple[datetime, datetime]:
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    # The scrapers build Posts via Post.from_entry, which scrapes the full
+    # The scrapers build Posts via post_from_entry, which scrapes the full
     # article when the feed body is thin. Neutralize the HTTP layer so no
     # request is made and content stays empty.
     monkeypatch.setattr(feeds, "_make_robust_request", lambda url: None)
