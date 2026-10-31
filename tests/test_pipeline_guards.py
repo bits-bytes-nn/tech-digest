@@ -447,6 +447,36 @@ class TestModelFailureAlert:
         assert publisher.published == []
 
 
+class TestHandlerWiring:
+    def test_the_summarizer_gets_the_real_image_probe(self, monkeypatch):
+        # No fixture post carries an image, so a probe that dropped every image
+        # would pass the golden snapshot; pin the wiring instead.
+        from app.adapters.http import is_email_renderable_image
+        from app.domain.crawl import CrawlReport
+
+        seen = {}
+
+        def _fetch(config, source, models, image_probe, **kwargs):
+            seen["probe"] = image_probe
+            return [], "2026-10-10", [], CrawlReport()
+
+        class _Cfg:
+            class resources:
+                project_name = "tech-digest"
+                profile_name = None
+                default_region_name = "ap-northeast-2"
+                bedrock_region_name = "us-west-2"
+                s3_bucket_name = "bucket"
+
+        monkeypatch.setattr(main.Config, "load", classmethod(lambda cls: _Cfg()))
+        monkeypatch.setattr(main, "_boto_sessions", lambda _cfg: (None, None))
+        monkeypatch.setattr(main, "_setup_aws_env", lambda *a: None)
+        monkeypatch.setattr(main, "log_run_summary", lambda *a: None)
+        monkeypatch.setattr(main, "fetch_and_filter_posts", _fetch)
+        assert main.handler({}, None)["statusCode"] == 200
+        assert seen["probe"] is is_email_renderable_image
+
+
 class TestModelFailureAlertFromTheHandler:
     def test_a_shipped_issue_that_lost_a_post_pages(self, monkeypatch, tmp_path):
         from app.domain.crawl import CrawlReport
