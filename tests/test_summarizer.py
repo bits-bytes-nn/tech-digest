@@ -3,6 +3,8 @@ markdown-to-HTML conversion in SummaryOutput. No Bedrock access."""
 
 from __future__ import annotations
 
+from bs4 import BeautifulSoup
+
 from app.src.summarizer import (
     SummaryOutput,
     _normalize_tags,
@@ -145,12 +147,48 @@ class TestSummaryOutput:
         # duplicates removed, capped at MAX_TAGS.
         assert out.tags == ["a", "b", "c", "d", "e"]
 
-    def test_html_replacements_applied(self):
+    def test_fenced_code_renders_as_plain_pre_code(self):
+        # No class: nothing styles one (pre/code are styled by element), and
+        # codehilite's markup changed with whether Pygments was installed.
         out = SummaryOutput.model_validate(
             {"summary": "```python\nprint(1)\n```", "tags": [], "urls": []}
         )
-        # codehilite/fenced_code wraps code; the <code> replacement adds a class.
-        assert "highlight" in out.summary
+        assert out.summary == "<pre><code>print(1)\n</code></pre>"
+
+    def test_model_classes_on_code_are_dropped(self):
+        html = '<pre class="highlight"><code class="language-py">x = 1</code></pre>'
+        out = SummaryOutput.model_validate({"summary": html, "tags": [], "urls": []})
+        assert out.summary == "<pre><code>x = 1</code></pre>"
+
+    def test_footnote_syntax_leaves_no_dead_links(self):
+        # footnotes emitted "#fn:1" links, which fail the scheme check and
+        # reached the reader as <a> tags without an href.
+        out = SummaryOutput.model_validate(
+            {"summary": "Text[^1].\n\n[^1]: The note.", "tags": [], "urls": []}
+        )
+        assert "<a" not in out.summary
+
+    def test_definition_list_syntax_keeps_its_line_break(self):
+        # def_list emitted <dl>, which the sanitizer unwraps: the term and its
+        # definition then ran together on one line of bare text.
+        out = SummaryOutput.model_validate(
+            {"summary": "Term\n: Definition", "tags": [], "urls": []}
+        )
+        assert out.summary.startswith("<p>Term<br/>")
+
+    def test_summary_image_is_sized_for_the_column(self):
+        # Outlook for Windows ignores max-width: the width attribute is what
+        # keeps a 2,000px chart inside the 800px column.
+        html = (
+            '<figure><img src="https://cdn.example.com/chart.png" alt="chart" '
+            'width="2369" style="position:fixed"></figure>'
+        )
+        out = SummaryOutput.model_validate({"summary": html, "tags": [], "urls": []})
+        img = BeautifulSoup(out.summary, "html.parser").find("img")
+        assert img["width"] == "712"
+        assert img["style"] == "width:100%;max-width:712px;height:auto"
+        assert img["src"] == "https://cdn.example.com/chart.png"
+        assert img["alt"] == "chart"
 
     def test_script_tag_stripped_from_summary(self):
         out = SummaryOutput.model_validate(
@@ -176,7 +214,7 @@ class TestSummaryOutput:
         # email-safe presentation class so it isn't borderless in mail clients.
         md = "| Metric | Value |\n| --- | --- |\n| speedup | 5x |"
         out = SummaryOutput.model_validate({"summary": md, "tags": [], "urls": []})
-        assert '<table class="table table-bordered">' in out.summary
+        assert '<table class="table-bordered">' in out.summary
 
     def test_attributed_table_normalized_to_bordered_class(self):
         # Raw HTML tables the model emits with attributes (border/cellpadding)
@@ -185,7 +223,7 @@ class TestSummaryOutput:
         # the stray presentational attributes.
         html = '<table border="0" cellpadding="0"><tr><td>a</td></tr></table>'
         out = SummaryOutput.model_validate({"summary": html, "tags": [], "urls": []})
-        assert '<table class="table table-bordered">' in out.summary
+        assert '<table class="table-bordered">' in out.summary
         assert "border=" not in out.summary
         assert "cellpadding" not in out.summary
 

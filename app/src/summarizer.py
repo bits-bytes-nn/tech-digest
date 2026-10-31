@@ -51,24 +51,25 @@ from .utils import (
 
 
 class SummarizerConfig:
-    # NOTE: <table> is class-injected in _sanitize_html (BeautifulSoup catches
-    # every table regardless of attributes; a literal "<table>" string match
-    # here silently missed attributed tables and left them unstyled).
-    HTML_REPLACEMENTS: ClassVar[dict[str, str]] = {
-        "<code>": '<code class="highlight">',
-        "<pre>": '<pre class="pre-scrollable">',
-    }
+    # Not codehilite (its markup depends on whether Pygments is installed, and
+    # the Lambda and Batch images do not ship it), toc (the sanitizer strips the
+    # heading ids), footnotes (its in-page "#fn:" links fail the scheme check,
+    # leaving <a> tags without an href) or def_list (<dl> is not allow-listed,
+    # so a term and its definition were unwrapped onto one line of bare text).
+    # attr_list stays only so a "{: .x}" suffix is consumed rather than shown;
+    # the sanitizer drops the attributes it sets.
     MARKDOWN_EXTENSIONS: ClassVar[list[str]] = [
         "attr_list",
-        "codehilite",
-        "def_list",
         "fenced_code",
-        "footnotes",
         "nl2br",
         "sane_lists",
         "tables",
-        "toc",
     ]
+    # The width a summary image may take: the 800px column less the card gutter
+    # (20px a side) and the card padding (24px a side) in main_contents.html.
+    # Outlook for Windows ignores max-width, so without a width attribute a
+    # 2,000px chart pushed the whole column past the window.
+    SUMMARY_IMAGE_WIDTH: ClassVar[int] = 712
     # HTML sanitization allow-list for the model-generated summary, which is
     # rendered with Jinja ``| safe`` (autoescape off). Only these structural and
     # inline tags survive; everything else (notably <script>, <style>, <iframe>,
@@ -116,13 +117,11 @@ class SummarizerConfig:
         }
     )
     # Attributes kept per tag; all others are dropped (this removes on*= handlers,
-    # style, etc.). href/src additionally pass a scheme check below.
+    # style, etc.). href/src additionally pass a scheme check below, and the
+    # sanitizer then sets its own class on tables and size on images.
     ALLOWED_HTML_ATTRS: ClassVar[dict[str, frozenset[str]]] = {
         "a": frozenset({"href", "title"}),
         "img": frozenset({"src", "alt", "title"}),
-        "code": frozenset({"class"}),
-        "pre": frozenset({"class"}),
-        "table": frozenset({"class"}),
         "td": frozenset({"colspan", "rowspan"}),
         "th": frozenset({"colspan", "rowspan"}),
     }
@@ -277,7 +276,13 @@ def _sanitize_html(html: str) -> str:
         # replace silently missed attributed tables, leaving them unstyled — so
         # a metrics table rendered borderless/cramped in email clients.
         if name == "table":
-            tag["class"] = "table table-bordered"
+            tag["class"] = "table-bordered"
+        # Every image gets the same size: the width attribute for Outlook, and a
+        # fluid style so narrower screens scale it down.
+        elif name == "img":
+            width = SummarizerConfig.SUMMARY_IMAGE_WIDTH
+            tag["width"] = str(width)
+            tag["style"] = f"width:100%;max-width:{width}px;height:auto"
     return str(soup)
 
 
@@ -495,10 +500,6 @@ class SummaryOutput(BaseModel):
                 extensions=SummarizerConfig.MARKDOWN_EXTENSIONS,
                 output_format="html5",
             )
-            for old, new in SummarizerConfig.HTML_REPLACEMENTS.items():
-                html = html.replace(old, new)
-            # Sanitize AFTER the class-injecting replacements so the allow-listed
-            # class attributes (code/pre/table) survive the attribute filter.
             return _sanitize_html(html)
         except Exception as e:
             # Never hand back the raw model output: it is rendered with | safe,
