@@ -6,9 +6,6 @@ backend-specific differences (ChatBedrock vs ChatBedrockConverse), cross-region
 inference-profile resolution, and the thinking/sampling parameter rules that
 changed with Sonnet 5 (plus the thinking off-switch rule that changed with the
 Claude 5 generation).
-
-Split out of ``utils`` so that module is once again a small set of unrelated
-helpers rather than the project's largest file.
 """
 
 import os
@@ -488,8 +485,6 @@ class BedrockLanguageModelFactory:
         thinking_budget_tokens: int | None = None,
         effort: str | None = None,
         stage: str | None = None,
-        callbacks: list[BaseCallbackHandler] | None = None,
-        top_k: int = DEFAULT_TOP_K,
     ) -> ChatBedrock | ChatBedrockConverse:
         """A configured chat model. Options are explicit keywords, so a misspelt
         one is a TypeError rather than silently ignored; the private helpers
@@ -502,8 +497,6 @@ class BedrockLanguageModelFactory:
             or self.DEFAULT_THINKING_BUDGET_TOKENS,
             "effort": effort,
             "stage": stage,
-            "callbacks": callbacks,
-            "top_k": top_k,
         }
         model_info = self.get_model_info(model_id)
         if not model_info:
@@ -581,14 +574,14 @@ class BedrockLanguageModelFactory:
     ) -> dict[str, Any]:
         # A `stage` names the pipeline step making the call so its token usage is
         # separable in the logs; Cost Explorer only sees the model.
-        callbacks = list(kwargs.get("callbacks") or [])
-        if stage := kwargs.get("stage"):
-            callbacks.append(TokenUsageLogger(str(stage), resolved_model_id))
+        stage = kwargs.get("stage")
         config = {
             "model_id": resolved_model_id,
             "region_name": self.region_name,
             "client": self._client,
-            "callbacks": callbacks or None,
+            "callbacks": (
+                [TokenUsageLogger(str(stage), resolved_model_id)] if stage else None
+            ),
         }
         # An application inference profile is identified by ARN, and an ARN does not
         # encode the model provider, so langchain_aws cannot infer it and refuses to
@@ -613,7 +606,7 @@ class BedrockLanguageModelFactory:
             model_kwargs: dict[str, Any] = {**common_params}
             # top_k is a sampling param; newer models (Sonnet 5+) reject it.
             if model_info.supports_sampling_params:
-                model_kwargs["top_k"] = kwargs.get("top_k", self.DEFAULT_TOP_K)
+                model_kwargs["top_k"] = self.DEFAULT_TOP_K
             config["model_kwargs"] = model_kwargs
         return config
 

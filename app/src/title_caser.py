@@ -12,6 +12,10 @@ from .utils import retry_with_backoff
 # Typographic marks the model tends to swap for their ASCII forms when it
 # echoes a title back. Equal for comparison only; the feed's mark is kept.
 _ASCII_MARKS = str.maketrans("\u2018\u2019\u201c\u201d\u2013\u2014", "''\"\"--")
+# Output cap for the title-case call. Left unset, the request reserves the
+# model's full output maximum against the tokens-per-minute quota; a JSON array
+# of a dozen titles is a few hundred tokens, and the rest covers reasoning.
+TITLE_CASE_MAX_TOKENS: int = 4096
 
 
 def accept_recased(original: str, recased: object) -> str:
@@ -57,10 +61,11 @@ def parse_recased(answer: str, originals: list[str]) -> list[str]:
 class TitleCaser:
     def __init__(self, boto_session: boto3.Session, model_id: LanguageModelId):
         llm_factory = BedrockLanguageModelFactory(boto_session=boto_session)
-        if not llm_factory.get_model_info(model_id):
-            raise ValueError(f"Unsupported model ID: '{model_id.value}'")
         llm = llm_factory.get_model(
-            model_id=model_id, temperature=0.0, stage="title-case"
+            model_id=model_id,
+            temperature=0.0,
+            max_tokens=TITLE_CASE_MAX_TOKENS,
+            stage="title-case",
         )
         self.chain = TitleCasePrompt.get_prompt() | llm | StrOutputParser()
 

@@ -28,8 +28,7 @@ class BasePrompt(ABC):
             if not isinstance(var, str) or not var:
                 raise ValueError(f"Invalid input variable: {var}")
             if (
-                var != "image_data"
-                and f"{{{var}}}" not in self.human_prompt_template
+                f"{{{var}}}" not in self.human_prompt_template
                 and f"{{{var}}}" not in self.system_prompt_template
             ):
                 raise ValueError(

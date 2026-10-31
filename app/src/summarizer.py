@@ -604,6 +604,12 @@ class Summarizer:
             max_tokens=settings.summarization_max_tokens,
         )
 
+    # Output cap for one filter call: a score and a one-line reason, plus room for
+    # the reasoning some filter models do whether asked or not. Left unset, every
+    # call reserves the model's full output maximum against the per-minute token
+    # quota, and filtering sends one call per collected post.
+    FILTER_MAX_TOKENS: ClassVar[int] = 8192
+
     def _create_filter(
         self,
         model_id: LanguageModelId,
@@ -636,6 +642,7 @@ class Summarizer:
             model_id=model_id,
             temperature=0.0,
             stage="filtering",
+            max_tokens=self.FILTER_MAX_TOKENS,
             enable_thinking=use_thinking,
             thinking_budget_tokens=thinking_budget_tokens
             or self.llm_factory.DEFAULT_THINKING_BUDGET_TOKENS,
@@ -1089,14 +1096,14 @@ class Summarizer:
                 self.filtered_out_posts.append((post, f"{SUMMARY_INVALID}: {e}"))
         return succeeded
 
-    # A real summary is thousands of characters (KO band 4,000-6,000, EN
-    # 1,300-2,000 words). A refusal, a "too short to summarize" reply or a
-    # repair that wrapped either of them in tags is a sentence or two. The floor
-    # sits far below the band so a terse but genuine summary still ships.
     # Summary tags read as plain text. Not one_liner: _clean_one_liner already
     # decodes it once, and a second decode turned "List&lt;String&gt;" into
     # "List" on the card.
     SUMMARY_TEXT_TAGS: ClassVar[list[str]] = ["tags"]
+    # A real summary is thousands of characters (KO band 4,000-6,000, EN
+    # 1,300-2,000 words). A refusal, a "too short to summarize" reply or a
+    # repair that wrapped either of them in tags is a sentence or two. The floor
+    # sits far below the band so a terse but genuine summary still ships.
     MIN_SUMMARY_SHARE: ClassVar[float] = 0.3
     EN_MIN_WORDS: ClassVar[int] = 400
 
