@@ -1,9 +1,9 @@
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import aws_cdk as core
-import boto3
 from aws_cdk import (
     Duration,
     RemovalPolicy,
@@ -32,9 +32,6 @@ from aws_cdk import (
     aws_iam as iam,
 )
 from aws_cdk import (
-    aws_lambda as lambda_,
-)
-from aws_cdk import (
     aws_logs as logs,
 )
 from aws_cdk import (
@@ -50,13 +47,12 @@ from aws_cdk import (
     aws_ssm as ssm,
 )
 from aws_cdk.aws_ecr_assets import DockerImageAsset, Platform
-from aws_cdk.aws_events_targets import BatchJob, LambdaFunction, SnsTopic
-from botocore.exceptions import ClientError
+from aws_cdk.aws_events_targets import BatchJob, SnsTopic
 from constructs import Construct
 
 sys.path.append(str(Path(__file__).parent.parent))
 from app.configs import Config
-from app.src import AppConstants, EnvVars, SSMParams, get_account_id, logger
+from app.src import AppConstants, EnvVars, SSMParams, logger
 from app.src.constants import (
     BATCH_ATTEMPT_TIMEOUT_MINUTES,
     BATCH_ATTEMPTS,
@@ -68,22 +64,20 @@ from app.src.constants import (
 #
 # The root `.dockerignore` does NOT apply to these builds — the context is `app/`,
 # so Docker would look for `app/.dockerignore`, and CDK passes this list instead.
-# That is why the recipients pattern has to be repeated here: `assets/` holds the
-# downloaded recipient list (real email addresses) on a developer machine, and
-# `COPY . ./` in Dockerfile-batch would otherwise bake it into the image. The app
-# always reads recipients from S3 at runtime, so nothing needs the local copy.
+# A local run downloads the recipient list (real email addresses) to
+# `<repo>/assets/`, outside this context; the recipients pattern guards against a
+# copy placed in `app/assets/` (beside the logos, which do ship), which
+# `COPY . app/` in Dockerfile-batch would otherwise bake into the image.
 IMAGE_ASSET_EXCLUDES: list[str] = [
     "cdk.out",
     ".git",
     # Local recipient lists hold real addresses; the runtime always reads the
     # list from S3, so no copy may ship in an image.
     "assets/recipients-*.txt",
-    # Local tool caches and secrets. Running mypy inside app/ leaves a 154 MB
-    # .mypy_cache that shipped in the Batch image, and because it changes on
-    # every type-check, the asset hash did too: a no-op deploy rebuilt and
-    # pushed the image and cut a new job-definition revision. The ** forms
-    # matter: a bare pattern only matches at the root of app/, so
-    # src/__pycache__ and configs/.DS_Store were still shipped.
+    # Local tool caches and secrets. A cache changes on every run, so shipping
+    # it would also change the asset hash and turn a no-op deploy into a new
+    # image and job-definition revision. The ** forms matter: a bare pattern
+    # only matches at the root of app/.
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
@@ -112,7 +106,6 @@ class NewsletterStack(Stack):
         s3_prefix: str | None = None,
         vpc_id: str | None = None,
         subnet_ids: list[str] | None = None,
-        lambda_or_batch: str = "lambda",
         cron_expression: str | None = None,
         email_addresses: list[str] | None = None,
         environment_vars: dict[str, str] | None = None,
@@ -140,8 +133,7 @@ class NewsletterStack(Stack):
                 "set resources.s3_prefix in the config."
             )
         # The SES sender identity to scope send permissions to (operator email).
-        self._sender = (email_addresses or [None])[0]
-        self.lambda_or_batch = lambda_or_batch
+        self._sender = email_addresses[0] if email_addresses else None
         self._add_tags(scope)
 
         self._configure_vpc(vpc_id, subnet_ids)
@@ -158,16 +150,9 @@ class NewsletterStack(Stack):
             **(environment_vars or {}),
         )
 
-        job_queue_name = None
-        job_definition_name = None
-
-        if self.lambda_or_batch == "lambda":
-            self._setup_lambda_resources(common_env_vars, cron_expression)
-        else:
-            job_queue_name, job_definition_name = self._setup_batch_resources(
-                common_env_vars, cron_expression, parameters
-            )
-
+        job_queue_name, job_definition_name = self._setup_batch_resources(
+            common_env_vars, cron_expression, parameters
+        )
         self._store_ssm_parameters(job_queue_name, job_definition_name)
 
     @property
@@ -257,33 +242,16 @@ class NewsletterStack(Stack):
     def _create_iam_role(self) -> iam.Role:
         # Least-privilege (AWS Well-Architected, Security pillar): instead of
         # broad *FullAccess managed policies, grant only the specific actions
-        # the application performs, scoped to this stack's resources. The only
-        # AWS-managed policies retained are the service-execution roles that
-        # are required by the runtime itself (Lambda exec / ECS-on-EC2 agent).
-        if self.lambda_or_batch == "lambda":
-            service_principal: iam.IPrincipal = iam.ServicePrincipal(
-                "lambda.amazonaws.com"
-            )
-            managed_policies = [
-                iam.ManagedPolicy.from_aws_managed_policy_name(name)
-                for name in (
-                    "service-role/AWSLambdaBasicExecutionRole",
-                    "service-role/AWSLambdaVPCAccessExecutionRole",
-                )
-            ]
-        else:
-            # The JOB role: only the container assumes it. The EC2 hosts get their
-            # own instance role (``_create_instance_role``), so neither carries
-            # the other's rights.
-            service_principal = iam.ServicePrincipal("ecs-tasks.amazonaws.com")
-            managed_policies = []
-
+        # the application performs, scoped to this stack's resources.
+        #
+        # This is the JOB role: only the container assumes it. The EC2 hosts get
+        # their own instance role (``_create_instance_role``), so neither carries
+        # the other's rights.
         role = iam.Role(
             self,
             "NewsletterRole",
-            assumed_by=service_principal,
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
             description="Least-privilege IAM role for Tech Digest Newsletter",
-            managed_policies=managed_policies,
             role_name=self._get_resource_name("newsletter"),
         )
         for statement in self._app_policy_statements():
@@ -369,8 +337,8 @@ class NewsletterStack(Stack):
                     f"{self._get_resource_name('newsletter')}"
                 ],
             ),
-            # SSM: read this project's parameters (e.g. LangChain API key,
-            # stored as a SecureString — see _put_secure_ssm_parameter).
+            # SSM: read this project's parameters (e.g. the LangChain API key,
+            # a SecureString the operator puts outside CDK).
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],
                 resources=[param_arn],
@@ -412,8 +380,8 @@ class NewsletterStack(Stack):
             iam.PolicyStatement(
                 # List: our profile resolution (model_factory). Get: langchain-aws
                 # calls it inside ChatBedrockConverse for an application-profile
-                # ARN to learn the base model. Without it every run dies at
-                # model construction (AccessDenied, 2026-10-11).
+                # ARN to learn the base model. Without it every run fails at
+                # model construction with AccessDenied.
                 actions=[
                     "bedrock:ListInferenceProfiles",
                     "bedrock:GetInferenceProfile",
@@ -423,8 +391,7 @@ class NewsletterStack(Stack):
             # No CloudWatch Logs statement: nothing running as this role writes
             # logs itself. Batch container output goes through the awslogs driver,
             # which on EC2 uses the INSTANCE role (its managed policy grants
-            # CreateLogStream/PutLogEvents), and Lambda gets the same from
-            # AWSLambdaBasicExecutionRole.
+            # CreateLogStream/PutLogEvents).
         ]
 
     def _create_sns_topic(self, email_addresses: list[str] | None) -> sns.Topic:
@@ -486,32 +453,6 @@ class NewsletterStack(Stack):
         env_vars.update(kwargs)
         return env_vars
 
-    def _setup_lambda_resources(
-        self, environment: dict[str, str], cron_expression: str | None
-    ) -> None:
-        function = self._create_lambda_function(environment)
-        if function.role:
-            self.topic.grant_publish(function.role)
-        if cron_expression:
-            self._create_event_rule(
-                cron_expression,
-                target=LambdaFunction(function, dead_letter_queue=self.schedule_dlq),
-            )
-        # Alarm on Lambda execution errors that never reach main.py's in-app
-        # alert (e.g. init crash, OOM, timeout) so infra-level failures surface.
-        error_alarm = cloudwatch.Alarm(
-            self,
-            "LambdaErrorAlarm",
-            alarm_name=self._get_resource_name("lambda-errors"),
-            alarm_description="Newsletter Lambda reported one or more errors.",
-            metric=function.metric_errors(period=Duration.minutes(5), statistic="Sum"),
-            threshold=0,
-            evaluation_periods=1,
-            comparison_operator=(cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD),
-            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
-        )
-        error_alarm.add_alarm_action(cloudwatch_actions.SnsAction(self.topic))
-
     def _setup_batch_resources(
         self,
         environment: dict[str, str],
@@ -539,7 +480,7 @@ class NewsletterStack(Stack):
         # AWS Batch emits no per-job "failed" CloudWatch metric, so watch the
         # terminal FAILED state via EventBridge and forward it to SNS. This
         # catches failures (OOM, init crash) that never reach main.py's in-app
-        # alert branches — the silent-failure class that motivated this.
+        # alert branches.
         self._create_batch_failure_alarm(job_queue)
         return job_queue.job_queue_name, job_definition.job_definition_name
 
@@ -559,31 +500,6 @@ class NewsletterStack(Stack):
             ),
         )
         rule.add_target(SnsTopic(self.topic))
-
-    def _create_lambda_function(
-        self, environment: dict[str, str]
-    ) -> lambda_.DockerImageFunction:
-        return lambda_.DockerImageFunction(
-            self,
-            "NewsletterFunction",
-            code=lambda_.DockerImageCode.from_image_asset(
-                directory=str(Path(__file__).parent.parent / "app"),
-                file="Dockerfile-lambda",
-                platform=Platform.LINUX_AMD64,
-                exclude=IMAGE_ASSET_EXCLUDES,
-            ),
-            description="Lambda function to send newsletter",
-            environment=environment,
-            function_name=self._get_resource_name("newsletter"),
-            memory_size=512,
-            role=self.role,
-            security_groups=[self.security_group],
-            timeout=Duration.minutes(15),
-            vpc=self.vpc,
-            vpc_subnets=self.vpc_subnets,
-            retry_attempts=2,
-            log_retention=self.LOG_RETENTION,
-        )
 
     def _create_job_queue(self) -> batch.JobQueue:
         # A job that can never be placed sits in RUNNABLE indefinitely: the job
@@ -628,7 +544,7 @@ class NewsletterStack(Stack):
             http_put_response_hop_limit=1,
         )
 
-        compute_env_config = {
+        compute_env_config: dict[str, Any] = {
             "instance_role": self._create_instance_role(),
             # Let Batch pick from the optimal C/M/R instance classes. This is the
             # supported way to express Batch "optimal"; passing
@@ -647,21 +563,11 @@ class NewsletterStack(Stack):
             "vpc_subnets": self.vpc_subnets,
         }
 
-        # A queue prefers the LOWEST order, so Spot has to be order 1 for a Spot
-        # environment to mean anything. It was order 2 behind a 4-vCPU on-demand
-        # environment, and the job asks for 2 vCPU — so on-demand always had room
-        # and the Spot environment was never once scheduled onto. It existed, was
-        # deployed, and saved nothing.
-        #
-        # On-demand stays as order 2. Batch tries compute environments in ascending
-        # order; its docs do not promise that a Spot capacity shortage falls
-        # through to the next one. If it does not, the queue's RUNNABLE time
-        # limit cancels the job after 2 hours and the FAILED rule alerts, so the
-        # failure is loud rather than silent. TRADE-OFF: a Spot reclaim mid-run is now the likelier way for a
-        # run to be retried, and the job definition's `retry_attempts=2` re-runs
-        # main.py from the start. The delivery ledger (design.md §16) keeps that
-        # from re-sending to anyone already served; what a retry still costs is
-        # the crawl and the Bedrock calls, paid again.
+        # A queue tries the LOWEST order first, so Spot is order 1 and on-demand
+        # the fallback at order 2. If a Spot shortage does not fall through, the
+        # RUNNABLE time limit above cancels the job and the FAILED rule alerts.
+        # A Spot reclaim re-runs the job from the start: the delivery ledger stops
+        # a re-send, but the crawl and the Bedrock calls are paid again.
         spot_env = batch.ManagedEc2EcsComputeEnvironment(
             self,
             "NewsletterSpotEnv",
@@ -705,7 +611,7 @@ class NewsletterStack(Stack):
             # The Batch image bundles headless Chrome + xvfb for the optional
             # convert_to_images render step, which routinely needs well over
             # 512 MiB; 512 MiB would OOM-kill the job. 2 vCPU / 2 GiB is a safe
-            # floor (the browserless Lambda path keeps its smaller 512 MiB).
+            # floor.
             cpu=2,
             memory=core.Size.mebibytes(2048),
             job_role=self.role,
@@ -763,23 +669,21 @@ class NewsletterStack(Stack):
             self,
             "NewsletterEventRule",
             schedule=events.Schedule.expression(cron_expression),
-            description=f"Event rule to trigger Newsletter {self.lambda_or_batch}",
+            description="Event rule to trigger Newsletter batch",
             # The scheduled run's language is carried in the job parameters, not
             # the rule name — don't bake a fixed "-ko" into the resource name.
-            rule_name=self._get_resource_name(self.lambda_or_batch),
+            rule_name=self._get_resource_name("batch"),
         )
         rule.add_target(target)
 
     def _store_ssm_parameters(
         self,
-        job_queue_name: str | None,
-        job_definition_name: str | None,
+        job_queue_name: str,
+        job_definition_name: str,
     ) -> None:
-        # NOTE: the LangChain API key is intentionally NOT created here. CDK can
-        # only emit a plaintext `String` SSM parameter (CloudFormation cannot
-        # create a `SecureString`), which would leak the key into the synthesized
-        # template / CloudFormation console. It is written out-of-band as a
-        # SecureString by `_put_secure_ssm_parameter` at deploy time instead.
+        # The LangChain API key is NOT created here: CloudFormation can only make
+        # a plaintext `String` parameter, which would put the key in the template.
+        # The operator puts it as a SecureString; the runtime reads it from SSM.
         ssm_params_to_create = {
             SSMParams.BATCH_JOB_QUEUE: job_queue_name,
             SSMParams.BATCH_JOB_DEFINITION: job_definition_name,
@@ -791,101 +695,34 @@ class NewsletterStack(Stack):
         }
 
         for param_enum, param_value in ssm_params_to_create.items():
-            if param_value:
-                param_name = f"/{self.project_name}/{self.stage}/{param_enum.value}"
-                ssm.StringParameter(
-                    self,
-                    f"SsmParam{param_enum.name}",
-                    parameter_name=param_name,
-                    string_value=param_value,
-                    description=descriptions[param_enum],
-                    tier=ssm.ParameterTier.STANDARD,
-                )
-
-
-def _put_secure_ssm_parameter(
-    boto_session: boto3.Session, name: str, value: str
-) -> None:
-    """Write a secret to SSM as a SecureString (encrypted with the account's
-    default SSM KMS key). Done via the API rather than CDK because
-    CloudFormation cannot create a SecureString — a CDK StringParameter would
-    leak the value in plaintext into the synthesized template.
-
-    Skipped when the parameter already holds this value. The CDK CLI runs this
-    app for `cdk synth` exactly as it does for `cdk deploy` and does not tell the
-    app which one it is, so without the read-before-write a plain validation
-    synth (the CI-equivalent command, run locally where the key IS in the
-    environment) silently rewrote a production secret. A synth must not mutate
-    AWS; comparing first makes the common path a no-op.
-    """
-    ssm_client = boto_session.client("ssm")
-    try:
-        current = ssm_client.get_parameter(Name=name, WithDecryption=True)
-        if current["Parameter"]["Value"] == value:
-            logger.info("SSM parameter '%s' already up to date; not writing.", name)
-            return
-    except ClientError as e:
-        if e.response["Error"]["Code"] != "ParameterNotFound":
-            raise
-    ssm_client.put_parameter(
-        Name=name,
-        Value=value,
-        Type="SecureString",
-        Overwrite=True,
-        Description="LangChain API Key (Tech Digest)",
-    )
-    logger.info("Stored SecureString SSM parameter '%s'", name)
+            param_name = f"/{self.project_name}/{self.stage}/{param_enum.value}"
+            ssm.StringParameter(
+                self,
+                f"SsmParam{param_enum.name}",
+                parameter_name=param_name,
+                string_value=param_value,
+                description=descriptions[param_enum],
+                tier=ssm.ParameterTier.STANDARD,
+            )
 
 
 def main() -> None:
     try:
         config = Config.load()
-        # Same precedence as main.py, run_batch.py and the other scripts. Reading
-        # only the env var sent the account lookup and the SecureString write
-        # through the default credential chain whenever the config named a
-        # profile, which can be a different account from the one CDK deploys to.
-        profile_name = (
-            os.environ.get(EnvVars.AWS_PROFILE_NAME.value)
-            or config.resources.profile_name
-        )
-
         logger.info(
             "Synthesizing infrastructure for '%s' in '%s' stage",
             config.resources.project_name,
             config.resources.stage,
         )
 
-        boto_session = boto3.Session(
-            region_name=config.resources.default_region_name, profile_name=profile_name
-        )
-        # Resolve the account from STS, falling back to CDK_DEFAULT_ACCOUNT when
-        # no credentials are available (e.g. `cdk synth` validation in CI).
-        try:
-            account_id = get_account_id(boto_session)
-        except Exception:
-            account_id = os.environ.get("CDK_DEFAULT_ACCOUNT")
-            if not account_id:
-                raise
-            logger.warning(
-                "STS unavailable; using CDK_DEFAULT_ACCOUNT=%s for synth", account_id
-            )
-
-        # Non-secret tracing config goes into the container environment block.
         env_vars: dict[str, str] = {
-            EnvVars.LANGCHAIN_TRACING_V2.value: os.environ.get(
-                EnvVars.LANGCHAIN_TRACING_V2.value, "false"
-            ),
-            EnvVars.LANGCHAIN_ENDPOINT.value: os.environ.get(
-                EnvVars.LANGCHAIN_ENDPOINT.value, ""
-            ),
+            # From the stage config only: the operator's shell and .env (which
+            # Config.load reads) must not switch on third-party tracing in AWS.
+            EnvVars.LANGCHAIN_TRACING_V2.value: str(
+                config.resources.langchain_tracing
+            ).lower(),
             EnvVars.LANGCHAIN_PROJECT.value: config.resources.project_name,
         }
-
-        # The LangChain API key is a secret, so it must NOT be baked into the
-        # synthesized CloudFormation template or the Lambda/Batch environment
-        # block. Keep it out of env_vars entirely and write it separately as an
-        # SSM SecureString once the stack is deployed.
-        langchain_api_key = os.environ.get(EnvVars.LANGCHAIN_API_KEY.value)
 
         parameters = {
             "end_date": AppConstants.NULL_STRING,
@@ -893,6 +730,15 @@ def main() -> None:
             "recipients": AppConstants.NULL_STRING,
         }
 
+        # The app makes no AWS call: `cdk synth` runs it exactly as `cdk deploy`
+        # does, and a synth must neither need credentials nor touch AWS. The CLI
+        # sets CDK_DEFAULT_ACCOUNT from the credentials it deploys with.
+        account_id = os.environ.get("CDK_DEFAULT_ACCOUNT")
+        if not account_id:
+            raise RuntimeError(
+                "CDK_DEFAULT_ACCOUNT is not set: run through the cdk CLI with "
+                "credentials (--profile), or set it for an offline synth."
+            )
         env = core.Environment(
             account=account_id,
             region=config.resources.default_region_name,
@@ -908,7 +754,6 @@ def main() -> None:
             s3_prefix=config.resources.s3_prefix,
             vpc_id=config.resources.vpc_id,
             subnet_ids=config.resources.subnet_ids,
-            lambda_or_batch=config.resources.lambda_or_batch,
             cron_expression=config.resources.cron_expression,
             # Empty when no sender is configured, never ``["None"]`` (which would
             # subscribe "None" to the topic and scope SES to a bogus sender).
@@ -920,18 +765,6 @@ def main() -> None:
             env=env,
         )
         app.synth()
-
-        # Write the secret out-of-band as an SSM SecureString. Skipped during a
-        # credential-less synth (e.g. CI) — there's nothing to write and no
-        # session to write it with.
-        if langchain_api_key and os.environ.get("CDK_SYNTH_ONLY") != "1":
-            _put_secure_ssm_parameter(
-                boto_session,
-                f"/{config.resources.project_name}/{config.resources.stage}/"
-                f"{SSMParams.LANGCHAIN_API_KEY.value}",
-                langchain_api_key,
-            )
-
     except Exception as e:
         logger.error("Error occurred: %s", e, exc_info=True)
         sys.exit(1)

@@ -8,8 +8,8 @@ resources:
   s3_prefix: tech-digest
   vpc_id: # vpc id (if you want to use a specific vpc)
   subnet_ids: # list of subnet ids (if you want to use a specific subnet)
-  lambda_or_batch: batch # lambda or batch
   cron_expression: "cron(0 1 ? * 6 *)"
+  langchain_tracing: false # LangSmith tracing in AWS (key from SSM)
 
 scraping:
   rss_urls:

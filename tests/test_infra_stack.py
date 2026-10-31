@@ -83,7 +83,6 @@ def _synthesize(outdir: Path) -> dict:
         stage=config.resources.stage,
         s3_bucket_name=config.resources.s3_bucket_name,
         s3_prefix=config.resources.s3_prefix,
-        lambda_or_batch="batch",
         cron_expression=config.resources.cron_expression,
         email_addresses=["sender@example.com"],
         parameters={"end_date": "null", "language": "ko", "recipients": "null"},
@@ -302,3 +301,53 @@ def test_compute_environments_use_a_supported_ami(template):
     for env in _resources(template, "AWS::Batch::ComputeEnvironment"):
         images = env["Properties"]["ComputeResources"]["Ec2Configuration"]
         assert [i["ImageType"] for i in images] == ["ECS_AL2023"]
+
+
+def test_the_cdk_app_makes_no_aws_call_and_ignores_local_tracing(monkeypatch, tmp_path):
+    # `cdk synth` runs this app exactly as `cdk deploy` does, with the operator's
+    # .env loaded. Neither the LangChain key nor the local tracing switch may
+    # reach AWS or the deployed stack, and a synth must make no AWS call at all.
+    import botocore.client
+
+    from scripts import deploy_infra
+
+    calls: list[str] = []
+
+    def _no_aws(self, operation_name, api_params):
+        calls.append(operation_name)
+        raise AssertionError(f"AWS call during synth: {operation_name}")
+
+    monkeypatch.setattr(botocore.client.BaseClient, "_make_api_call", _no_aws)
+    monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci-batch")
+    monkeypatch.setenv("CDK_DEFAULT_ACCOUNT", "123456789012")
+    monkeypatch.setenv("CDK_SYNTH_DUMMY_AZS", "1")
+    # Not CDK_OUTDIR: the jsii process already started with the session's env.
+    app_class = deploy_infra.core.App
+    monkeypatch.setattr(
+        deploy_infra.core, "App", lambda: app_class(outdir=str(tmp_path))
+    )
+    monkeypatch.setenv("LANGCHAIN_API_KEY", "not-a-real-key")
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+    monkeypatch.setenv("LANGCHAIN_ENDPOINT", "https://tracing.example.com")
+
+    deploy_infra.main()
+
+    assert calls == []
+    body = (tmp_path / "NewsletterDevStack.template.json").read_text(encoding="utf-8")
+    assert "not-a-real-key" not in body
+    [job_definition] = _resources(json.loads(body), "AWS::Batch::JobDefinition")
+    environment = {
+        e["Name"]: e["Value"]
+        for e in job_definition["Properties"]["ContainerProperties"]["Environment"]
+    }
+    assert environment["LANGCHAIN_TRACING_V2"] == "false"
+    assert "LANGCHAIN_ENDPOINT" not in environment
+
+
+def test_the_cdk_app_needs_the_cli_account(monkeypatch):
+    from scripts import deploy_infra
+
+    monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci-batch")
+    monkeypatch.delenv("CDK_DEFAULT_ACCOUNT", raising=False)
+    with pytest.raises(SystemExit):
+        deploy_infra.main()

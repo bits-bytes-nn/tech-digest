@@ -1,12 +1,11 @@
-# CI-only config used by `cdk synth` in GitHub Actions to validate that the
-# *Batch* infrastructure path compiles (job queue, on-demand + spot compute
-# environments, EcsEc2 container with Ref:: job parameters, EventBridge ->
-# Batch target). Mirrors config-ci.yaml but in batch mode. Values are dummy
-# placeholders, not real resources.
+# CI-only config used by `cdk synth` in GitHub Actions and by
+# tests/test_infra_stack.py to validate that the infrastructure compiles (job
+# queue, on-demand + spot compute environments, EcsEc2 container with Ref:: job
+# parameters, EventBridge -> Batch target). Values are dummy placeholders, not
+# real resources.
 #
-# The Batch + new-VPC topology is the production combination; synthesizing it in
-# CI (alongside the Lambda path) catches infra regressions there too. New-VPC
-# creation works without credentials thanks to CDK_SYNTH_DUMMY_AZS=1.
+# It leaves vpc_id unset, so the stack creates a new VPC, the production
+# topology; that works without credentials thanks to CDK_SYNTH_DUMMY_AZS=1.
 resources:
   project_name: tech-digest
   stage: dev
@@ -14,7 +13,6 @@ resources:
   bedrock_region_name: us-west-2
   s3_bucket_name: tech-digest-ci-placeholder-bucket
   s3_prefix: tech-digest
-  lambda_or_batch: batch
   cron_expression: "cron(0 1 ? * 6 *)"
 
 scraping:

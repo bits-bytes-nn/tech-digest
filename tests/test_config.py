@@ -22,7 +22,7 @@ class TestResources:
         r = Resources(project_name="tech-digest", s3_bucket_name="my-bucket")
         assert r.stage == "dev"
         assert r.default_region_name == "ap-northeast-2"
-        assert r.lambda_or_batch == "lambda"
+        assert r.langchain_tracing is False
 
     def test_invalid_stage_rejected(self):
         with pytest.raises(ValidationError):
@@ -272,7 +272,7 @@ class TestNewestModelsAreSelectable:
         )
         assert section["greeting_model_id"] == LanguageModelId.CLAUDE_V5_5_HAIKU.value
 
-    @pytest.mark.parametrize("name", ["config-ci.yaml", "config-ci-batch.yaml"])
+    @pytest.mark.parametrize("name", ["config-ci-batch.yaml"])
     def test_ci_configs_use_the_template_models(self, name):
         template = self._summarization("config-template.yaml")
         section = self._summarization(name)
@@ -302,7 +302,7 @@ class TestCommittedSourcesReachTheirScraper:
 
     @pytest.mark.parametrize(
         "config_file",
-        ["config-template.yaml", "config-ci.yaml", "config-ci-batch.yaml"],
+        ["config-template.yaml", "config-ci-batch.yaml"],
     )
     def test_no_scraper_host_falls_through_to_rss(self, config_file):
         from urllib.parse import urlparse
