@@ -584,7 +584,7 @@ explanations that make complex technical concepts accessible without sacrificing
   "3,200 Gbps", "16 GPUs across 2 nodes"). Never replace a number with an adjective like "significantly
   faster" — once the figures are gone the summary is useless to a practitioner
 - If the article contains code, configuration, CLI or a schema, include at least the most load-bearing
-  snippet in `<pre><code class="highlight">` (never invent one that is not in the source)
+  snippet in `<pre><code>` (never invent one that is not in the source)
 - When three or more numbers are being compared, put them in a TABLE rather than in prose, and do not
   repeat the table's values in the surrounding text
 - When you shorten a code snippet, mark each omitted span with `...` rather than silently splicing lines
@@ -624,7 +624,7 @@ with the technical deep dive section.
 <h3>🛠️ Technical Deep Dive</h3>
 Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 
 with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
-scalability considerations, edge cases, and known limitations. Use <pre><code class="highlight"> for code blocks. Write 
+scalability considerations, edge cases, and known limitations. Use <pre><code> for code blocks. Write 
 as a cohesive narrative. Be detailed but avoid repeating information already covered in other 
 sections.
 
@@ -643,7 +643,7 @@ avoid speculation.
 - Format comparisons and data in HTML tables when appropriate
 - No sub-headings (h4-h6) inside a section; a bold run-in label at the start of a paragraph is fine
 - Inline code goes in <code>, never Markdown backticks; write math as plain text or Unicode (QKᵀ), never LaTeX
-- Ensure all code uses <pre><code class="highlight"> blocks
+- Ensure all code uses <pre><code> blocks
 - Make technical explanations accessible but accurate
 - Use one name per concept throughout; do not alternate between synonyms for the same component
 - No meta-commentary about following these instructions
@@ -770,7 +770,7 @@ Korean:
   "3,200Gbps", "2노드 16 GPU"). 숫자를 "크게 개선"처럼 형용사로 바꾸지 마세요 — 수치가
   사라지면 이 요약은 실무자에게 쓸모가 없어집니다
 - 원문에 **코드·설정·CLI·스키마가 있으면**, 가장 핵심적인 조각을 최소 하나
-  `<pre><code class="highlight">`로 실으세요(원문에 없으면 만들어내지 마세요)
+  `<pre><code>`로 실으세요(원문에 없으면 만들어내지 마세요)
 - 수치가 3개 이상 비교되면 산문으로 늘어놓지 말고 **표**로 만드세요. 표에 넣은 값은 본문에서 다시 쓰지 마세요
 - 코드 조각을 줄일 때는 생략한 부분을 `...`로 표시하세요. 떨어진 줄을 말없이 이어 붙이지 마세요
 - 파라미터·플래그·임계값의 **이름을 그대로** 쓰세요(`routingThreshold`, `PD_BUFFER_SIZE`)
@@ -808,7 +808,7 @@ Avoid redundancy with the technical deep dive section.
 <h3>🛠️ 기술적 심층 분석</h3>
 Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 
 with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
-scalability considerations, edge cases, and known limitations. Use <pre><code class="highlight"> for code blocks. Write 
+scalability considerations, edge cases, and known limitations. Use <pre><code> for code blocks. Write 
 as a cohesive narrative. Be detailed but avoid repeating information already covered in other 
 sections.
 
@@ -827,7 +827,7 @@ avoid speculation.
 - Format comparisons and data in HTML tables when appropriate
 - No sub-headings (h4-h6) inside a section; a bold run-in label at the start of a paragraph is fine
 - Inline code goes in <code>, never Markdown backticks; write math as plain text or Unicode (QKᵀ), never LaTeX
-- Ensure all code uses <pre><code class="highlight"> blocks
+- Ensure all code uses <pre><code> blocks
 - Make technical explanations accessible but accurate
 - Write content in Korean, translating technical terms when possible
 - Keep technical terms in English only when translation would be awkward or unclear
