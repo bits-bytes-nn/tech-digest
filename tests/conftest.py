@@ -18,6 +18,19 @@ import pytest
 # the same file a real local run writes.
 os.environ.setdefault("LOG_TO_FILE", "false")
 
+# The variables ``is_running_in_aws`` reads. CodeBuild and CloudShell set
+# AWS_EXECUTION_ENV, and a test run there would take every AWS branch (no profile,
+# /tmp as ROOT_DIR, real alert paths). Cleared before any app import because
+# main.py resolves ROOT_DIR at import time, and again per test below.
+AWS_RUNTIME_ENV_VARS: tuple[str, ...] = (
+    "AWS_EXECUTION_ENV",
+    "AWS_LAMBDA_FUNCTION_NAME",
+    "AWS_BATCH_JOB_ID",
+    "ECS_CONTAINER_METADATA_URI",
+)
+for _name in AWS_RUNTIME_ENV_VARS:
+    os.environ.pop(_name, None)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -68,6 +81,14 @@ def propagating_logger():
         yield logger
     finally:
         logger.propagate = original
+
+
+@pytest.fixture(autouse=True)
+def not_in_aws(monkeypatch):
+    """Every test starts outside AWS; a test wanting the AWS branch patches
+    ``is_running_in_aws`` or sets one of these itself."""
+    for name in AWS_RUNTIME_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)

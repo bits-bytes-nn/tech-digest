@@ -59,7 +59,7 @@ jobs:
           COVERAGE_CORE: sysmon
         run: >-
           pytest --cov=app --cov-report=term-missing --cov-report=xml
-          --cov-fail-under=87
+          --cov-fail-under=93
 
       - name: Filtering eval harness (dry run — no AWS, no cost)
         # Validates the eval set + analysis wiring stay healthy. The live
