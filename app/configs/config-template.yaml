@@ -64,8 +64,9 @@ summarization:
   min_score: 0.75
   # Keep max_posts modest: mail clients truncate a message over ~100 KB, and each
   # article card costs roughly 12-16 KB. The build logs the rendered size and
-  # warns when an issue would be clipped.
-  max_posts: 5
+  # warns when an issue would be clipped. 5 needs the KO budget tightened to
+  # ~4,000 chars (design.md §9).
+  max_posts: 3
   # Optional cap on articles from any single source, applied after score ranking;
   # slots the cap frees are backfilled in rank order, so it changes WHICH posts
   # ship, never how many. Leave blank for a single-vendor digest
@@ -88,19 +89,19 @@ summarization:
   # Extended-thinking budgets (tokens), used only when *_enable_thinking is True.
   # Must be >= 1024 and < the model's max output tokens (auto-clamped otherwise).
   # NOTE: adaptive-thinking models (Sonnet 5+) IGNORE these budgets — they are
-  # steered by `thinking_effort` below. The budgets apply only to legacy
-  # budget-thinking models (Sonnet 4.x / older).
+  # steered by `thinking_effort` below. The budgets apply only to the
+  # budget-thinking models (Haiku 4.5, Sonnet 4.6, Opus 4.5 / 4.6).
   # Leave unset unless a budget-thinking model is configured; an explicit value
   # on an adaptive model only logs that it is ignored.
   # filtering_thinking_budget_tokens: 4096
   # summarization_thinking_budget_tokens: 8192
-  # Reasoning depth for newer models (Sonnet 5+ / Opus 5 / 5.5 / Fable 5.1 / GPT-6):
+  # Reasoning depth for newer models (Sonnet 5+ / Opus 4.7+ / Fable 5.1 / GPT-6 / 6.1):
   #   low | medium | high | xhigh | max
-  # Blank = model default ("medium" on Opus 5.5, Haiku 5.5 and GPT-6, "high"
+  # Blank = model default ("medium" on Opus 5.5, Haiku 5.5 and the GPT models, "high"
   # elsewhere). Applies only while thinking is on — except on models that cannot
   # stop thinking (Opus 5.5, Fable 5.1, GPT-6.1 Sol, GPT-6 Astra), which get it
-  # with *_enable_thinking False too. Ignored by legacy budget-thinking models
-  # (Sonnet 4.x and older).
+  # with *_enable_thinking False too. Ignored by the budget-thinking models
+  # (Haiku 4.5, Sonnet 4.6, Opus 4.5 / 4.6).
   thinking_effort:
   # Optional cap on summary output tokens (blank = use the model's maximum).
   summarization_max_tokens:
