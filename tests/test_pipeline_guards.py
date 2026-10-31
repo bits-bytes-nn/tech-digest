@@ -17,13 +17,9 @@ from pathlib import Path
 import pytest
 
 from app import main, run_batch
+from app.application import alerts, delivery, pipeline
+from app.application.delivery import DeliveryOutcome
 from app.domain.constants import Language
-
-
-@pytest.fixture(autouse=True)
-def no_suppression_list(monkeypatch):
-    """The send loop reads the SES suppression list; these tests use fake sessions."""
-    monkeypatch.setattr(main, "suppressed_destinations", lambda _session: set())
 
 
 class TestRunBatchRecipients:
@@ -73,7 +69,7 @@ class TestCliExitCode:
 
 class TestUniqueRecipients:
     def test_case_insensitive_and_first_spelling_kept(self):
-        assert main._unique(["A@x.com", "b@x.com", "a@x.com", " b@x.com"]) == [
+        assert delivery._unique(["A@x.com", "b@x.com", "a@x.com", " b@x.com"]) == [
             "A@x.com",
             "b@x.com",
         ]
@@ -81,18 +77,13 @@ class TestUniqueRecipients:
 
 class TestAlertsNeverAbortDelivery:
     def test_publish_error_is_logged_not_raised(self, caplog):
-        class _BrokenSNS:
-            def publish(self, **kwargs):
+        class _BrokenPublisher:
+            def publish(self, subject, message):
                 raise RuntimeError("throttled")
 
-        class _Session:
-            def client(self, service):
-                return _BrokenSNS()
-
         with caplog.at_level(logging.ERROR, logger="app"):
-            main._publish_alarm(
-                _Session(),
-                "arn:aws:sns:us-east-1:0:t",
+            alerts._publish_alarm(
+                _BrokenPublisher(),
                 project="p",
                 event="Crawl Health",
                 status="ALERT",
@@ -103,7 +94,7 @@ class TestAlertsNeverAbortDelivery:
 
 class TestGreetingFailureKeepsTheIssue:
     @pytest.mark.parametrize("language", [Language.KO, Language.EN])
-    def test_fixed_intro_in_the_issues_language(self, monkeypatch, language):
+    def test_fixed_intro_in_the_issues_language(self, monkeypatch, tmp_path, language):
         class _FailingGreeter:
             def __init__(self, *args, **kwargs):
                 pass
@@ -111,23 +102,27 @@ class TestGreetingFailureKeepsTheIssue:
             def greet(self, context=None):
                 raise RuntimeError("Bedrock unavailable")
 
-        monkeypatch.setattr(main, "Greeter", _FailingGreeter)
+        monkeypatch.setattr(pipeline, "Greeter", _FailingGreeter)
         monkeypatch.setattr(
-            main, "_save_greeting_to_file", lambda *a: pytest.fail("nothing to save")
+            pipeline,
+            "_save_greeting_to_file",
+            lambda *a: pytest.fail("nothing to save"),
         )
 
         class _Config:
             class summarization:
                 greeting_model_id = "unused"
 
-        intro = main._generate_greeting(
-            [], "2026-10-10", _Config(), lambda: None, language
+        intro = pipeline._generate_greeting(
+            [], "2026-10-10", _Config(), lambda: None, language, tmp_path
         )
-        assert intro == main.FALLBACK_INTRO[language]
+        assert intro == pipeline.FALLBACK_INTRO[language]
 
 
 class TestGreetingContext:
-    def test_the_greeting_sees_the_summary_opening_not_only_the_lede(self, monkeypatch):
+    def test_the_greeting_sees_the_summary_opening_not_only_the_lede(
+        self, monkeypatch, tmp_path
+    ):
         from app.domain.post import Post
 
         seen = {}
@@ -140,8 +135,8 @@ class TestGreetingContext:
                 seen["context"] = context
                 return "hi"
 
-        monkeypatch.setattr(main, "Greeter", _Greeter)
-        monkeypatch.setattr(main, "_save_greeting_to_file", lambda *a: None)
+        monkeypatch.setattr(pipeline, "Greeter", _Greeter)
+        monkeypatch.setattr(pipeline, "_save_greeting_to_file", lambda *a: None)
 
         class _Config:
             class summarization:
@@ -154,8 +149,8 @@ class TestGreetingContext:
             one_liner="Image pulls drop from minutes to seconds.",
             summary="<h3>📌 개요</h3><p>Lazy loading <em>starts</em> jobs early.</p><p>x</p>",
         )
-        main._generate_greeting(
-            [post], "2026-10-31", _Config(), lambda: None, Language.KO
+        pipeline._generate_greeting(
+            [post], "2026-10-31", _Config(), lambda: None, Language.KO, tmp_path
         )
         assert "Image pulls drop from minutes to seconds." in seen["context"]
         assert "summary opening: Lazy loading starts jobs early." in seen["context"]
@@ -168,7 +163,7 @@ class TestTitleCaseFailureKeepsTheTitles:
         def _broken(*args, **kwargs):
             raise ValueError("Unsupported model ID")
 
-        monkeypatch.setattr(main, "TitleCaser", _broken)
+        monkeypatch.setattr(pipeline, "TitleCaser", _broken)
 
         class _Config:
             class summarization:
@@ -177,7 +172,7 @@ class TestTitleCaseFailureKeepsTheTitles:
         post = Post(
             title="a guide", link="https://x.example/p", published_date="2026-10-09"
         )
-        main._title_case_titles([post], _Config(), lambda: None)
+        pipeline._title_case_titles([post], _Config(), lambda: None)
         assert post.title == "a guide"
 
     def test_recased_titles_replace_the_feed_titles_in_order(self, monkeypatch):
@@ -190,7 +185,7 @@ class TestTitleCaseFailureKeepsTheTitles:
             def recase(self, titles):
                 return [t.title() for t in titles]
 
-        monkeypatch.setattr(main, "TitleCaser", _Caser)
+        monkeypatch.setattr(pipeline, "TitleCaser", _Caser)
 
         class _Config:
             class summarization:
@@ -200,7 +195,7 @@ class TestTitleCaseFailureKeepsTheTitles:
             Post(title=t, link=f"https://x.example/{i}", published_date="2026-10-09")
             for i, t in enumerate(["first post", "second post"])
         ]
-        main._title_case_titles(posts, _Config(), lambda: None)
+        pipeline._title_case_titles(posts, _Config(), lambda: None)
         assert [p.title for p in posts] == ["First Post", "Second Post"]
 
 
@@ -268,14 +263,20 @@ class TestRecipientsOverrideInTheContainer:
         class newsletter:
             send_emails = True
 
-    def test_an_all_invalid_override_never_falls_back_to_the_list(self, monkeypatch):
+    def test_an_all_invalid_override_never_falls_back_to_the_list(self, tmp_path):
         downloads = []
-        monkeypatch.setattr(
-            main,
-            "_download_recipients_file",
-            lambda *a, **k: downloads.append(a) or True,
+
+        class _Store:
+            def download(self, key, local_path):
+                downloads.append(key)
+                return True
+
+        assert (
+            delivery._get_recipients(
+                self._Cfg(), _Store(), tmp_path, ["not-an-address"]
+            )
+            == []
         )
-        assert main._get_recipients(self._Cfg(), object(), ["not-an-address"]) == []
         assert downloads == []
 
     def test_the_override_reaches_the_send_phase_and_archives_as_a_test(
@@ -288,10 +289,10 @@ class TestRecipientsOverrideInTheContainer:
         post = Post(title="t", link="https://x.example/p", published_date="2026-10-09")
         monkeypatch.setattr(main.Config, "load", classmethod(lambda cls: self._Cfg()))
         monkeypatch.setattr(main, "_setup_aws_env", lambda *a: None)
-        monkeypatch.setattr(main, "_log_run_summary", lambda *a: None)
+        monkeypatch.setattr(main, "log_run_summary", lambda *a: None)
         monkeypatch.setattr(
             main,
-            "_fetch_and_filter_posts",
+            "fetch_and_filter_posts",
             lambda *a, **k: ([post], "2026-10-10", [], CrawlReport()),
         )
 
@@ -299,12 +300,12 @@ class TestRecipientsOverrideInTheContainer:
             seen["archive_suffix"] = k["archive_suffix"]
             return tmp_path / "n.html"
 
-        def send(_path, _date, _cfg, _session, _language, recipients):
+        def send(_path, _date, _cfg, _store, _mailer, _language, _root, recipients):
             seen["recipients"] = recipients
-            return main.DeliveryOutcome(resolved=1, attempted=1, succeeded=1)
+            return DeliveryOutcome(resolved=1, attempted=1, succeeded=1)
 
-        monkeypatch.setattr(main, "_process_posts_and_create_newsletter", build)
-        monkeypatch.setattr(main, "_process_newsletter_emails", send)
+        monkeypatch.setattr(main, "process_posts_and_create_newsletter", build)
+        monkeypatch.setattr(main, "process_newsletter_emails", send)
         result = main.handler({"RECIPIENTS": "me@example.com"}, None)
         assert result["statusCode"] == 200
         assert seen == {"archive_suffix": "tests", "recipients": ["me@example.com"]}
@@ -317,12 +318,12 @@ class TestArchiveKeys:
     _Cfg = TestRecipientsOverrideInTheContainer._Cfg
 
     def _suffix(self, monkeypatch, delivered, recipients=None, attempt=None):
-        monkeypatch.setattr(main, "_already_delivered", lambda *a: set(delivered))
+        monkeypatch.setattr(delivery, "_already_delivered", lambda *a: set(delivered))
         if attempt:
             monkeypatch.setenv("AWS_BATCH_JOB_ATTEMPT", attempt)
         else:
             monkeypatch.delenv("AWS_BATCH_JOB_ATTEMPT", raising=False)
-        return main._archive_suffix(
+        return delivery.archive_suffix(
             self._Cfg(), object(), "2026-10-10", Language.KO, recipients
         )
 
@@ -352,7 +353,7 @@ class TestArchiveKeys:
                 assert tz is UTC
                 return datetime(2026, 10, 10, 9, 30, 5, tzinfo=UTC)
 
-        monkeypatch.setattr(main, "datetime", _Frozen)
+        monkeypatch.setattr(delivery, "datetime", _Frozen)
         assert self._suffix(monkeypatch, delivered=["a@x.com"]) == (
             "retries/20261010T093005"
         )
@@ -368,24 +369,37 @@ class TestArchiveKeys:
         prefixes = []
         newsletter = tmp_path / "n.html"
         article = tmp_path / "articles" / "a.html"
-        monkeypatch.setattr(main, "_prepare_and_save_posts", lambda *a: tmp_path)
-        monkeypatch.setattr(main, "_generate_greeting", lambda *a: "hi")
-        monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
+        monkeypatch.setattr(pipeline, "_prepare_and_save_posts", lambda *a: tmp_path)
+        monkeypatch.setattr(pipeline, "_generate_greeting", lambda *a: "hi")
         monkeypatch.setattr(
-            main, "_build_newsletter", lambda *a: (newsletter, [article.name])
+            pipeline, "_build_newsletter", lambda *a: (newsletter, [article.name])
         )
         monkeypatch.setattr(
-            main,
-            "_upload_files_to_s3",
+            pipeline,
+            "_upload_files",
             lambda _paths, prefix, *a: prefixes.append(prefix),
         )
-        main._process_posts_and_create_newsletter(
-            [], "2026-10-10", self._Cfg(), None, None, archive_suffix=suffix
+        pipeline.process_posts_and_create_newsletter(
+            [],
+            "2026-10-10",
+            self._Cfg(),
+            None,
+            None,
+            None,
+            tmp_path,
+            archive_suffix=suffix,
         )
         assert prefixes == expected
 
 
 class TestModelFailureAlert:
+    class _Publisher:
+        def __init__(self):
+            self.published: list[dict] = []
+
+        def publish(self, subject, message):
+            self.published.append({"Subject": subject, "Message": message})
+
     class _SNS:
         def __init__(self):
             self.published: list[dict] = []
@@ -408,10 +422,9 @@ class TestModelFailureAlert:
         )
 
     def test_a_shipped_issue_with_failed_calls_alerts(self):
-        sns = self._SNS()
-        main._maybe_send_model_failure_alert(
-            self._Session(sns),
-            "arn:topic",
+        publisher = self._Publisher()
+        alerts.maybe_send_model_failure_alert(
+            publisher,
             "tech-digest",
             [self._post("kept")],
             [
@@ -419,20 +432,19 @@ class TestModelFailureAlert:
                 (self._post("low"), "Off topic."),
             ],
         )
-        [message] = sns.published
+        [message] = publisher.published
         assert "Model Failures" in message["Subject"]
         assert "lost" in message["Message"] and "low" not in message["Message"]
 
     def test_verdicts_alone_do_not_alert(self):
-        sns = self._SNS()
-        main._maybe_send_model_failure_alert(
-            self._Session(sns),
-            "arn:topic",
+        publisher = self._Publisher()
+        alerts.maybe_send_model_failure_alert(
+            publisher,
             "tech-digest",
             [self._post("kept")],
             [(self._post("low"), "Off topic.")],
         )
-        assert sns.published == []
+        assert publisher.published == []
 
 
 class TestModelFailureAlertFromTheHandler:
@@ -449,6 +461,8 @@ class TestModelFailureAlertFromTheHandler:
                 profile_name = None
                 default_region_name = "ap-northeast-2"
                 bedrock_region_name = "us-west-2"
+                # Read when the handler builds the store for archiving.
+                s3_bucket_name = "bucket"
 
             class scraping:
                 expected_flaky_urls = ()
@@ -469,11 +483,11 @@ class TestModelFailureAlertFromTheHandler:
         monkeypatch.setattr(main, "_boto_sessions", lambda _cfg: (session, session))
         monkeypatch.setattr(main.Config, "load", classmethod(lambda cls: _Cfg()))
         monkeypatch.setattr(main, "_setup_aws_env", lambda *a: None)
-        monkeypatch.setattr(main, "_log_run_summary", lambda *a: None)
-        monkeypatch.setattr(main, "_archive_suffix", lambda *a: "")
+        monkeypatch.setattr(main, "log_run_summary", lambda *a: None)
+        monkeypatch.setattr(main, "archive_suffix", lambda *a: "")
         monkeypatch.setattr(
             main,
-            "_fetch_and_filter_posts",
+            "fetch_and_filter_posts",
             lambda *a, **k: (
                 [kept],
                 "2026-10-10",
@@ -482,7 +496,7 @@ class TestModelFailureAlertFromTheHandler:
             ),
         )
         monkeypatch.setattr(
-            main, "_process_posts_and_create_newsletter", lambda *a, **k: newsletter
+            main, "process_posts_and_create_newsletter", lambda *a, **k: newsletter
         )
         assert main.handler({}, None)["statusCode"] == 200
         assert [m["Subject"] for m in sns.published] == [

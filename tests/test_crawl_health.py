@@ -444,7 +444,7 @@ class TestTruncatedFeeds:
     def test_run_summary_counts_truncated_sources(self, caplog, propagating_logger):
         import json
 
-        from app import main
+        from app.application import pipeline
         from app.domain.constants import Language
 
         report = CrawlReport(
@@ -459,7 +459,7 @@ class TestTruncatedFeeds:
             ]
         )
         with caplog.at_level("INFO"):
-            main._log_run_summary(report, [], [], Language.EN)
+            pipeline.log_run_summary(report, [], [], Language.EN)
         line = next(
             r.getMessage() for r in caplog.records if "RUN_SUMMARY" in r.getMessage()
         )

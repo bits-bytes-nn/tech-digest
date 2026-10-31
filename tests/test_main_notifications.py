@@ -1,5 +1,6 @@
-"""Tests for main.py notification wiring: the crawl-health SNS alert and the
-success notification's crawl summary. Uses a fake boto session — no AWS."""
+"""Tests for the alerts, the send phase and the handler that wires them: the
+crawl-health alert, the delivery ledger and the alarms the handler raises. Uses
+fake ports and a fake boto session — no AWS."""
 
 from __future__ import annotations
 
@@ -9,16 +10,67 @@ from copy import deepcopy
 import pytest
 
 from app import main
+from app.application import alerts, delivery, pipeline
+from app.application.delivery import DeliveryOutcome
+from app.domain.constants import Language
 from app.domain.crawl import CrawlReport, SourceHealth, SourceStatus
 
-
-@pytest.fixture(autouse=True)
-def no_suppression_list(monkeypatch):
-    """The send loop reads the SES suppression list; these tests use fake sessions."""
-    monkeypatch.setattr(main, "suppressed_destinations", lambda _session: set())
-
-
 PROJECT = "tech-digest"
+
+
+class _FakePublisher:
+    """An AlarmPublisher that records each alarm, keyed like an SNS publish."""
+
+    def __init__(self):
+        self.published: list[dict] = []
+
+    def publish(self, subject, message):
+        self.published.append({"Subject": subject, "Message": message})
+
+
+class _FakeMailer:
+    """A Mailer whose sends succeed unless ``results`` says otherwise."""
+
+    def __init__(self, results=None, suppressed=()):
+        self.calls: list[tuple] = []
+        self._results = iter(results) if results is not None else None
+        self._suppressed = set(suppressed)
+
+    def send(self, subject, sender, recipients, html_content):
+        self.calls.append((subject, sender, recipients, html_content))
+        return next(self._results) if self._results is not None else True
+
+    def suppressed_destinations(self):
+        return set(self._suppressed)
+
+    @property
+    def sent(self) -> list[str]:
+        return [recipients[0] for _s, _f, recipients, _h in self.calls]
+
+
+class _FakeStore:
+    """An ObjectStore holding at most a delivery ledger, recording every access."""
+
+    def __init__(self, ledger=None):
+        self.ledger = ledger
+        self.reads: list[str] = []
+        self.writes: list[dict] = []
+
+    def read_json(self, key):
+        self.reads.append(key)
+        return self.ledger
+
+    def write_json(self, key, payload):
+        # Deep-copy the payload: the real store serializes it immediately, while
+        # a kept reference would show the loop's later appends in every write.
+        self.writes.append(deepcopy(payload))
+        return True
+
+    def download(self, key, local_path):
+        raise AssertionError("recipients are stubbed in these tests")
+
+    def upload(self, local_path, prefix=""):
+        raise AssertionError("nothing is archived in these tests")
 
 
 class _FakeSNS:
@@ -61,10 +113,10 @@ def failing_report() -> CrawlReport:
 
 class TestCrawlHealthAlert:
     def test_alert_published_with_failures(self, failing_report):
-        session = _FakeSession()
-        main._send_crawl_health_alert(session, "arn:topic", PROJECT, failing_report, [])
-        assert len(session.sns.published) == 1
-        msg = session.sns.published[0]
+        publisher = _FakePublisher()
+        alerts.send_crawl_health_alert(publisher, PROJECT, failing_report, [])
+        assert len(publisher.published) == 1
+        msg = publisher.published[0]
         assert "Crawl Health" in msg["Subject"]
         assert "ALERT" in msg["Subject"]
         assert "ai.meta.com/blog" in msg["Message"]
@@ -73,11 +125,11 @@ class TestCrawlHealthAlert:
     def test_expected_flaky_source_does_not_alert(self, failing_report):
         """A source that is known to reject AWS egress IPs every week must not
         page, or the alarm becomes noise that hides a genuinely new breakage."""
-        session = _FakeSession()
-        main._send_crawl_health_alert(
-            session, "arn:topic", PROJECT, failing_report, ["ai.meta.com"]
+        publisher = _FakePublisher()
+        alerts.send_crawl_health_alert(
+            publisher, PROJECT, failing_report, ["ai.meta.com"]
         )
-        assert session.sns.published == []
+        assert publisher.published == []
 
     def test_unexpected_failure_still_alerts_when_others_are_allowed(
         self, failing_report
@@ -90,12 +142,12 @@ class TestCrawlHealthAlert:
                 error="selector changed",
             )
         )
-        session = _FakeSession()
-        main._send_crawl_health_alert(
-            session, "arn:topic", PROJECT, failing_report, ["ai.meta.com"]
+        publisher = _FakePublisher()
+        alerts.send_crawl_health_alert(
+            publisher, PROJECT, failing_report, ["ai.meta.com"]
         )
-        assert len(session.sns.published) == 1
-        assert "research.google/blog" in session.sns.published[0]["Message"]
+        assert len(publisher.published) == 1
+        assert "research.google/blog" in publisher.published[0]["Message"]
 
     def test_report_failed_partition(self, failing_report):
         assert len(failing_report.failed) == 1
@@ -127,12 +179,12 @@ class TestCrawlHealthAlert:
         posts, so it used to be one more line among the ~12 EMPTY sources a normal
         run has. Nothing paged, and a moved feed could sit there for weeks.
         """
-        session = _FakeSession()
-        main._send_crawl_health_alert(
-            session, "arn:topic", PROJECT, self._empty("https://moved/rss", 0), []
+        publisher = _FakePublisher()
+        alerts.send_crawl_health_alert(
+            publisher, PROJECT, self._empty("https://moved/rss", 0), []
         )
-        assert len(session.sns.published) == 1
-        msg = session.sns.published[0]["Message"]
+        assert len(publisher.published) == 1
+        msg = publisher.published[0]["Message"]
         assert "Sources offering nothing: 1" in msg
         assert "https://moved/rss" in msg
 
@@ -140,18 +192,18 @@ class TestCrawlHealthAlert:
         """A blog that published nothing must never page, or the alarm fires on the
         ~12 normally-empty sources and becomes noise nobody reads — the same failure
         expected_flaky_urls exists to prevent."""
-        session = _FakeSession()
-        main._send_crawl_health_alert(
-            session, "arn:topic", PROJECT, self._empty("https://quiet/rss", 14), []
+        publisher = _FakePublisher()
+        alerts.send_crawl_health_alert(
+            publisher, PROJECT, self._empty("https://quiet/rss", 14), []
         )
-        assert session.sns.published == []
+        assert publisher.published == []
 
     def test_an_unknown_count_does_not_alert(self):
-        session = _FakeSession()
-        main._send_crawl_health_alert(
-            session, "arn:topic", PROJECT, self._empty("https://unknown/rss", None), []
+        publisher = _FakePublisher()
+        alerts.send_crawl_health_alert(
+            publisher, PROJECT, self._empty("https://unknown/rss", None), []
         )
-        assert session.sns.published == []
+        assert publisher.published == []
 
     def _unreadable(self) -> CrawlReport:
         return CrawlReport(
@@ -167,50 +219,46 @@ class TestCrawlHealthAlert:
         )
 
     def test_a_source_with_unreadable_pages_alerts(self):
-        session = _FakeSession()
-        main._send_crawl_health_alert(
-            session, "arn:topic", PROJECT, self._unreadable(), []
-        )
-        assert len(session.sns.published) == 1
-        msg = session.sns.published[0]["Message"]
+        publisher = _FakePublisher()
+        alerts.send_crawl_health_alert(publisher, PROJECT, self._unreadable(), [])
+        assert len(publisher.published) == 1
+        msg = publisher.published[0]["Message"]
         assert re.search(r"Unreadable article pages:\s+1", msg)
         assert re.search(r"Check these:\s+https://openai.com/news/rss.xml", msg)
 
     def test_expected_flaky_suppresses_the_unreadable_pages_trigger(self):
-        session = _FakeSession()
-        main._send_crawl_health_alert(
-            session, "arn:topic", PROJECT, self._unreadable(), ["openai.com"]
+        publisher = _FakePublisher()
+        alerts.send_crawl_health_alert(
+            publisher, PROJECT, self._unreadable(), ["openai.com"]
         )
-        assert session.sns.published == []
+        assert publisher.published == []
 
     def test_expected_flaky_suppresses_the_offering_nothing_trigger_too(self):
         """x.ai is blocked from AWS egress IPs every week; whether that shows up as
         FAILED or as zero candidates, it must not page."""
-        session = _FakeSession()
-        main._send_crawl_health_alert(
-            session,
-            "arn:topic",
+        publisher = _FakePublisher()
+        alerts.send_crawl_health_alert(
+            publisher,
             PROJECT,
             self._empty("https://x.ai/news", 0),
             ["x.ai/news"],
         )
-        assert session.sns.published == []
+        assert publisher.published == []
 
 
 class TestPartialDeliveryAlert:
     def test_alert_on_partial_failure_includes_crawl_summary(self, failing_report):
-        session = _FakeSession()
-        main._maybe_send_partial_delivery_alert(
-            session,
-            "arn:topic",
+        publisher = _FakePublisher()
+        alerts.maybe_send_partial_delivery_alert(
+            publisher,
             PROJECT,
             success_count=2,
             total_recipients=3,
             failed_recipients=["bad@example.com"],
             crawl_report=failing_report,
         )
-        assert len(session.sns.published) == 1
-        published = session.sns.published[0]
+        assert len(publisher.published) == 1
+        published = publisher.published[0]
         assert "ALERT" in published["Subject"]
         msg = published["Message"]
         assert "2/3" in msg
@@ -219,17 +267,16 @@ class TestPartialDeliveryAlert:
         assert "1 ok" in msg and "1 failed" in msg
 
     def test_no_alert_on_full_success(self, failing_report):
-        session = _FakeSession()
-        main._maybe_send_partial_delivery_alert(
-            session,
-            "arn:topic",
+        publisher = _FakePublisher()
+        alerts.maybe_send_partial_delivery_alert(
+            publisher,
             PROJECT,
             success_count=3,
             total_recipients=3,
             failed_recipients=[],
             crawl_report=failing_report,
         )
-        assert session.sns.published == []
+        assert publisher.published == []
 
 
 class TestEmptyDigestAlert:
@@ -255,19 +302,19 @@ class TestEmptyDigestAlert:
         )
 
     def test_alert_when_all_posts_filtered_out(self):
-        session = _FakeSession()
+        publisher = _FakePublisher()
         filtered_out = [
             (self._post("A"), "Filtering failed (no model response)."),
             (self._post("B"), "Filtering failed (no model response)."),
             (self._post("C"), "Low relevance score."),
         ]
-        main._maybe_send_empty_digest_alert(
-            session, "arn:topic", PROJECT, self._report(3), filtered_out
+        alerts.maybe_send_empty_digest_alert(
+            publisher, PROJECT, self._report(3), filtered_out
         )
-        assert len(session.sns.published) == 1
-        msg = session.sns.published[0]["Message"]
-        assert "Empty Digest" in session.sns.published[0]["Subject"]
-        assert "ALERT" in session.sns.published[0]["Subject"]
+        assert len(publisher.published) == 1
+        msg = publisher.published[0]["Message"]
+        assert "Empty Digest" in publisher.published[0]["Subject"]
+        assert "ALERT" in publisher.published[0]["Subject"]
         # Reason breakdown surfaces the dominant cause (mass model failure here).
         assert "2x Filtering failed (no model response)." in msg
         assert "1x Low relevance score." in msg
@@ -275,21 +322,19 @@ class TestEmptyDigestAlert:
     def test_no_alert_when_nothing_collected(self):
         # An empty crawl is covered by crawl-health alerts, not this one — even
         # if something was recorded as filtered out.
-        session = _FakeSession()
+        publisher = _FakePublisher()
         filtered_out = [(self._post("A"), "Low relevance score.")]
-        main._maybe_send_empty_digest_alert(
-            session, "arn:topic", PROJECT, self._report(0), filtered_out
+        alerts.maybe_send_empty_digest_alert(
+            publisher, PROJECT, self._report(0), filtered_out
         )
-        assert session.sns.published == []
+        assert publisher.published == []
 
     def test_no_alert_when_no_filtered_out_posts(self):
         # Defensive: total>0 but nothing recorded as filtered out (shouldn't
         # normally happen) must not fire a misleading alert.
-        session = _FakeSession()
-        main._maybe_send_empty_digest_alert(
-            session, "arn:topic", PROJECT, self._report(5), []
-        )
-        assert session.sns.published == []
+        publisher = _FakePublisher()
+        alerts.maybe_send_empty_digest_alert(publisher, PROJECT, self._report(5), [])
+        assert publisher.published == []
 
 
 class TestGeneratePostFilename:
@@ -312,18 +357,20 @@ class TestGeneratePostFilename:
     def test_same_title_distinct_links_get_distinct_filenames(self):
         a = self._post("GPT-4 is here!", "https://aws.amazon.com/a")
         b = self._post("GPT-4 is here?", "https://aws.amazon.com/b")
-        fa = main._generate_post_filename(a)
-        fb = main._generate_post_filename(b)
+        fa = pipeline._generate_post_filename(a)
+        fb = pipeline._generate_post_filename(b)
         assert fa != fb
         assert fa.startswith("aws-gpt-4_is_here-") and fa.endswith(".json")
 
     def test_filename_is_stable_for_same_link(self):
         p = self._post("Title", "https://aws.amazon.com/x")
-        assert main._generate_post_filename(p) == main._generate_post_filename(p)
+        assert pipeline._generate_post_filename(p) == pipeline._generate_post_filename(
+            p
+        )
 
 
 class TestEmailOrchestration:
-    """_process_newsletter_emails counts successes/failures correctly so the
+    """process_newsletter_emails counts successes/failures correctly so the
     partial-delivery alert fires on an all-failed (silent) delivery, and skips
     recipients a previous attempt at the same issue already reached."""
 
@@ -340,14 +387,15 @@ class TestEmailOrchestration:
     def test_all_sends_fail_reports_all_as_failed(self, monkeypatch, tmp_path):
         newsletter = tmp_path / "n.html"
         newsletter.write_text("<html>body</html>", encoding="utf-8")
-        monkeypatch.setattr(main, "send_email", lambda *a, **k: False)
-        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
-        outcome = main._process_newsletter_emails(
+        monkeypatch.setattr(delivery.time, "sleep", lambda *_: None)
+        outcome = delivery.process_newsletter_emails(
             newsletter,
             "2026-07-11",
             self._Cfg(),
-            object(),
-            main.Language.KO,
+            _FakeStore(),
+            _FakeMailer(results=[False, False]),
+            Language.KO,
+            tmp_path,
             recipients=["a@example.com", "b@example.com"],
         )
         assert outcome.succeeded == 0
@@ -356,13 +404,14 @@ class TestEmailOrchestration:
 
     def test_unreadable_newsletter_reports_all_failed(self, monkeypatch, tmp_path):
         missing = tmp_path / "does-not-exist.html"
-        monkeypatch.setattr(main, "send_email", lambda *a, **k: True)
-        outcome = main._process_newsletter_emails(
+        outcome = delivery.process_newsletter_emails(
             missing,
             "2026-07-11",
             self._Cfg(),
-            object(),
-            main.Language.KO,
+            _FakeStore(),
+            _FakeMailer(),
+            Language.KO,
+            tmp_path,
             recipients=["a@example.com"],
         )
         assert outcome.succeeded == 0
@@ -372,16 +421,16 @@ class TestEmailOrchestration:
     def test_partial_success_counts_split(self, monkeypatch, tmp_path):
         newsletter = tmp_path / "n.html"
         newsletter.write_text("<html>body</html>", encoding="utf-8")
-        # First recipient succeeds, second fails.
-        outcomes = iter([True, False])
-        monkeypatch.setattr(main, "send_email", lambda *a, **k: next(outcomes))
-        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
-        outcome = main._process_newsletter_emails(
+        monkeypatch.setattr(delivery.time, "sleep", lambda *_: None)
+        outcome = delivery.process_newsletter_emails(
             newsletter,
             "2026-07-11",
             self._Cfg(),
-            object(),
-            main.Language.KO,
+            _FakeStore(),
+            # First recipient succeeds, second fails.
+            _FakeMailer(results=[True, False]),
+            Language.KO,
+            tmp_path,
             recipients=["ok@example.com", "bad@example.com"],
         )
         assert outcome.succeeded == 1
@@ -396,25 +445,20 @@ class TestEmailOrchestration:
         """
         newsletter = tmp_path / "n.html"
         newsletter.write_text("<html>body</html>", encoding="utf-8")
-        monkeypatch.setattr(main, "send_email", lambda *a, **k: True)
-        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
-        touched = []
-        monkeypatch.setattr(
-            main, "read_s3_json", lambda *a, **k: touched.append("read") or None
-        )
-        monkeypatch.setattr(
-            main, "write_s3_json", lambda *a, **k: touched.append("write") or True
-        )
-        outcome = main._process_newsletter_emails(
+        monkeypatch.setattr(delivery.time, "sleep", lambda *_: None)
+        store = _FakeStore()
+        outcome = delivery.process_newsletter_emails(
             newsletter,
             "2026-07-11",
             self._Cfg(),
-            object(),
-            main.Language.KO,
+            store,
+            _FakeMailer(),
+            Language.KO,
+            tmp_path,
             recipients=["me@example.com"],
         )
         assert outcome.succeeded == 1
-        assert touched == []
+        assert store.reads == [] and store.writes == []
 
     @pytest.mark.parametrize(
         ("header_title", "expected"),
@@ -430,11 +474,8 @@ class TestEmailOrchestration:
     ):
         newsletter = tmp_path / "n.html"
         newsletter.write_text("<html>body</html>", encoding="utf-8")
-        subjects = []
-        monkeypatch.setattr(
-            main, "send_email", lambda _s, subject, *a: subjects.append(subject)
-        )
-        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
+        mailer = _FakeMailer()
+        monkeypatch.setattr(delivery.time, "sleep", lambda *_: None)
 
         title = header_title
 
@@ -443,15 +484,17 @@ class TestEmailOrchestration:
                 header_title = title
                 sender = "sender@example.com"
 
-        main._process_newsletter_emails(
+        delivery.process_newsletter_emails(
             newsletter,
             "2026-07-11",
             _Cfg(),
-            object(),
-            main.Language.KO,
+            _FakeStore(),
+            mailer,
+            Language.KO,
+            tmp_path,
             recipients=["a@example.com"],
         )
-        assert subjects == [expected]
+        assert [subject for subject, *_ in mailer.calls] == [expected]
 
 
 class TestHandlerControlFlow:
@@ -480,7 +523,7 @@ class TestHandlerControlFlow:
 
         monkeypatch.setattr(
             main,
-            "_fetch_and_filter_posts",
+            "fetch_and_filter_posts",
             lambda *a, **k: ([], "2026-06-01", [], CrawlReport()),
         )
         result = main.handler({}, None)
@@ -493,7 +536,7 @@ class TestHandlerControlFlow:
         def _boom(*a, **k):
             raise RuntimeError("kaboom")
 
-        monkeypatch.setattr(main, "_fetch_and_filter_posts", _boom)
+        monkeypatch.setattr(main, "fetch_and_filter_posts", _boom)
         result = main.handler({}, None)
         assert result["statusCode"] == 500
         assert "kaboom" in result["body"]
@@ -544,7 +587,7 @@ class TestHandlerControlFlow:
         ]
         monkeypatch.setattr(
             main,
-            "_fetch_and_filter_posts",
+            "fetch_and_filter_posts",
             lambda *a, **k: ([], "2026-07-11", filtered_out, report),
         )
 
@@ -599,7 +642,7 @@ class TestHandlerControlFlow:
         report = CrawlReport(sources=[source])
         monkeypatch.setattr(
             main,
-            "_fetch_and_filter_posts",
+            "fetch_and_filter_posts",
             lambda *a, **k: ([], "2026-07-11", [], report),
         )
         main.handler({}, None)
@@ -620,7 +663,7 @@ class TestHandlerControlFlow:
         def _boom(*a, **k):
             raise RuntimeError("kaboom")
 
-        monkeypatch.setattr(main, "_fetch_and_filter_posts", _boom)
+        monkeypatch.setattr(main, "fetch_and_filter_posts", _boom)
         monkeypatch.setattr(main, "_setup_aws_env", lambda *a, **k: None)
 
         result = main.handler({}, None)
@@ -653,13 +696,13 @@ class TestNoRecipientsAlert:
         # The committed CI config, not the developer's: config-dev.yaml is
         # gitignored, so loading it passes locally and fails in CI.
         monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci-batch")
-        session = _FakeSession()
+        publisher = _FakePublisher()
         config = Config.load()
-        main._send_no_recipients_alert(
-            session, "arn:topic", config, self._report(), main.DeliveryOutcome()
+        alerts.send_no_recipients_alert(
+            publisher, config, self._report(), DeliveryOutcome()
         )
-        assert len(session.sns.published) == 1
-        published = session.sns.published[0]
+        assert len(publisher.published) == 1
+        published = publisher.published[0]
         assert "No Recipients" in published["Subject"]
         assert "ALERT" in published["Subject"]
         # The cause is always outside the code, so the alarm has to point at it.
@@ -669,11 +712,11 @@ class TestNoRecipientsAlert:
 
     def test_partial_delivery_alert_cannot_cover_this_case(self, failing_report):
         """Pins the reason a separate alarm is needed rather than reusing that one."""
-        session = _FakeSession()
-        main._maybe_send_partial_delivery_alert(
-            session, "arn:topic", PROJECT, 0, 0, [], failing_report
+        publisher = _FakePublisher()
+        alerts.maybe_send_partial_delivery_alert(
+            publisher, PROJECT, 0, 0, [], failing_report
         )
-        assert session.sns.published == []
+        assert publisher.published == []
 
 
 class TestClippedNewsletterAlert:
@@ -687,34 +730,30 @@ class TestClippedNewsletterAlert:
 
         path = tmp_path / "n.html"
         path.write_bytes(b"x" * (GMAIL_CLIP_BYTES - 1))
-        session = _FakeSession()
-        main._maybe_send_clipped_newsletter_alert(
-            session, "arn:topic", PROJECT, path, 3
-        )
-        assert session.sns.published == []
+        publisher = _FakePublisher()
+        alerts.maybe_send_clipped_newsletter_alert(publisher, PROJECT, path, 3)
+        assert publisher.published == []
 
     def test_alert_over_the_limit_reports_size_and_remedy(self, tmp_path):
         from app.domain.newsletter import GMAIL_CLIP_BYTES
 
         path = tmp_path / "n.html"
         path.write_bytes(b"x" * (GMAIL_CLIP_BYTES + 2048))
-        session = _FakeSession()
-        main._maybe_send_clipped_newsletter_alert(
-            session, "arn:topic", PROJECT, path, 5
-        )
-        assert len(session.sns.published) == 1
-        published = session.sns.published[0]
+        publisher = _FakePublisher()
+        alerts.maybe_send_clipped_newsletter_alert(publisher, PROJECT, path, 5)
+        assert len(publisher.published) == 1
+        published = publisher.published[0]
         assert "Newsletter Clipped" in published["Subject"]
         assert "max_posts" in published["Message"]
         assert "5" in published["Message"]
 
     def test_missing_file_does_not_raise(self, tmp_path):
         """A size check must never be the thing that fails a successful run."""
-        session = _FakeSession()
-        main._maybe_send_clipped_newsletter_alert(
-            session, "arn:topic", PROJECT, tmp_path / "absent.html", 3
+        publisher = _FakePublisher()
+        alerts.maybe_send_clipped_newsletter_alert(
+            publisher, PROJECT, tmp_path / "absent.html", 3
         )
-        assert session.sns.published == []
+        assert publisher.published == []
 
 
 class TestDuplicateSendGuard:
@@ -737,41 +776,29 @@ class TestDuplicateSendGuard:
             header_title = "Digest"
             sender = "sender@example.com"
 
-    def _run(self, monkeypatch, tmp_path, ledger, send_results=None):
-        """Run the send phase against a fake ledger; returns (outcome, writes)."""
+    def _run(self, monkeypatch, tmp_path, ledger, send_results=None, suppressed=()):
+        """Run the send phase against a fake ledger; returns (outcome, sent, writes)."""
         newsletter = tmp_path / "n.html"
         newsletter.write_text("<html>body</html>", encoding="utf-8")
-        sent: list[str] = []
-        writes: list[dict] = []
-        results = iter(send_results) if send_results is not None else None
-
-        def _send(_session, _subject, _sender, to, _content):
-            sent.append(to[0])
-            return next(results) if results is not None else True
-
-        monkeypatch.setattr(main, "send_email", _send)
-        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
-        monkeypatch.setattr(main, "read_s3_json", lambda *a, **k: ledger)
-        monkeypatch.setattr(
-            main,
-            "write_s3_json",
-            # Deep-copy the payload: the real helper serializes it immediately,
-            # while this fake would otherwise keep a reference that the loop keeps
-            # mutating, making every recorded write look identical.
-            lambda _s, _b, _k, payload: writes.append(deepcopy(payload)) or True,
-        )
-        outcome = main._process_newsletter_emails(
+        mailer = _FakeMailer(send_results, suppressed)
+        store = _FakeStore(ledger)
+        monkeypatch.setattr(delivery.time, "sleep", lambda *_: None)
+        outcome = delivery.process_newsletter_emails(
             newsletter,
             "2026-08-22",
             self._Cfg(),
-            object(),
-            main.Language.KO,
+            store,
+            mailer,
+            Language.KO,
+            tmp_path,
             recipients=None,
         )
-        return outcome, sent, writes
+        return outcome, mailer.sent, store.writes
 
     def _patch_recipients(self, monkeypatch, recipients):
-        monkeypatch.setattr(main, "_get_recipients", lambda *a, **k: list(recipients))
+        monkeypatch.setattr(
+            delivery, "_get_recipients", lambda *a, **k: list(recipients)
+        )
 
     def test_a_retry_of_a_completed_send_sends_nothing(self, monkeypatch, tmp_path):
         self._patch_recipients(monkeypatch, ["a@example.com", "b@example.com"])
@@ -822,10 +849,9 @@ class TestDuplicateSendGuard:
 
     def test_a_suppressed_address_is_skipped_not_sent(self, monkeypatch, tmp_path):
         self._patch_recipients(monkeypatch, ["ok@example.com", "Gone@example.com"])
-        monkeypatch.setattr(
-            main, "suppressed_destinations", lambda _session: {"gone@example.com"}
+        outcome, sent, writes = self._run(
+            monkeypatch, tmp_path, ledger=None, suppressed={"gone@example.com"}
         )
-        outcome, sent, writes = self._run(monkeypatch, tmp_path, ledger=None)
         assert sent == ["ok@example.com"]
         assert outcome.suppressed == 1
         assert outcome.attempted == 1
@@ -881,7 +907,7 @@ class TestDuplicateSendGuard:
             assert sent == ["a@example.com"], ledger
 
     def test_ledger_key_identifies_stage_date_and_language(self):
-        key = main._delivery_ledger_key(self._Cfg(), "2026-08-22", main.Language.EN)
+        key = delivery._delivery_ledger_key(self._Cfg(), "2026-08-22", Language.EN)
         assert key == "tech-digest/deliveries/delivered-prod-2026-08-22-en.json"
 
     def test_ledger_key_without_an_s3_prefix_has_no_leading_slash(self):
@@ -891,15 +917,15 @@ class TestDuplicateSendGuard:
                 s3_bucket_name = "bucket"
                 s3_prefix = None
 
-        key = main._delivery_ledger_key(_NoPrefix(), "2026-08-22", main.Language.KO)
+        key = delivery._delivery_ledger_key(_NoPrefix(), "2026-08-22", Language.KO)
         assert key == "deliveries/delivered-dev-2026-08-22-ko.json"
 
     def test_a_different_issue_gets_a_different_ledger(self):
         cfg = self._Cfg()
         keys = {
-            main._delivery_ledger_key(cfg, "2026-08-22", main.Language.KO),
-            main._delivery_ledger_key(cfg, "2026-08-22", main.Language.EN),
-            main._delivery_ledger_key(cfg, "2026-08-29", main.Language.KO),
+            delivery._delivery_ledger_key(cfg, "2026-08-22", Language.KO),
+            delivery._delivery_ledger_key(cfg, "2026-08-22", Language.EN),
+            delivery._delivery_ledger_key(cfg, "2026-08-29", Language.KO),
         }
         assert len(keys) == 3
 
@@ -939,26 +965,26 @@ class TestDeliveryAlertsFromTheHandler:
         monkeypatch.setattr(main, "_boto_sessions", lambda _cfg: (session, session))
         monkeypatch.setattr(main.Config, "load", classmethod(lambda cls: self._Cfg()))
         monkeypatch.setattr(main, "_setup_aws_env", lambda *a: None)
-        monkeypatch.setattr(main, "_archive_suffix", lambda *a: "")
+        monkeypatch.setattr(main, "archive_suffix", lambda *a: "")
         monkeypatch.setattr(
             main,
-            "_fetch_and_filter_posts",
+            "fetch_and_filter_posts",
             lambda *a, **k: ([post], "2026-10-10", [], CrawlReport()),
         )
         monkeypatch.setattr(
-            main, "_process_posts_and_create_newsletter", lambda *a, **k: newsletter
+            main, "process_posts_and_create_newsletter", lambda *a, **k: newsletter
         )
-        monkeypatch.setattr(main, "_process_newsletter_emails", lambda *a: outcome)
+        monkeypatch.setattr(main, "process_newsletter_emails", lambda *a: outcome)
         assert main.handler({}, None)["statusCode"] == 200
         return [m["Subject"] for m in session.sns.published]
 
     def test_no_recipients_alerts_once(self, monkeypatch, tmp_path):
-        assert self._alerts(monkeypatch, tmp_path, main.DeliveryOutcome()) == [
+        assert self._alerts(monkeypatch, tmp_path, DeliveryOutcome()) == [
             f"[{PROJECT}] No Recipients — ALERT"
         ]
 
     def test_a_failed_recipient_alerts_partial_delivery(self, monkeypatch, tmp_path):
-        outcome = main.DeliveryOutcome(
+        outcome = DeliveryOutcome(
             resolved=2, attempted=2, succeeded=1, failed=["b@example.com"]
         )
         assert self._alerts(monkeypatch, tmp_path, outcome) == [
@@ -966,19 +992,19 @@ class TestDeliveryAlertsFromTheHandler:
         ]
 
     def test_a_retry_that_skipped_everyone_is_silent(self, monkeypatch, tmp_path):
-        outcome = main.DeliveryOutcome(resolved=2, skipped=2)
+        outcome = DeliveryOutcome(resolved=2, skipped=2)
         assert self._alerts(monkeypatch, tmp_path, outcome) == []
 
     def test_a_retry_that_served_everyone_but_the_suppressed_is_silent(
         self, monkeypatch, tmp_path
     ):
-        outcome = main.DeliveryOutcome(resolved=3, skipped=2, suppressed=1)
+        outcome = DeliveryOutcome(resolved=3, skipped=2, suppressed=1)
         assert self._alerts(monkeypatch, tmp_path, outcome) == []
 
     def test_a_fully_suppressed_list_alerts(self, monkeypatch, tmp_path):
         # Resolved, but every address is on the SES suppression list: nobody gets
         # the issue, and there is no failed send for partial-delivery to report.
-        outcome = main.DeliveryOutcome(resolved=2, suppressed=2)
+        outcome = DeliveryOutcome(resolved=2, suppressed=2)
         assert self._alerts(monkeypatch, tmp_path, outcome) == [
             f"[{PROJECT}] No Recipients — ALERT"
         ]
@@ -987,15 +1013,14 @@ class TestDeliveryAlertsFromTheHandler:
         from app.configs import Config
 
         monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci-batch")
-        session = _FakeSession()
-        main._send_no_recipients_alert(
-            session,
-            "arn:topic",
+        publisher = _FakePublisher()
+        alerts.send_no_recipients_alert(
+            publisher,
             Config.load(),
             CrawlReport(),
-            main.DeliveryOutcome(resolved=3, skipped=1, suppressed=2),
+            DeliveryOutcome(resolved=3, skipped=1, suppressed=2),
         )
-        [published] = session.sns.published
+        [published] = publisher.published
         assert "0/2" in published["Message"]
         assert "Suppressed by SES" in published["Message"]
 
@@ -1005,16 +1030,19 @@ class TestDeliveryAlertsFromTheHandler:
         newsletter = tmp_path / "n.html"
         newsletter.write_text("<html>body</html>", encoding="utf-8")
         recipients = ["a@example.com", "b@example.com"]
-        monkeypatch.setattr(main, "suppressed_destinations", lambda _s: set(recipients))
-        monkeypatch.setattr(main, "send_email", lambda *a: pytest.fail("sent"))
-        monkeypatch.setattr(main, "read_s3_json", lambda *a, **k: None)
-        monkeypatch.setattr(main, "_get_recipients", lambda *a, **k: list(recipients))
+        mailer = _FakeMailer(suppressed=recipients)
+        monkeypatch.setattr(
+            delivery, "_get_recipients", lambda *a, **k: list(recipients)
+        )
 
-        outcome = main._process_newsletter_emails(
+        outcome = delivery.process_newsletter_emails(
             newsletter,
             "2026-10-10",
             TestDuplicateSendGuard._Cfg(),
-            object(),
-            main.Language.KO,
+            _FakeStore(),
+            mailer,
+            Language.KO,
+            tmp_path,
         )
-        assert outcome == main.DeliveryOutcome(resolved=2, suppressed=2)
+        assert mailer.calls == []
+        assert outcome == DeliveryOutcome(resolved=2, suppressed=2)

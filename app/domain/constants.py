@@ -105,7 +105,7 @@ class S3Paths(AutoNamedEnum):
     ARTICLES = auto()
     # Per-issue record of which recipients have already received it. Read and
     # written by the send loop so a retried run cannot deliver the same issue
-    # twice — see main._delivery_ledger_key.
+    # twice — see delivery._delivery_ledger_key.
     DELIVERIES = auto()
     NEWSLETTERS = auto()
     RECIPIENTS = auto()

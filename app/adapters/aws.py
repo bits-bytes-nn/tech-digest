@@ -380,3 +380,55 @@ def wait_for_batch_job_completion(
         timeout_seconds,
     )
     return False
+
+
+class S3ObjectStore:
+    """``ObjectStore`` on one S3 bucket."""
+
+    def __init__(self, boto_session: boto3.Session, bucket_name: str) -> None:
+        self.boto_session = boto_session
+        self.bucket_name = bucket_name
+
+    def download(self, key: str, local_path: Path) -> bool:
+        return check_and_download_from_s3(
+            self.boto_session, self.bucket_name, key, local_path
+        )
+
+    def read_json(self, key: str) -> dict[str, Any] | None:
+        return read_s3_json(self.boto_session, self.bucket_name, key)
+
+    def write_json(self, key: str, payload: dict[str, Any]) -> bool:
+        return write_s3_json(self.boto_session, self.bucket_name, key, payload)
+
+    def upload(self, local_path: Path, prefix: str = "") -> bool:
+        return upload_to_s3(
+            self.boto_session, local_path, self.bucket_name, s3_prefix=prefix
+        )
+
+
+class SesMailer:
+    """``Mailer`` on SES."""
+
+    def __init__(self, boto_session: boto3.Session) -> None:
+        self.boto_session = boto_session
+
+    def send(
+        self, subject: str, sender: str, recipients: list[str], html_content: str
+    ) -> bool:
+        return send_email(self.boto_session, subject, sender, recipients, html_content)
+
+    def suppressed_destinations(self) -> set[str]:
+        return suppressed_destinations(self.boto_session)
+
+
+class SnsAlarmPublisher:
+    """``AlarmPublisher`` on one SNS topic."""
+
+    def __init__(self, boto_session: boto3.Session, topic_arn: str) -> None:
+        self.boto_session = boto_session
+        self.topic_arn = topic_arn
+
+    def publish(self, subject: str, message: str) -> None:
+        self.boto_session.client("sns").publish(
+            TopicArn=self.topic_arn, Subject=subject, Message=message
+        )
