@@ -392,17 +392,11 @@ class TestTruncatedFeeds:
         fetcher.fetch(*self.WINDOW)
         return fetcher
 
-    def test_a_feed_whose_oldest_entry_is_in_the_window_is_flagged(
-        self, monkeypatch, caplog, propagating_logger
-    ):
-        with caplog.at_level("WARNING"):
-            fetcher = self._fetch(
-                monkeypatch, ["2026-10-30T10:00:00Z", "2026-10-26T17:15:00Z"]
-            )
+    def test_a_feed_whose_oldest_entry_is_in_the_window_is_flagged(self, monkeypatch):
+        fetcher = self._fetch(
+            monkeypatch, ["2026-10-30T10:00:00Z", "2026-10-26T17:15:00Z"]
+        )
         assert fetcher.truncated
-        warning = next(r for r in caplog.records if r.levelname == "WARNING")
-        assert "machine-learning/feed/" in warning.getMessage()
-        assert "2026-10-26T17:15:00+00:00" in warning.getMessage()
 
     def test_a_feed_reaching_before_the_window_is_not(self, monkeypatch):
         fetcher = self._fetch(

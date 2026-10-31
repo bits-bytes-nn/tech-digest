@@ -243,8 +243,7 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         request_dialect="openai",
         supports_stop_sequences=False,
     ),
-    # Probed 2026-11-01: rejects temperature and stopSequences like its siblings,
-    # and accepts reasoning.effort "none". Caching follows the siblings (not probed).
+    # Rejects temperature and stopSequences like its siblings, and accepts reasoning.effort "none". Caching follows the siblings (not probed).
     LanguageModelId.GPT_6_1_TERRA: LanguageModelInfo(
         context_window_size=1050000,
         max_output_tokens=64000,

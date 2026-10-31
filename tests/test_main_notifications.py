@@ -655,7 +655,9 @@ class TestNoRecipientsAlert:
         monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci-batch")
         session = _FakeSession()
         config = Config.load()
-        main._send_no_recipients_alert(session, "arn:topic", config, self._report())
+        main._send_no_recipients_alert(
+            session, "arn:topic", config, self._report(), main.DeliveryOutcome()
+        )
         assert len(session.sns.published) == 1
         published = session.sns.published[0]
         assert "No Recipients" in published["Subject"]
@@ -965,6 +967,12 @@ class TestDeliveryAlertsFromTheHandler:
 
     def test_a_retry_that_skipped_everyone_is_silent(self, monkeypatch, tmp_path):
         outcome = main.DeliveryOutcome(resolved=2, skipped=2)
+        assert self._alerts(monkeypatch, tmp_path, outcome) == []
+
+    def test_a_retry_that_served_everyone_but_the_suppressed_is_silent(
+        self, monkeypatch, tmp_path
+    ):
+        outcome = main.DeliveryOutcome(resolved=3, skipped=2, suppressed=1)
         assert self._alerts(monkeypatch, tmp_path, outcome) == []
 
     def test_a_fully_suppressed_list_alerts(self, monkeypatch, tmp_path):

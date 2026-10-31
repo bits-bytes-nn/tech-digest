@@ -15,7 +15,7 @@ scraping:
   rss_urls:
     - "https://medium.com/feed/airbnb-engineering"
     - "https://www.amazon.science/index.rss"
-    # Lists only the newest 20 posts (4.3 days on 2026-11-01), so it does not
+    # Lists only the newest 20 posts (a few days' worth), so it does not
     # reach back a full week and crawl health logs it as truncated. Add the
     # blog's category feeds for the topics you need, e.g.
     # .../blogs/machine-learning/category/artificial-intelligence/generative-ai/feed/

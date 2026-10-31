@@ -190,6 +190,11 @@ class TestSummaryOutput:
         assert img["src"] == "https://cdn.example.com/chart.png"
         assert img["alt"] == "chart"
 
+    def test_an_image_whose_src_was_dropped_is_removed(self):
+        html = '<p>x</p><img src="javascript:alert(1)" alt="bad">'
+        out = SummaryOutput.model_validate({"summary": html, "tags": [], "urls": []})
+        assert "<img" not in out.summary
+
     def test_script_tag_stripped_from_summary(self):
         out = SummaryOutput.model_validate(
             {

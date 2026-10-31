@@ -277,7 +277,7 @@ CLICHE_MARKERS: dict[str, str] = {
     # A paragraph closed by restating itself as a "structure", or opened by
     # announcing its "key point".
     "~구조입니다": r"(?:는|던) 구조입니다",
-    "핵심은 ~입니다": r"핵심은\s",
+    "핵심은 ~입니다": r"(?:^|[.!?]\s+)핵심은\s",
     # Meta-narration and summary-of-the-summary.
     "메타 서술": r"(?:살펴보|알아보|짚어보|정리해\s*보)(?:겠습니다|았습니다|면)"
     r"|결론적으로|요약하(?:면|자면)|종합하(?:면|자면)",

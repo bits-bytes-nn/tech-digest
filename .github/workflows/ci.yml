@@ -103,7 +103,7 @@ jobs:
           pip install -r requirements.txt -c app/requirements.lock
           npm install -g aws-cdk@2.1139.0
 
-      - name: CDK synth (Batch + new VPC, the production topology; no AWS creds)
+      - name: CDK synth (Batch + new VPC; no AWS creds)
         # The app makes no AWS call, so a dummy account and dummy AZs are all
         # an offline synth needs.
         run: cdk synth --quiet

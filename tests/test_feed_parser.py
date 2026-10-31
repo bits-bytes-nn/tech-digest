@@ -418,7 +418,9 @@ class TestContentContainerSelection:
             }
 
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: _Response())
-        return fp.Post._scrape_full_content("https://x.example/post")
+        return fp.Post._scrape_full_content(
+            "https://x.example/post", body_fallback=True
+        )
 
     # An <article> that is a wrapper around a heading, with the prose elsewhere.
     HF_SHAPE = (
@@ -473,7 +475,10 @@ class TestContentContainerSelection:
         from app.src import feed_parser as fp
 
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
-        assert fp.Post._scrape_full_content("https://x.example/post") is None
+        assert (
+            fp.Post._scrape_full_content("https://x.example/post", body_fallback=True)
+            is None
+        )
 
     # amazon.science: the <article> holds the post, but related-content rails make
     # it 16% of the page, so the share rule falls back to <body>.
@@ -501,12 +506,15 @@ class TestContentContainerSelection:
 
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: _Response())
 
-    def test_a_full_feed_body_is_kept_over_the_whole_page(self, monkeypatch):
+    def test_a_feed_body_is_kept_over_the_whole_page_but_flagged(self, monkeypatch):
+        # The page holds no article container, so the short feed body stays
+        # rather than the site around it, and crawl health counts the page as
+        # unreadable: a teaser kept here would otherwise die at the gate silently.
         self._serve(monkeypatch, self.SCIENCE_SHAPE)
         body = "<p>" + ("The short article. " * 30) + "</p>"
         post = Post.from_entry(self._entry(content=[{"value": body}]))
         assert post.content == body
-        assert not post.page_unreadable
+        assert post.page_unreadable
 
     def test_a_summary_only_entry_still_takes_the_whole_page(self, monkeypatch):
         self._serve(monkeypatch, self.SCIENCE_SHAPE)

@@ -272,14 +272,16 @@ def _sanitize_html(html: str) -> str:
                 del tag[attr]
         # Force the presentation class on EVERY table, regardless of how the
         # model emitted it (bare ``<table>`` from markdown, or a ``<table ...>``
-        # with attributes in raw HTML). The old ``"<table>" -> classed`` string
-        # replace silently missed attributed tables, leaving them unstyled — so
-        # a metrics table rendered borderless/cramped in email clients.
+        # with attributes in raw HTML).
         if name == "table":
             tag["class"] = "table-bordered"
         # Every image gets the same size: the width attribute for Outlook, and a
         # fluid style so narrower screens scale it down.
         elif name == "img":
+            if not tag.get("src"):
+                # Its src failed the scheme check: an empty 712px box otherwise.
+                tag.decompose()
+                continue
             width = SummarizerConfig.SUMMARY_IMAGE_WIDTH
             tag["width"] = str(width)
             tag["style"] = f"width:100%;max-width:{width}px;height:auto"

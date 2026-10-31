@@ -338,7 +338,7 @@ class TestArchiveKeys:
         )
 
     def test_a_retry_outside_batch_is_keyed_by_the_utc_clock(self, monkeypatch):
-        # A local or Lambda rerun has no AWS_BATCH_JOB_ATTEMPT; the wall clock
+        # A local rerun has no AWS_BATCH_JOB_ATTEMPT; the wall clock
         # still keeps each rebuild apart from the delivered copy.
         from datetime import UTC, datetime
 

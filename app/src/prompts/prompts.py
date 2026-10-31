@@ -630,7 +630,7 @@ sections.
 
 <h3>📊 Results and Impact</h3>
 Present the measured outcomes the article reports, including cost figures when it gives them. Write it as prose, a table, or both.
-Focus only on results explicitly stated in the article.
+Focus only on results explicitly stated in the article, and open with a figure.
 
 <h3>🔮 Future Directions</h3>
 Discuss future directions and integration possibilities explicitly mentioned in the article. Be concise and
@@ -662,7 +662,7 @@ into a published issue, so look for each one in your draft and fix it before you
 6. Delete every sentence whose point is that something is missing (not described, not reported, no figure
    given, "these are the only figures reported"), every sentence about how you built the summary ("I left
    out"), every reason or intention the article does not state ("likely because", "this suggests"), and
-   every causal link it does not make ("based on this", "so"). Open 📊 with a figure.
+   every causal link it does not make ("based on this").
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
@@ -818,7 +818,7 @@ sections.
 
 <h3>📊 주요 성과</h3>
 Present the measured outcomes the article reports, including cost figures when it gives them. Write it as prose, a table, or both.
-Focus only on results explicitly stated in the article.
+Focus only on results explicitly stated in the article, and open with a figure.
 
 <h3>🔮 향후 발전 가능성과 기회</h3>
 Discuss future directions and integration possibilities explicitly mentioned in the article. Be concise and
@@ -850,11 +850,10 @@ avoid speculation.
 4. one_liner의 글자 수를 공백을 포함해 세세요. 40~100자를 벗어나면 고치세요.
 5. 이미지 src는 원문에 있는 URL을 글자 그대로(쿼리 문자열 포함) 옮겼는지 확인하세요.
 6. 무언가가 없다는 것이 요지인 문장은 표현과 상관없이 지우세요("~는 설명하지 않습니다", "~는
-   보고되지 않았습니다", "~수치는 없습니다", "글에 나오지 않으므로", "수치는 위 표가 전부입니다",
-   "~는 벤치마크 수치가 아닙니다"). 요약을 어떻게 만들었는지 밝히는 문장("~는 제외했습니다")도
-   지우세요. 📊의 첫 문장은 수치 자체로 시작합니다. 원문이 밝히지 않은 이유·의도("~때문으로
-   보입니다", "~라고 볼 수 있습니다")와 원문에 없는 인과 연결("이를 근거로", "그래서")도 지우세요.
-   원문이 스스로 밝힌 한계만 남깁니다.
+   보고되지 않았습니다", "~수치는 없습니다", "글에 나오지 않으므로", "수치는 위 표가 전부입니다").
+   요약을 어떻게 만들었는지 밝히는 문장("~는 제외했습니다")도 지우세요. 원문이 밝히지 않은
+   이유·의도("~때문으로 보입니다", "~라고 볼 수 있습니다")와 원문에 없는 인과 연결("이를 근거로")도
+   지우세요. 원문이 스스로 밝힌 한계만 남깁니다.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
