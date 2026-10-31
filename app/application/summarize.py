@@ -2,15 +2,18 @@ import time
 from collections.abc import Callable
 from typing import Any, ClassVar
 
-import boto3
 from bs4 import BeautifulSoup
-from langchain_aws import ChatBedrockConverse
 from langchain_classic.output_parsers import OutputFixingParser
 from langchain_core.runnables import Runnable
 from pydantic import Field
 
-from app.adapters.bedrock import BedrockLanguageModelFactory
-from app.adapters.http import is_email_renderable_image
+from app.application.llm_batching import (
+    BatchProcessor,
+    HTMLTagOutputParser,
+    measure_execution_time,
+)
+from app.application.ports import ChatModelProvider, ImageProbe
+from app.application.prompts.prompts import FilteringPrompt, SummarizationPrompt
 from app.domain.constants import Language, LanguageModelId
 from app.domain.content import content_html, visible_text
 from app.domain.eval_metrics import is_anchor
@@ -33,13 +36,6 @@ from app.domain.summary import (
 )
 from app.logger import logger
 
-from .prompts.prompts import FilteringPrompt, SummarizationPrompt
-from .utils import (
-    BatchProcessor,
-    HTMLTagOutputParser,
-    measure_execution_time,
-)
-
 # Total time one summary may spend checking its images. Past it, the images not
 # yet proven to load are dropped rather than shipped unchecked.
 IMAGE_PROBE_BUDGET_SECONDS = 120
@@ -48,6 +44,7 @@ IMAGE_PROBE_BUDGET_SECONDS = 120
 def _drop_unrenderable_images(
     summary_html: str,
     source_html: str,
+    is_renderable: ImageProbe,
     budget_seconds: float = IMAGE_PROBE_BUDGET_SECONDS,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[str, list[str]]:
@@ -72,7 +69,7 @@ def _drop_unrenderable_images(
         for candidate in [src, *_image_candidates(src, source_html)]:
             if clock() >= deadline:
                 break
-            if is_email_renderable_image(candidate):
+            if is_renderable(candidate):
                 chosen = candidate
                 break
         if chosen is None:
@@ -102,18 +99,19 @@ class SummarizerSettings(SummarizationOptions):
 class Summarizer:
     def __init__(
         self,
-        boto_session: boto3.Session,
+        models: ChatModelProvider,
         settings: SummarizerSettings,
+        image_probe: ImageProbe,
     ) -> None:
-        self.boto_session = boto_session
         self.settings = settings
+        self.image_probe = image_probe
         self.language = settings.language
         self.filtered_out_posts: list[tuple[Post, str]] = []
         self.batch_processor = BatchProcessor(
             max_concurrency=settings.max_concurrency,
             batch_size=settings.max_concurrency,
         )
-        self.llm_factory = BedrockLanguageModelFactory(boto_session=self.boto_session)
+        self.llm_factory = models
         self.filter = self._create_filter(
             settings.filtering_model_id,
             settings.filtering_enable_thinking,
@@ -167,8 +165,7 @@ class Summarizer:
             stage="filtering",
             max_tokens=self.FILTER_MAX_TOKENS,
             enable_thinking=use_thinking,
-            thinking_budget_tokens=thinking_budget_tokens
-            or self.llm_factory.DEFAULT_THINKING_BUDGET_TOKENS,
+            thinking_budget_tokens=thinking_budget_tokens,
             effort=self.settings.thinking_effort,
         )
         # The large, static filtering rubric is sent on every post — cache it as
@@ -178,7 +175,7 @@ class Summarizer:
             self.settings.filtering_criteria
         ).get_prompt(
             enable_prompt_cache=model_info.supports_prompt_caching,
-            use_converse=isinstance(filtering_llm, ChatBedrockConverse),
+            use_converse=self.llm_factory.is_converse(filtering_llm),
         )
         return (
             prompt
@@ -243,8 +240,7 @@ class Summarizer:
             temperature=0.0,
             stage="summarization",
             enable_thinking=use_thinking,
-            thinking_budget_tokens=thinking_budget_tokens
-            or self.llm_factory.DEFAULT_THINKING_BUDGET_TOKENS,
+            thinking_budget_tokens=thinking_budget_tokens,
             max_tokens=max_tokens,
             effort=self.settings.thinking_effort,
         )
@@ -253,7 +249,7 @@ class Summarizer:
         prompt = SummarizationPrompt.for_language(self.language).get_prompt(
             enable_prompt_cache=model_info.supports_prompt_caching
             and self._cache_can_hit(),
-            use_converse=isinstance(summarization_llm, ChatBedrockConverse),
+            use_converse=self.llm_factory.is_converse(summarization_llm),
         )
         return prompt | summarization_llm | output_parser
 
@@ -565,8 +561,7 @@ class Summarizer:
             return f"{len(text.split())} words, below {self.EN_MIN_WORDS}"
         return None
 
-    @staticmethod
-    def _finalize_summary(post: Post, summary_html: str) -> str:
+    def _finalize_summary(self, post: Post, summary_html: str) -> str:
         cleaned, dropped = _strip_unsourced_images(
             summary_html, post.content, post.images
         )
@@ -578,7 +573,9 @@ class Summarizer:
                 post.title,
                 dropped,
             )
-        cleaned, unrenderable = _drop_unrenderable_images(cleaned, post.content)
+        cleaned, unrenderable = _drop_unrenderable_images(
+            cleaned, post.content, self.image_probe
+        )
         if unrenderable:
             logger.warning(
                 "Dropped %d image(s) from the summary of '%s' — not a type mail "

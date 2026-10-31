@@ -399,9 +399,9 @@ def test_short_answer_stages_cap_their_output(monkeypatch, tmp_path):
     """Filter, greeting and title-case calls pass an explicit max_tokens: left
     unset, each request reserves the model's full output maximum against the
     per-minute token quota."""
-    from app.src.greeter import GREETING_MAX_TOKENS
-    from app.src.summarizer import Summarizer
-    from app.src.title_caser import TITLE_CASE_MAX_TOKENS
+    from app.application.greet import GREETING_MAX_TOKENS
+    from app.application.summarize import Summarizer
+    from app.application.title_case import TITLE_CASE_MAX_TOKENS
 
     fake = _fake_get_model(Language.KO)
     requested: dict[str, int | None] = {}

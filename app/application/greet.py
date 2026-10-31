@@ -1,13 +1,11 @@
-import boto3
 from langchain_core.output_parsers import StrOutputParser
 
-from app.adapters.bedrock import BedrockLanguageModelFactory
+from app.application.llm_batching import retry_with_backoff
+from app.application.ports import ChatModelProvider
+from app.application.prompts.prompts import GreetingPrompt, GreetingRevisionPrompt
 from app.domain.constants import Language, LanguageModelId
 from app.domain.text import measure_greeting
 from app.logger import logger
-
-from .prompts import GreetingPrompt, GreetingRevisionPrompt
-from .utils import retry_with_backoff
 
 # Output cap for the greeting call. Left unset, the request reserves the model's
 # full output maximum against the tokens-per-minute quota; this leaves ample room
@@ -18,15 +16,13 @@ GREETING_MAX_TOKENS: int = 4096
 class Greeter:
     def __init__(
         self,
-        boto_session: boto3.Session,
+        models: ChatModelProvider,
         greeting_model_id: LanguageModelId,
         language: Language = Language.KO,
     ):
-        self.boto_session = boto_session
         self.greeting_model_id = greeting_model_id
         self.language = language
-        llm_factory = BedrockLanguageModelFactory(boto_session=self.boto_session)
-        greeting_llm = llm_factory.get_model(
+        greeting_llm = models.get_model(
             model_id=greeting_model_id,
             temperature=0.4,
             max_tokens=GREETING_MAX_TOKENS,

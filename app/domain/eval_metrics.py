@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from statistics import mean, pstdev
 
 # Band label for each anchor the filtering rubric can emit, taken from the
-# rubric's OWN wording (see app/src/prompts/prompts.py):
+# rubric's OWN wording (see app/application/prompts/prompts.py):
 #
 #   0.95 / 0.90 / 0.85 included topic                             -> included
 #   0.80 Groundbreaking / 0.75 Excellent                          -> high

@@ -7,8 +7,8 @@ import json
 
 import pytest
 
+from app.application.title_case import TitleCaser
 from app.domain.text import accept_recased, parse_recased
-from app.src.title_caser import TitleCaser
 
 TITLES = [
     "Multimodal open d1 decision models for the edge",
@@ -122,7 +122,7 @@ class TestRecase:
 
 
 def test_titles_with_braces_reach_the_prompt_verbatim():
-    from app.src.prompts.prompts import TitleCasePrompt
+    from app.application.prompts.prompts import TitleCasePrompt
 
     titles = json.dumps(["Using {placeholders} in f-strings"])
     rendered = TitleCasePrompt.get_prompt().format_messages(titles=titles)

@@ -302,8 +302,8 @@ class TestToneRulesAreInThePrompt:
 
     @staticmethod
     def _template() -> str:
+        from app.application.prompts.prompts import SummarizationPrompt
         from app.domain.constants import Language
-        from app.src.prompts.prompts import SummarizationPrompt
 
         return SummarizationPrompt._human_prompt_template[Language.KO]
 
@@ -326,8 +326,8 @@ class TestToneRulesAreInThePrompt:
         assert phrase in self._template()
 
     def test_english_template_bans_its_own_filler(self):
+        from app.application.prompts.prompts import SummarizationPrompt
         from app.domain.constants import Language
-        from app.src.prompts.prompts import SummarizationPrompt
 
         template = SummarizationPrompt._human_prompt_template[Language.EN]
         for phrase in ("groundbreaking", "not just X, it's Y", "let's dive in"):
@@ -364,17 +364,17 @@ class TestRubricMatchesThePrompt:
     """The rubric's targets and the prompt's stated numbers must not drift."""
 
     def test_length_band_matches_the_korean_prompt(self):
+        from app.application.prompts.prompts import SummarizationPrompt
         from app.domain.constants import Language
-        from app.src.prompts.prompts import SummarizationPrompt
 
         template = SummarizationPrompt._human_prompt_template[Language.KO]
         low, high = KO_LENGTH_BAND
         assert f"{low:,}~{high:,}자" in template
 
     def test_lede_band_matches_the_korean_prompt(self):
+        from app.application.prompts.prompts import SummarizationPrompt
         from app.domain.constants import Language
         from app.domain.quality_metrics import KO_LEDE_BAND
-        from app.src.prompts.prompts import SummarizationPrompt
 
         template = SummarizationPrompt._human_prompt_template[Language.KO]
         low, high = KO_LEDE_BAND
@@ -382,8 +382,8 @@ class TestRubricMatchesThePrompt:
 
     @pytest.mark.parametrize("phrase", ["측정값", "표", "코드"])
     def test_specificity_rules_are_actually_in_the_prompt(self, phrase):
+        from app.application.prompts.prompts import SummarizationPrompt
         from app.domain.constants import Language
-        from app.src.prompts.prompts import SummarizationPrompt
 
         assert phrase in SummarizationPrompt._human_prompt_template[Language.KO]
 

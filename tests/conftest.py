@@ -95,7 +95,7 @@ def no_network(monkeypatch):
     """Fail any test that opens a real connection or resolves a real hostname.
 
     Several tests reached third-party sites through the scrape fallback
-    in ``Post.from_entry``, and the request-layer tests resolved real names, so
+    in ``post_from_entry``, and the request-layer tests resolved real names, so
     the suite's result depended on third-party sites and took 30s offline.
     Literal IP addresses still resolve: they need no network.
     """
@@ -116,14 +116,14 @@ def no_network(monkeypatch):
 
     monkeypatch.setattr(socket, "getaddrinfo", guarded_getaddrinfo)
     monkeypatch.setattr(socket.socket, "connect", refuse_connect)
-    # The article-page fetch behind Post.from_entry's thin-feed fallback: without
+    # The article-page fetch behind post_from_entry's thin-feed fallback: without
     # this, a blocked request is "transient" and the ladder sleeps through its
     # backoff. Tests that exercise the request layer import the function
     # directly, so this module-level stub does not reach them.
     if module := sys.modules.get("app.adapters.feeds"):
         monkeypatch.setattr(module, "_make_robust_request", lambda url: None)
     # The summarizer fetches each summary image to check mail clients can show
-    # it. Offline, every image would be dropped; tests about that check stub
-    # it themselves.
-    if module := sys.modules.get("app.src.summarizer"):
+    # it, through the probe the composition root hands it. Offline, every image
+    # would be dropped; tests that build a Summarizer pass their own probe.
+    if module := sys.modules.get("app.main"):
         monkeypatch.setattr(module, "is_email_renderable_image", lambda url: True)

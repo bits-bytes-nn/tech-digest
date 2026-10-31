@@ -9,14 +9,14 @@ import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeoutError
 from langchain_core.exceptions import OutputParserException
 
-from app.domain.alarms import format_alarm, validate_email, validate_emails
-from app.domain.post import get_date_range
-from app.src.utils import (
+from app.application.llm_batching import (
     BatchProcessor,
     HTMLTagOutputParser,
     is_retryable,
     retry_with_backoff,
 )
+from app.domain.alarms import format_alarm, validate_email, validate_emails
+from app.domain.post import get_date_range
 
 
 def _client_error(code: str) -> ClientError:
@@ -193,7 +193,7 @@ class TestHTMLTagOutputParser:
             FakeListChatModel,
         )
 
-        from app.src.utils import EmptyModelOutput
+        from app.application.llm_batching import EmptyModelOutput
 
         parser = OutputFixingParser.from_llm(
             llm=FakeListChatModel(responses=["<summary>invented</summary>"]),
