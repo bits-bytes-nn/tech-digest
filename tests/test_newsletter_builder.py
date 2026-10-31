@@ -9,9 +9,9 @@ from typing import ClassVar
 
 import pytest
 
+from app.adapters.rendering import NewsletterBuilder
 from app.domain.constants import Language
 from app.domain.newsletter import BuildConfiguration
-from app.src.newsletter_renderer import NewsletterBuilder
 
 LOGOS = {
     "aws": "https://cdn.example.com/aws.png",

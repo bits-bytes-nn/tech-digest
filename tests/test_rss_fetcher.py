@@ -12,8 +12,8 @@ import feedparser
 import pytest
 from feedparser.exceptions import CharacterEncodingOverride
 
-from app.src import feed_parser
-from app.src.feed_parser import RssFetcher, SourceFetchError, entry_date_text
+from app.adapters import feeds
+from app.adapters.feeds import RssFetcher, SourceFetchError, entry_date_text
 
 FEED_URL = "https://aws.amazon.com/blogs/machine-learning/feed/"
 POST_URL = "https://aws.amazon.com/blogs/machine-learning/"
@@ -53,7 +53,7 @@ def offline_feed_download(monkeypatch):
     # empty body so the stubbed feedparser.parse decides what the feed holds.
     from types import SimpleNamespace
 
-    from app.src import feed_parser as _fp
+    from app.adapters import feeds as _fp
 
     monkeypatch.setattr(
         _fp,
@@ -65,13 +65,13 @@ def offline_feed_download(monkeypatch):
 @pytest.fixture(autouse=True)
 def no_scrape(monkeypatch):
     # Post.from_entry may scrape when feed content is thin; neutralize network.
-    monkeypatch.setattr(feed_parser, "_make_robust_request", lambda url: None)
+    monkeypatch.setattr(feeds, "_make_robust_request", lambda url: None)
 
 
 class TestRssFetcherBozo:
     def test_non_encoding_bozo_with_no_entries_raises(self, monkeypatch, window):
         feed = _FakeFeed(entries=[], bozo=True, bozo_exception=ValueError("bad XML"))
-        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
+        monkeypatch.setattr(feeds.feedparser, "parse", lambda *a, **k: feed)
         fetcher = RssFetcher(FEED_URL)
         with pytest.raises(SourceFetchError):
             fetcher.fetch(*window)
@@ -82,21 +82,21 @@ class TestRssFetcherBozo:
             bozo=True,
             bozo_exception=CharacterEncodingOverride("encoding mismatch"),
         )
-        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
+        monkeypatch.setattr(feeds.feedparser, "parse", lambda *a, **k: feed)
         fetcher = RssFetcher(FEED_URL)
         posts = fetcher.fetch(*window)
         assert len(posts) == 1
 
     def test_unparseable_date_entry_dropped(self, monkeypatch, window):
         feed = _FakeFeed(entries=[_entry("not a date")], bozo=False)
-        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
+        monkeypatch.setattr(feeds.feedparser, "parse", lambda *a, **k: feed)
         fetcher = RssFetcher(FEED_URL)
         # Fail-closed: undated entry excluded rather than dated to "now".
         assert fetcher.fetch(*window) == []
 
     def test_out_of_window_entry_excluded(self, monkeypatch, window):
         feed = _FakeFeed(entries=[_entry("2020-01-01T10:00:00Z")], bozo=False)
-        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
+        monkeypatch.setattr(feeds.feedparser, "parse", lambda *a, **k: feed)
         fetcher = RssFetcher(FEED_URL)
         assert fetcher.fetch(*window) == []
 
@@ -142,8 +142,8 @@ class TestAtomEntriesWithoutPublished:
 
     def test_such_a_feed_now_yields_its_post(self, monkeypatch):
         parsed = feedparser.parse(self.ATOM_UPDATED_ONLY)
-        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: parsed)
-        monkeypatch.setattr(feed_parser, "_make_robust_request", lambda url: None)
+        monkeypatch.setattr(feeds.feedparser, "parse", lambda *a, **k: parsed)
+        monkeypatch.setattr(feeds, "_make_robust_request", lambda url: None)
         fetcher = RssFetcher("https://updated.example/atom")
         posts = fetcher.fetch(
             datetime(2026, 8, 1, tzinfo=UTC), datetime(2026, 8, 8, tzinfo=UTC)
@@ -157,7 +157,7 @@ class TestFeedDownload:
     """The feed is downloaded by the request layer, which carries the timeout."""
 
     def test_an_unreachable_feed_is_a_source_failure(self, monkeypatch, window):
-        monkeypatch.setattr(feed_parser, "_try_request", lambda *a, **k: None)
+        monkeypatch.setattr(feeds, "_try_request", lambda *a, **k: None)
         with pytest.raises(SourceFetchError):
             RssFetcher(FEED_URL).fetch(*window)
 
@@ -166,7 +166,7 @@ class TestFeedDownload:
 
         seen = {}
         monkeypatch.setattr(
-            feed_parser,
+            feeds,
             "_try_request",
             lambda session, url, headers: SimpleNamespace(
                 content=b"<rss/>",
@@ -180,7 +180,7 @@ class TestFeedDownload:
             seen["headers"] = response_headers
             return _FakeFeed(entries=[], bozo=False)
 
-        monkeypatch.setattr(feed_parser.feedparser, "parse", parse)
+        monkeypatch.setattr(feeds.feedparser, "parse", parse)
         RssFetcher(FEED_URL).fetch(*window)
         assert seen["content"] == b"<rss/>"
         assert seen["headers"]["content-type"].startswith("application/rss+xml")
@@ -204,7 +204,7 @@ class TestUnreadableEntries:
 
     def test_one_bad_entry_costs_only_that_entry(self, monkeypatch, window):
         feed = self._feed(["http://[bad/x", POST_URL + "ok"])
-        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
+        monkeypatch.setattr(feeds.feedparser, "parse", lambda *a, **k: feed)
         posts = RssFetcher(FEED_URL).fetch(*window)
         assert [p.link for p in posts] == [POST_URL + "ok"]
 
@@ -212,6 +212,6 @@ class TestUnreadableEntries:
         self, monkeypatch, window
     ):
         feed = self._feed(["http://[bad/x", "http://[bad/y"])
-        monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
+        monkeypatch.setattr(feeds.feedparser, "parse", lambda *a, **k: feed)
         with pytest.raises(SourceFetchError):
             RssFetcher(FEED_URL).fetch(*window)

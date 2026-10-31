@@ -1,3 +1,27 @@
+from app.adapters.aws import (
+    check_and_download_from_s3,
+    get_ssm_param_value,
+    read_s3_json,
+    send_email,
+    submit_batch_job,
+    suppressed_destinations,
+    upload_to_s3,
+    wait_for_batch_job_completion,
+    write_s3_json,
+)
+from app.adapters.bedrock import (
+    BedrockCrossRegionModelHelper,
+    BedrockLanguageModelFactory,
+    LanguageModelInfo,
+)
+from app.adapters.feeds import (
+    LinkedInBlogScraper,
+    PostCollector,
+    RssFetcher,
+    ScraperRegistry,
+    SourceFetchError,
+)
+from app.adapters.rendering import NewsletterBuilder
 from app.domain.alarms import format_alarm, validate_email, validate_emails
 from app.domain.constants import (
     AppConstants,
@@ -15,31 +39,7 @@ from app.domain.post import Post, get_date_range
 from app.domain.summary import MODEL_FAILURE_PREFIXES
 from app.logger import is_running_in_aws, logger
 
-from .aws_helpers import (
-    check_and_download_from_s3,
-    get_ssm_param_value,
-    read_s3_json,
-    send_email,
-    submit_batch_job,
-    suppressed_destinations,
-    upload_to_s3,
-    wait_for_batch_job_completion,
-    write_s3_json,
-)
-from .feed_parser import (
-    LinkedInBlogScraper,
-    PostCollector,
-    RssFetcher,
-    ScraperRegistry,
-    SourceFetchError,
-)
 from .greeter import Greeter
-from .model_factory import (
-    BedrockCrossRegionModelHelper,
-    BedrockLanguageModelFactory,
-    LanguageModelInfo,
-)
-from .newsletter_renderer import NewsletterBuilder
 from .summarizer import Summarizer, SummarizerSettings
 from .title_caser import TitleCaser
 from .utils import HTMLTagOutputParser

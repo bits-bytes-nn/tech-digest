@@ -665,7 +665,7 @@ class TestFilterThinkingWarning:
     def _build_filter(model_id, caplog, propagating_logger):
         from langchain_core.runnables import RunnableLambda
 
-        from app.src.model_factory import BedrockLanguageModelFactory
+        from app.adapters.bedrock import BedrockLanguageModelFactory
 
         s = _summarizer(filtering_model_id=model_id, filtering_enable_thinking=True)
         factory = BedrockLanguageModelFactory.__new__(BedrockLanguageModelFactory)

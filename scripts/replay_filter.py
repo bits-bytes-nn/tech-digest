@@ -72,8 +72,8 @@ def collect(stage: str, weeks: int) -> Path:
     Feeds keep only their latest items, so older weeks come back thinner than
     they were live; the per-week counts make that visible.
     """
+    from app.adapters.feeds import PostCollector
     from app.domain.post import get_date_range
-    from app.src.feed_parser import PostCollector
 
     config = _config(stage)
     today = datetime.now(UTC).date()

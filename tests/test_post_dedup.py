@@ -11,8 +11,8 @@ from datetime import UTC, datetime
 
 import feedparser
 
+from app.adapters.feeds import PostCollector, post_from_entry
 from app.domain.post import Post, normalize_title_key
-from app.src.feed_parser import PostCollector, post_from_entry
 
 
 class _StubFetcher:

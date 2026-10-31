@@ -1,4 +1,4 @@
-"""Tests for aws_helpers — pure logic around boto3 (SES MIME building, S3
+"""Tests for the AWS adapter — pure logic around boto3 (SES MIME building, S3
 key/prefix handling, 404-vs-error branches, batch polling state machine).
 Uses fake boto clients; no real AWS."""
 
@@ -15,7 +15,7 @@ from botocore.exceptions import (
     ReadTimeoutError,
 )
 
-from app.src.aws_helpers import (
+from app.adapters.aws import (
     check_and_download_from_s3,
     get_ssm_param_value,
     html_to_text,
@@ -279,7 +279,7 @@ class TestSubmitBatchJob:
 
 
 class _FakeClock:
-    """``time`` for aws_helpers: sleeping advances the clock instead of waiting."""
+    """``time`` for the AWS adapter: sleeping advances the clock instead of waiting."""
 
     def __init__(self):
         self.now = 0.0
@@ -295,10 +295,10 @@ class _FakeClock:
 
 @pytest.fixture
 def fake_clock(monkeypatch) -> _FakeClock:
-    from app.src import aws_helpers
+    from app.adapters import aws
 
     clock = _FakeClock()
-    monkeypatch.setattr(aws_helpers, "time", clock)
+    monkeypatch.setattr(aws, "time", clock)
     return clock
 
 
@@ -417,12 +417,12 @@ class TestWaitForBatchJob:
     def test_waiter_outlasts_the_longest_possible_job(self):
         """The waiter must not give up before the job it waits on can, or a long
         but healthy run is reported as failed and exits non-zero."""
+        from app.adapters.aws import DEFAULT_BATCH_TIMEOUT
         from app.domain.constants import (
             BATCH_ATTEMPT_TIMEOUT_MINUTES,
             BATCH_ATTEMPTS,
             BATCH_RUNNABLE_LIMIT_MINUTES,
         )
-        from app.src.aws_helpers import DEFAULT_BATCH_TIMEOUT
 
         longest_job_seconds = 60 * (
             BATCH_RUNNABLE_LIMIT_MINUTES
@@ -545,7 +545,7 @@ class TestSuppressedDestinations:
             return self._client
 
     def test_follows_pages_and_lowercases(self):
-        from app.src.aws_helpers import suppressed_destinations
+        from app.adapters.aws import suppressed_destinations
 
         client = self._Client(
             [
@@ -562,7 +562,7 @@ class TestSuppressedDestinations:
     def test_a_read_failure_suppresses_nobody(self):
         from botocore.exceptions import ClientError
 
-        from app.src.aws_helpers import suppressed_destinations
+        from app.adapters.aws import suppressed_destinations
 
         error = ClientError({"Error": {"Code": "AccessDenied"}}, "List")
         assert (

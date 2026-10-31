@@ -5,15 +5,15 @@ from typing import Any
 
 import boto3
 
-from app.configs import Config
-from app.domain.alarms import validate_email
-from app.domain.constants import AppConstants, SSMParams
-from app.logger import is_running_in_aws, logger
-from app.src.aws_helpers import (
+from app.adapters.aws import (
     get_ssm_param_value,
     submit_batch_job,
     wait_for_batch_job_completion,
 )
+from app.configs import Config
+from app.domain.alarms import validate_email
+from app.domain.constants import AppConstants, SSMParams
+from app.logger import is_running_in_aws, logger
 
 
 def main(job_prefix: str, **kwargs: Any) -> None:

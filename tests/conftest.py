@@ -120,7 +120,7 @@ def no_network(monkeypatch):
     # this, a blocked request is "transient" and the ladder sleeps through its
     # backoff. Tests that exercise the request layer import the function
     # directly, so this module-level stub does not reach them.
-    if module := sys.modules.get("app.src.feed_parser"):
+    if module := sys.modules.get("app.adapters.feeds"):
         monkeypatch.setattr(module, "_make_robust_request", lambda url: None)
     # The summarizer fetches each summary image to check mail clients can show
     # it. Offline, every image would be dropped; tests about that check stub

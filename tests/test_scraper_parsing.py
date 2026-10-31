@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from app.src import feed_parser
-from app.src.feed_parser import (
+from app.adapters import feeds
+from app.adapters.feeds import (
     LinkedInBlogScraper,
 )
 
@@ -45,7 +45,7 @@ def no_network(monkeypatch):
     # The scrapers build Posts via Post.from_entry, which scrapes the full
     # article when the feed body is thin. Neutralize the HTTP layer so no
     # request is made and content stays empty.
-    monkeypatch.setattr(feed_parser, "_make_robust_request", lambda url: None)
+    monkeypatch.setattr(feeds, "_make_robust_request", lambda url: None)
 
 
 def _bind(scraper_cls, fixture: str, page_url: str, monkeypatch):
@@ -128,9 +128,7 @@ class TestLinkedInTruncatedTitles:
             'content="Inside the data context layer: trustworthy context">'
             "</head><body></body></html>"
         )
-        monkeypatch.setattr(
-            feed_parser, "_make_robust_request", lambda url: _Page(page)
-        )
+        monkeypatch.setattr(feeds, "_make_robust_request", lambda url: _Page(page))
         [post] = scraper.fetch(*window)
         assert post.title == "Inside the data context layer: trustworthy context"
 
@@ -139,9 +137,7 @@ class TestLinkedInTruncatedTitles:
     ):
         scraper = self._scraper(monkeypatch, "Inside the data context la...")
         page = "<html><head><title>Inside the data context layer</title></head></html>"
-        monkeypatch.setattr(
-            feed_parser, "_make_robust_request", lambda url: _Page(page)
-        )
+        monkeypatch.setattr(feeds, "_make_robust_request", lambda url: _Page(page))
         [post] = scraper.fetch(*window)
         assert post.title == "Inside the data context layer"
 
@@ -153,7 +149,7 @@ class TestLinkedInTruncatedTitles:
     def test_a_complete_title_costs_no_request(self, monkeypatch, window):
         calls: list[str] = []
         monkeypatch.setattr(
-            feed_parser, "_make_robust_request", lambda url: calls.append(url)
+            feeds, "_make_robust_request", lambda url: calls.append(url)
         )
         scraper = self._scraper(monkeypatch, "Building A Feature Store")
         [post] = scraper.fetch(*window)

@@ -295,7 +295,7 @@ class NewsletterStack(Stack):
         return [
             # S3: read config/recipients, write newsletters/articles — object
             # actions on the bucket, plus ListBucket on the bucket itself.
-            # No s3:DeleteObject: the app never deletes an object (aws_helpers
+            # No s3:DeleteObject: the app never deletes an object (app.adapters.aws
             # exposes upload and download only), and granting the one destructive
             # action of the three contradicted the least-privilege claim above.
             iam.PolicyStatement(
@@ -320,7 +320,7 @@ class NewsletterStack(Stack):
             ),
             # SES: deliver the newsletter, restricted (via FromAddress) to the
             # configured sender so the role cannot send as arbitrary identities.
-            # SendRawEmail only — that is the single API aws_helpers.send_email
+            # SendRawEmail only — that is the single API aws.send_email
             # calls (it builds a MIME message to set Message-ID and
             # List-Unsubscribe, which the simple SendEmail action cannot carry).
             iam.PolicyStatement(
@@ -381,7 +381,7 @@ class NewsletterStack(Stack):
                 ],
             ),
             iam.PolicyStatement(
-                # List: our profile resolution (model_factory). Get: langchain-aws
+                # List: our profile resolution (adapters.bedrock). Get: langchain-aws
                 # calls it inside ChatBedrockConverse for an application-profile
                 # ARN to learn the base model. Without it every run fails at
                 # model construction with AccessDenied.

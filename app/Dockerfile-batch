@@ -48,7 +48,7 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirement
 COPY . app/
 
 # Run as a non-root user. Chrome already runs with --no-sandbox /
-# --disable-dev-shm-usage (see newsletter_renderer._configure_chrome_options),
+# --disable-dev-shm-usage (see rendering._configure_chrome_options),
 # so it works without root. On AWS the app writes under /tmp (ROOT_DIR), not
 # /srv, so the read-only app dir owned by this user is sufficient.
 RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /srv

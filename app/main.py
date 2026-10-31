@@ -15,6 +15,17 @@ from typing import Any, Final
 import boto3
 from bs4 import BeautifulSoup
 
+from app.adapters.aws import (
+    check_and_download_from_s3,
+    get_ssm_param_value,
+    read_s3_json,
+    send_email,
+    suppressed_destinations,
+    upload_to_s3,
+    write_s3_json,
+)
+from app.adapters.feeds import PostCollector
+from app.adapters.rendering import NewsletterBuilder
 from app.configs import Config
 from app.domain.alarms import format_alarm, validate_emails
 from app.domain.constants import (
@@ -30,18 +41,7 @@ from app.domain.newsletter import GMAIL_CLIP_BYTES, BuildConfiguration
 from app.domain.post import Post, get_date_range
 from app.domain.summary import MODEL_FAILURE_PREFIXES
 from app.logger import is_running_in_aws, logger
-from app.src.aws_helpers import (
-    check_and_download_from_s3,
-    get_ssm_param_value,
-    read_s3_json,
-    send_email,
-    suppressed_destinations,
-    upload_to_s3,
-    write_s3_json,
-)
-from app.src.feed_parser import PostCollector
 from app.src.greeter import Greeter
-from app.src.newsletter_renderer import NewsletterBuilder
 from app.src.summarizer import Summarizer, SummarizerSettings
 from app.src.title_caser import TitleCaser
 
