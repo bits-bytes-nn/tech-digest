@@ -186,7 +186,9 @@ _NOT_REPORTED = (
 # "글" only as a word of its own: "구글은 …" is not the document.
 _ABSENCE_ABOUT_DOCUMENT = re.compile(
     r"(?<![가-힣])(?:글|원문|본문|아티클|포스트)(?:은|는|이|에서|에는|에)\s[^.]*?"
-    r"(?:" + _NOT_REPORTED + r"|없습니다|없으며|없고|하나이며|하나뿐)"
+    r"(?:"
+    + _NOT_REPORTED
+    + r"|없습니다|없으며|없고|하나이며|하나뿐|전부입니다|제외했습니다)"
 )
 _REPORTED_ITEM = (
     r"(?:수치|점수|비교|결과|일정|가격|파라미터|벤치마크|지표|측정값|성능|비율|방식)"
@@ -272,6 +274,10 @@ CLICHE_MARKERS: dict[str, str] = {
     # Ending on "the point is that ~" instead of just asserting it. The one
     # marker that rose between prompt generations (2.4 -> 4.0 per 10,000).
     "~라는 점입니다": r"(?:라는|다는) 점(?:입니다|이며|이라|에서|은|을|이|도)",
+    # A paragraph closed by restating itself as a "structure", or opened by
+    # announcing its "key point".
+    "~구조입니다": r"(?:는|던) 구조입니다",
+    "핵심은 ~입니다": r"핵심은\s",
     # Meta-narration and summary-of-the-summary.
     "메타 서술": r"(?:살펴보|알아보|짚어보|정리해\s*보)(?:겠습니다|았습니다|면)"
     r"|결론적으로|요약하(?:면|자면)|종합하(?:면|자면)",

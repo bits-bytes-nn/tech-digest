@@ -196,6 +196,10 @@ class TestStructurePenalties:
             "증강 비율이나 혼합 방식은 글에 나와 있지 않습니다.",
             "속도 수치를 공개하지 않았습니다.",
             "이 글에서 AWS가 직접 측정한 결과는 없습니다.",
+            # From the 2026-10-17 and 10-24 issues.
+            "이 글에서 보고하는 정량 수치는 위 표가 전부입니다.",
+            "글은 모델 품질 벤치마크 점수를 싣지 않고 사례만 듭니다.",
+            "원문은 예시용이라고 밝혔으므로 이 값은 제외했습니다.",
         ],
     )
     def test_reworded_absence_sentences_are_caught(self, sentence):
@@ -282,6 +286,15 @@ class TestCliche:
     def test_measured_claims_are_clean(self):
         assert cliche_hits("p99 지연이 12ms로, 이전 대비 22% 낮습니다.") == {}
 
+    def test_self_summarising_paragraph_shapes_are_detected(self):
+        hits = cliche_hits(
+            "시작 속도만 얻는 구조입니다. 핵심은 채점이 바깥에서 일어납니다."
+        )
+        assert {"~구조입니다", "핵심은 ~입니다"} <= hits.keys()
+
+    def test_naming_a_structure_is_not_the_closing_shape(self):
+        assert "~구조입니다" not in cliche_hits("인코더 두 개를 쌓은 트리 구조입니다.")
+
 
 class TestToneRulesAreInThePrompt:
     """Each marker exists because a prompt rule asks for the opposite. If the rule
@@ -299,7 +312,15 @@ class TestToneRulesAreInThePrompt:
         assert phrase in self._template()
 
     @pytest.mark.parametrize(
-        "phrase", ["혁신적인", "다양한", "단순히 X가 아니라", "라는/다는 점"]
+        "phrase",
+        [
+            "혁신적인",
+            "다양한",
+            "단순히 X가 아니라",
+            "라는/다는 점",
+            "구조입니다",
+            "핵심은",
+        ],
     )
     def test_cliche_rules_are_stated(self, phrase):
         assert phrase in self._template()
