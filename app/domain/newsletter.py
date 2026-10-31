@@ -207,3 +207,13 @@ class BuildConfiguration(BaseModel):
     )
     save_individual_articles: bool = False
     convert_to_images: bool = False
+
+
+def header_title(configured: str | None) -> str:
+    """The issue's title: the stage config's, else the renderer's default.
+
+    The rendered header and the email subject both use it, so a stage that leaves
+    the title unset does not send a subject reading "[date] None".
+    """
+    default: str = BuildConfiguration.model_fields["header_title"].default
+    return configured or default

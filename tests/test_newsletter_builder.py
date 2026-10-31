@@ -234,8 +234,8 @@ class TestChromeDefaultsAreReachable:
             Header(title="", description="d", thumbnail="t", publish_date="2026-08-19")
 
     def test_main_omits_unset_chrome_so_defaults_apply(self, tmp_path, monkeypatch):
-        """The composition root must not pass "" for an unset field."""
-        import app.main as main
+        """The pipeline must not pass "" for an unset field."""
+        from app.application import pipeline
         from app.domain.newsletter import BuildConfiguration
 
         captured = {}
@@ -261,14 +261,14 @@ class TestChromeDefaultsAreReachable:
                 convert_to_images = False
                 logos: ClassVar[dict[str, str]] = {}
 
-        monkeypatch.setattr(main, "NewsletterBuilder", _Builder)
-        main._build_newsletter(
+        pipeline._build_newsletter(
+            _Builder,
             tmp_path / "inputs" / "2026-08-19",
             tmp_path,
             "2026-08-19",
             "intro",
             _Cfg(),
-            main.Language.KO,
+            Language.KO,
         )
         assert (
             captured["config"].header_title
