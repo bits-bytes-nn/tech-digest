@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -8,6 +9,7 @@ from typing import Any
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+from bs4 import BeautifulSoup, NavigableString
 
 from .constants import (
     BATCH_ATTEMPT_TIMEOUT_MINUTES,
@@ -164,6 +166,52 @@ def suppressed_destinations(boto_session: boto3.Session) -> set[str]:
         return set()
 
 
+# Elements that start a new line in the plain-text part.
+_TEXT_BLOCK_TAGS: tuple[str, ...] = (
+    "blockquote",
+    "div",
+    "figcaption",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hr",
+    "li",
+    "p",
+    "pre",
+    "tr",
+)
+_HIDDEN_STYLE = re.compile(r"display\s*:\s*none", re.IGNORECASE)
+
+
+def html_to_text(html: str) -> str:
+    """The plain-text alternative to an HTML email.
+
+    One line per block element, a blank line between paragraphs at most, and
+    each link's URL after its text so a text-only reader can still open the
+    article. Hidden elements (the inbox preheader) are left out.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["head", "style", "script"]):
+        tag.decompose()
+    for tag in soup.find_all(style=_HIDDEN_STYLE):
+        tag.decompose()
+    for anchor in soup.find_all("a", href=True):
+        href = str(anchor["href"])
+        if href and href != anchor.get_text(strip=True):
+            anchor.append(f" ({href})")
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+    for tag in soup.find_all(_TEXT_BLOCK_TAGS):
+        tag.insert_before(NavigableString("\n"))
+        tag.append("\n")
+    lines = [" ".join(line.split()) for line in soup.get_text().splitlines()]
+    text = "\n".join(lines)
+    return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
+
+
 def send_email(
     boto_session: boto3.Session,
     subject: str,
@@ -193,6 +241,10 @@ def send_email(
     for header in ["In-Reply-To", "References"]:
         if header in msg:
             del msg[header]
+    # Plain text first: in multipart/alternative the last part is the preferred
+    # one. Without a text part, spam filters score the message as HTML-only bulk
+    # mail and text-only clients show nothing.
+    msg.attach(MIMEText(html_to_text(html_content), "plain", "utf-8"))
     msg.attach(MIMEText(html_content, "html", "utf-8"))
     try:
         response = ses_client.send_raw_email(

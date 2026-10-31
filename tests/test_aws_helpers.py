@@ -4,6 +4,7 @@ Uses fake boto clients; no real AWS."""
 
 from __future__ import annotations
 
+import email
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from botocore.exceptions import ClientError
 from app.src.aws_helpers import (
     check_and_download_from_s3,
     get_ssm_param_value,
+    html_to_text,
     read_s3_json,
     send_email,
     submit_batch_job,
@@ -113,6 +115,43 @@ class TestSendEmail:
         assert (
             "List-Unsubscribe: <mailto:digest@example.com?subject=unsubscribe>" in raw
         )
+
+    def test_plain_text_alternative_precedes_html(self):
+        """An HTML-only message reads as bulk mail to spam filters and shows
+        nothing in a text-only client. The last alternative is the preferred
+        one, so the plain part goes first."""
+        ses = _FakeSES()
+        html = (
+            "<html><head><title>Issue</title><style>p {color: red}</style></head>"
+            '<body><div style="display: none; max-height: 0">preheader</div>'
+            '<h1>Weekly Digest</h1><h2 class="card-title">First Title</h2>'
+            "<p>Body <strong>bold</strong> text.</p>"
+            '<a href="https://example.com/a">Read the original</a>'
+            "<h2>Second Title</h2><p>More.</p></body></html>"
+        )
+        send_email(_FakeSession(ses), "s", "a@b.com", ["c@d.com"], html)
+        message = email.message_from_string(ses.sent[0]["RawMessage"]["Data"])
+        assert message.get_content_type() == "multipart/alternative"
+        parts = [p for p in message.walk() if not p.is_multipart()]
+        assert [p.get_content_type() for p in parts] == ["text/plain", "text/html"]
+        text = parts[0].get_payload(decode=True).decode("utf-8")
+        assert parts[1].get_payload(decode=True).decode("utf-8") == html
+        assert "First Title" in text
+        assert "Second Title" in text
+        assert "Body bold text." in text
+        assert "Read the original (https://example.com/a)" in text
+        for gone in ("preheader", "color: red", "<", "Issue"):
+            assert gone not in text
+
+
+class TestHtmlToText:
+    def test_blocks_become_lines_and_blank_runs_collapse(self):
+        html = "<div><p>One</p>\n\n\n<p>Two<br>Three</p></div><ul><li>a</li><li>b</li></ul>"
+        assert html_to_text(html) == "One\n\nTwo\nThree\n\na\n\nb\n"
+
+    def test_link_whose_text_is_its_url_is_not_repeated(self):
+        html = '<a href="https://example.com/x">https://example.com/x</a>'
+        assert html_to_text(html) == "https://example.com/x\n"
 
     def test_no_unsubscribe_header_without_a_usable_address(self):
         ses = _FakeSES()
