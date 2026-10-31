@@ -25,7 +25,7 @@
                 />
               </td>
               <td valign="middle" style="text-align: left">
-                <div class="card-title">{{ article.title }}</div>
+                <h2 class="card-title" style="margin: 0">{{ article.title }}</h2>
               </td>
             </tr>
           </table>
@@ -65,29 +65,37 @@
           <div style="max-width: 100%">{{ article.summary | safe }}</div>
         </td>
       </tr>
+      {# No link, no button: an unsafe link is blanked by Article. The colour and
+         padding sit on a cell, not the <a>: Outlook for Windows ignores padding
+         on an inline element and painted the button as a thin highlight. #}
+      {% if article.link %}
       <tr>
         <td class="cta-cell card-pad" bgcolor="#FFFFFF" align="center" style="padding: 8px 24px 24px 24px">
-          <a
-            href="{{ article.link }}"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="cta"
-            style="
-              font-family: 'Pretendard', 'Inter', system-ui, sans-serif;
-              font-size: 0.9375rem;
-              line-height: 1.5;
-              font-weight: 700;
-              color: #16191f;
-              text-decoration: none;
-              border-radius: 6px;
-              padding: 12px 28px;
-              display: inline-block;
-              background-color: #ff9900;
-            "
-            >{{ labels.view_more }} →</a
-          >
+          <table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center">
+            <tr>
+              <td class="cta-button" bgcolor="#FF9900" style="border-radius: 6px; padding: 12px 28px">
+                <a
+                  href="{{ article.link }}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="cta"
+                  style="
+                    font-family: 'Pretendard', 'Inter', system-ui, sans-serif;
+                    font-size: 0.9375rem;
+                    line-height: 1.5;
+                    font-weight: 700;
+                    color: #16191f;
+                    text-decoration: none;
+                    display: inline-block;
+                  "
+                  >{{ labels.view_more }} →</a
+                >
+              </td>
+            </tr>
+          </table>
         </td>
       </tr>
+      {% endif %}
       {% if article.urls %}
       <tr>
         <td bgcolor="#FFFFFF" class="card-pad" style="padding: 0 24px"><hr class="divider" /></td>

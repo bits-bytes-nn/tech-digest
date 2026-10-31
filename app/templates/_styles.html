@@ -6,7 +6,6 @@
 <style type="text/css">
   :root {
     color-scheme: light dark;
-    supported-color-schemes: light dark;
   }
   body {
     margin: 0;
@@ -197,7 +196,7 @@
      rather than overflow the card on mobile. */
   pre,
   code {
-    font-family: "Roboto Mono", monospace !important;
+    font-family: Menlo, Consolas, "Roboto Mono", monospace !important;
     font-size: 0.8125rem !important;
     line-height: 1.5 !important;
     background-color: #f8f9fa !important;
@@ -297,9 +296,8 @@
     .resources * {
       color: #e6edf3 !important;
     }
-    /* The article title and date carry an inline color:...!important, which
-       outranks a stylesheet !important rule — so lighten them explicitly at
-       higher specificity, or they render dark-on-dark. */
+    /* The title and the lede sit outside .card-body, so they need their own
+       light colours, or they render dark-on-dark. */
     .card-title,
     .card-title * {
       color: #f0f4f8 !important;

@@ -275,9 +275,18 @@ class TestNewsletterRendering:
         # 800px wide on a 390px screen, which the device then shrank to fit.
         import re
 
+        sample_article_data["summary"] += (
+            '<figure><img src="https://cdn.example.com/chart.png" alt="chart" '
+            'width="712" style="width:100%;max-width:712px;height:auto"></figure>'
+        )
         renderer = NewsletterRenderer(templates_dir)
         html = renderer.render_newsletter(self._build_data(sample_article_data))
         outside_mso = re.sub(r"<!--\[if mso\]>.*?<!\[endif\]-->", "", html, flags=re.S)
+        # The summary image's width attribute is for Outlook, which ignores
+        # max-width; every other client takes its fluid width:100%.
+        outside_mso = outside_mso.replace(
+            'width="712" style="width:100%;max-width:712px;height:auto"', ""
+        )
         assert "min-width" not in outside_mso
         assert not re.search(r'width="(?:[4-9]\d\d|\d{4,})"', outside_mso)
         assert not re.search(r"(?<![-\w])width:\s*(?:[4-9]\d\d|\d{4,})px", outside_mso)
@@ -288,6 +297,68 @@ class TestNewsletterRendering:
         renderer = NewsletterRenderer(templates_dir)
         html = renderer.render_newsletter(self._build_data(sample_article_data))
         assert "Openai logo" in html
+
+    def test_blanked_link_renders_no_button(self, templates_dir, sample_article_data):
+        # Article blanks an unsafe link; a button to href="" goes nowhere.
+        sample_article_data["link"] = "javascript:alert(1)"
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._build_data(sample_article_data))
+        assert "원문 보기" not in html
+        assert 'class="cta"' not in html
+        assert 'href=""' not in html
+
+    def test_titles_are_headings(self, templates_dir, sample_article_data):
+        # A screen reader jumps between headings; <div> titles gave it none.
+        import re
+
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._build_data(sample_article_data))
+        assert re.search(r'<h1 class="hero-title"[^>]*margin: 0 0 12px 0', html)
+        assert re.search(r"<h1[^>]*>\s*Weekly AI Tech Blog Digest\s*</h1>", html)
+        title = sample_article_data["title"]
+        assert f'<h2 class="card-title" style="margin: 0">{title}</h2>' in html
+        page = renderer.render_article(Article.model_validate(sample_article_data))
+        assert f'<h2 class="card-title" style="margin: 0">{title}</h2>' in page
+
+    def test_button_colour_and_padding_sit_on_a_cell(
+        self, templates_dir, sample_article_data
+    ):
+        # Outlook for Windows ignores padding on an inline <a>, so a button
+        # painted on the link rendered as a thin highlight behind the text.
+        import re
+
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._build_data(sample_article_data))
+        assert re.search(
+            r'<td class="cta-button" bgcolor="#FF9900" style="[^"]*padding: 12px 28px',
+            html,
+        )
+        link_style = re.search(r'<a [^>]*class="cta" style="([^"]*)"', html)
+        assert link_style
+        assert "padding" not in link_style.group(1)
+        assert "background" not in link_style.group(1)
+
+    def test_no_external_font_request(self, templates_dir, sample_article_data):
+        # A <link> to Google Fonts tells a third party who opened the issue, and
+        # Gmail strips it anyway; the code font falls back to system monospace.
+        renderer = NewsletterRenderer(templates_dir)
+        article = Article.model_validate(sample_article_data)
+        for html in (
+            renderer.render_newsletter(self._build_data(sample_article_data)),
+            renderer.render_article(article),
+        ):
+            assert "fonts.googleapis.com" not in html
+            assert "<link" not in html
+            assert "monospace !important" in html
+
+    def test_stylesheet_has_no_meta_only_property(
+        self, templates_dir, sample_article_data
+    ):
+        # supported-color-schemes is a <meta> name, not a CSS property.
+        renderer = NewsletterRenderer(templates_dir)
+        html = renderer.render_newsletter(self._build_data(sample_article_data))
+        assert "supported-color-schemes:" not in html
+        assert '<meta name="supported-color-schemes" content="light dark"' in html
 
 
 class TestClipBudget:
@@ -411,10 +482,19 @@ class TestStandaloneArticlePage:
 
 
 class TestArticleSourceLabel:
-    def test_known_source(self, sample_article_data):
-        sample_article_data["source"] = "pinterest"
+    @pytest.mark.parametrize(
+        ("source", "label"),
+        [
+            ("pinterest", "Pinterest"),
+            ("sebastian_raschka", "Sebastian Raschka"),
+            # Read aloud, "Aws" is a word; an acronym must be spelled out.
+            ("aws", "AWS"),
+        ],
+    )
+    def test_known_source(self, sample_article_data, source, label):
+        sample_article_data["source"] = source
         article = Article.model_validate(sample_article_data)
-        assert article.source_label == "Pinterest"
+        assert article.source_label == label
 
     def test_unknown_source_blank(self, sample_article_data):
         sample_article_data["source"] = "unknown"
