@@ -36,7 +36,6 @@ class EnvVars(str, Enum):
     CONFIG_FILE_SUFFIX = "CONFIG_FILE_SUFFIX"
     LANGCHAIN_API_KEY = "LANGCHAIN_API_KEY"
     LANGCHAIN_TRACING_V2 = "LANGCHAIN_TRACING_V2"
-    LANGCHAIN_ENDPOINT = "LANGCHAIN_ENDPOINT"
     LANGCHAIN_PROJECT = "LANGCHAIN_PROJECT"
     LOG_LEVEL = "LOG_LEVEL"
     # "false" skips the dated log file outside AWS. The test suite sets it, so a

@@ -4,8 +4,8 @@
 # parameters, EventBridge -> Batch target). Values are dummy placeholders, not
 # real resources.
 #
-# It leaves vpc_id unset, so the stack creates a new VPC, the production
-# topology; that works without credentials thanks to CDK_SYNTH_DUMMY_AZS=1.
+# It leaves vpc_id unset, so the stack creates a new VPC (the dev stack's
+# topology); that works without credentials thanks to CDK_SYNTH_DUMMY_AZS=1.
 resources:
   project_name: tech-digest
   stage: dev
