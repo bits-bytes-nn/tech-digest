@@ -416,6 +416,43 @@ class TestEmailOrchestration:
         assert outcome.succeeded == 1
         assert touched == []
 
+    @pytest.mark.parametrize(
+        ("header_title", "expected"),
+        [
+            ("Digest", "[2026-07-11] Digest"),
+            # Unset in the stage config: the subject names the title the rendered
+            # header falls back to, not "None".
+            (None, "[2026-07-11] Weekly AI Tech Blog Digest"),
+        ],
+    )
+    def test_subject_uses_the_rendered_title(
+        self, monkeypatch, tmp_path, header_title, expected
+    ):
+        newsletter = tmp_path / "n.html"
+        newsletter.write_text("<html>body</html>", encoding="utf-8")
+        subjects = []
+        monkeypatch.setattr(
+            main, "send_email", lambda _s, subject, *a: subjects.append(subject)
+        )
+        monkeypatch.setattr(main.time, "sleep", lambda *_: None)
+
+        title = header_title
+
+        class _Cfg(self._Cfg):
+            class newsletter:
+                header_title = title
+                sender = "sender@example.com"
+
+        main._process_newsletter_emails(
+            newsletter,
+            "2026-07-11",
+            _Cfg(),
+            object(),
+            main.Language.KO,
+            recipients=["a@example.com"],
+        )
+        assert subjects == [expected]
+
 
 class TestHandlerControlFlow:
     """Exercise handler's early-return and error paths without AWS/Bedrock by
@@ -814,19 +851,20 @@ class TestDuplicateSendGuard:
         assert outcome.failed == ["bad@example.com"]
         assert writes[-1]["delivered"] == ["ok@example.com"]
 
+    @pytest.mark.parametrize(
+        ("recipient", "ledger_entry"),
+        [
+            ("reader@example.com", "READER@Example.com"),
+            ("Reader@Example.COM", "reader@example.com"),
+        ],
+        ids=["ledger-cased", "recipient-cased"],
+    )
     def test_ledger_entries_are_compared_case_insensitively(
-        self, monkeypatch, tmp_path
+        self, monkeypatch, tmp_path, recipient, ledger_entry
     ):
-        self._patch_recipients(monkeypatch, ["reader@example.com"])
-        _outcome, sent, _ = self._run(
-            monkeypatch, tmp_path, ledger={"delivered": ["READER@Example.com"]}
-        )
-        assert sent == []
-
-    def test_comparison_is_case_insensitive(self, monkeypatch, tmp_path):
-        self._patch_recipients(monkeypatch, ["Reader@Example.COM"])
+        self._patch_recipients(monkeypatch, [recipient])
         outcome, sent, _ = self._run(
-            monkeypatch, tmp_path, ledger={"delivered": ["reader@example.com"]}
+            monkeypatch, tmp_path, ledger={"delivered": [ledger_entry]}
         )
         assert sent == []
         assert outcome.skipped == 1
@@ -862,3 +900,113 @@ class TestDuplicateSendGuard:
             main._delivery_ledger_key(cfg, "2026-08-29", main.Language.KO),
         }
         assert len(keys) == 3
+
+
+class TestDeliveryAlertsFromTheHandler:
+    """The handler, not just the alert helpers, decides which delivery alarm fires.
+
+    Each case stubs the send phase with the outcome it would report and checks
+    what reaches SNS.
+    """
+
+    class _Cfg:
+        class resources:
+            project_name = PROJECT
+            profile_name = None
+            default_region_name = "ap-northeast-2"
+            bedrock_region_name = "us-west-2"
+            stage = "prod"
+            s3_bucket_name = "bucket"
+            s3_prefix = "tech-digest"
+
+        class scraping:
+            expected_flaky_urls = ()
+
+        class newsletter:
+            send_emails = True
+
+    def _alerts(self, monkeypatch, tmp_path, outcome) -> list[str]:
+        from app.src.feed_parser import Post
+
+        session = _FakeSession()
+        post = Post(title="t", link="https://x.example/p", published_date="2026-10-09")
+        newsletter = tmp_path / "n.html"
+        newsletter.write_text("<html></html>", encoding="utf-8")
+        monkeypatch.setattr(main, "is_running_in_aws", lambda: True)
+        monkeypatch.setenv(main.EnvVars.TOPIC_ARN.value, "arn:topic")
+        monkeypatch.setattr(main, "_boto_sessions", lambda _cfg: (session, session))
+        monkeypatch.setattr(main.Config, "load", classmethod(lambda cls: self._Cfg()))
+        monkeypatch.setattr(main, "_setup_aws_env", lambda *a: None)
+        monkeypatch.setattr(main, "_archive_suffix", lambda *a: "")
+        monkeypatch.setattr(
+            main,
+            "_fetch_and_filter_posts",
+            lambda *a, **k: ([post], "2026-10-10", [], CrawlReport()),
+        )
+        monkeypatch.setattr(
+            main, "_process_posts_and_create_newsletter", lambda *a, **k: newsletter
+        )
+        monkeypatch.setattr(main, "_process_newsletter_emails", lambda *a: outcome)
+        assert main.handler({}, None)["statusCode"] == 200
+        return [m["Subject"] for m in session.sns.published]
+
+    def test_no_recipients_alerts_once(self, monkeypatch, tmp_path):
+        assert self._alerts(monkeypatch, tmp_path, main.DeliveryOutcome()) == [
+            f"[{PROJECT}] No Recipients — ALERT"
+        ]
+
+    def test_a_failed_recipient_alerts_partial_delivery(self, monkeypatch, tmp_path):
+        outcome = main.DeliveryOutcome(
+            resolved=2, attempted=2, succeeded=1, failed=["b@example.com"]
+        )
+        assert self._alerts(monkeypatch, tmp_path, outcome) == [
+            f"[{PROJECT}] Newsletter Delivery — ALERT"
+        ]
+
+    def test_a_retry_that_skipped_everyone_is_silent(self, monkeypatch, tmp_path):
+        outcome = main.DeliveryOutcome(resolved=2, skipped=2)
+        assert self._alerts(monkeypatch, tmp_path, outcome) == []
+
+    def test_a_fully_suppressed_list_alerts(self, monkeypatch, tmp_path):
+        # Resolved, but every address is on the SES suppression list: nobody gets
+        # the issue, and there is no failed send for partial-delivery to report.
+        outcome = main.DeliveryOutcome(resolved=2, suppressed=2)
+        assert self._alerts(monkeypatch, tmp_path, outcome) == [
+            f"[{PROJECT}] No Recipients — ALERT"
+        ]
+
+    def test_the_suppressed_alert_says_why(self, monkeypatch):
+        from app.configs import Config
+
+        monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci")
+        session = _FakeSession()
+        main._send_no_recipients_alert(
+            session,
+            "arn:topic",
+            Config.load(),
+            CrawlReport(),
+            main.DeliveryOutcome(resolved=3, skipped=1, suppressed=2),
+        )
+        [published] = session.sns.published
+        assert "0/2" in published["Message"]
+        assert "Suppressed by SES" in published["Message"]
+
+    def test_the_send_phase_reports_a_fully_suppressed_list(
+        self, monkeypatch, tmp_path
+    ):
+        newsletter = tmp_path / "n.html"
+        newsletter.write_text("<html>body</html>", encoding="utf-8")
+        recipients = ["a@example.com", "b@example.com"]
+        monkeypatch.setattr(main, "suppressed_destinations", lambda _s: set(recipients))
+        monkeypatch.setattr(main, "send_email", lambda *a: pytest.fail("sent"))
+        monkeypatch.setattr(main, "read_s3_json", lambda *a, **k: None)
+        monkeypatch.setattr(main, "_get_recipients", lambda *a, **k: list(recipients))
+
+        outcome = main._process_newsletter_emails(
+            newsletter,
+            "2026-10-10",
+            TestDuplicateSendGuard._Cfg(),
+            object(),
+            main.Language.KO,
+        )
+        assert outcome == main.DeliveryOutcome(resolved=2, suppressed=2)
