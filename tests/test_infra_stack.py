@@ -167,6 +167,12 @@ def test_a_failed_run_is_not_retried_but_an_infrastructure_death_is(template):
     }
 
 
+def test_the_job_runs_the_app_package(template):
+    [job_definition] = _resources(template, "AWS::Batch::JobDefinition")
+    command = job_definition["Properties"]["ContainerProperties"]["Command"]
+    assert command[:3] == ["python", "-m", "app.main"]
+
+
 def test_a_job_stuck_in_runnable_is_cancelled_so_the_failed_rule_fires(template):
     [queue] = _resources(template, "AWS::Batch::JobQueue")
     actions = queue["Properties"]["JobStateTimeLimitActions"]

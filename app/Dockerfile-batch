@@ -34,7 +34,9 @@ ENV CHROME_BINARY=/usr/bin/google-chrome-stable
 COPY font-prefer.conf /etc/fonts/conf.d/64-language-selector-prefer.conf
 RUN fc-cache -fv
 
-WORKDIR /app
+# The build context is the `app` package, so it is copied to /srv/app and run as
+# `python3 -m app.main` from /srv: the same `app.*` import root as the repo.
+WORKDIR /srv
 
 # Install from the LOCK, not the ranges: requirements.txt says what versions are
 # compatible, requirements.lock says which ones this image ships. Resolving the
@@ -43,13 +45,13 @@ WORKDIR /app
 COPY requirements.txt requirements.lock ./
 RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.lock
 
-COPY . ./
+COPY . app/
 
 # Run as a non-root user. Chrome already runs with --no-sandbox /
 # --disable-dev-shm-usage (see newsletter_renderer._configure_chrome_options),
 # so it works without root. On AWS the app writes under /tmp (ROOT_DIR), not
-# /app, so the read-only app dir owned by this user is sufficient.
-RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
+# /srv, so the read-only app dir owned by this user is sufficient.
+RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /srv
 USER appuser
 
-CMD ["python3", "main.py"]
+CMD ["python3", "-m", "app.main"]

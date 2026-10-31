@@ -4,21 +4,12 @@ success notification's crawl summary. Uses a fake boto session — no AWS."""
 from __future__ import annotations
 
 import re
-import sys
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 
-# main.py uses the container import layout (`from src import ...`,
-# `from configs import ...`), so it must be imported with app/ on the path.
-APP_DIR = Path(__file__).resolve().parent.parent / "app"
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
-
-import main  # noqa: E402
-
-from src.feed_parser import CrawlReport, SourceHealth, SourceStatus  # noqa: E402
+from app import main
+from app.src.feed_parser import CrawlReport, SourceHealth, SourceStatus
 
 
 @pytest.fixture(autouse=True)
@@ -245,7 +236,7 @@ class TestEmptyDigestAlert:
     def _post(self, title: str):
         from datetime import datetime
 
-        from src.feed_parser import Post
+        from app.src.feed_parser import Post
 
         return Post(
             title=title, link="https://x.com", published_date=datetime(2026, 7, 11)
@@ -309,7 +300,7 @@ class TestGeneratePostFilename:
     def _post(self, title: str, link: str):
         from datetime import datetime
 
-        from src.feed_parser import Post
+        from app.src.feed_parser import Post
 
         return Post(
             title=title,
@@ -448,7 +439,7 @@ class TestHandlerControlFlow:
 
     def test_no_posts_returns_200(self, monkeypatch):
         self._patch_common(monkeypatch)
-        from src.feed_parser import CrawlReport
+        from app.src.feed_parser import CrawlReport
 
         monkeypatch.setattr(
             main,
@@ -484,7 +475,7 @@ class TestHandlerControlFlow:
 
         from datetime import datetime
 
-        from src.feed_parser import Post
+        from app.src.feed_parser import Post
 
         report = CrawlReport(
             sources=[
@@ -620,7 +611,7 @@ class TestNoRecipientsAlert:
         )
 
     def test_alert_names_the_object_to_go_look_at(self, monkeypatch):
-        from configs import Config
+        from app.configs import Config
 
         # The committed CI config, not the developer's: config-dev.yaml is
         # gitignored, so loading it passes locally and fails in CI.
@@ -653,7 +644,7 @@ class TestClippedNewsletterAlert:
     prod issue (2026-06-02) shipped at 101.4% of the limit."""
 
     def test_no_alert_under_the_limit(self, tmp_path):
-        from src import GMAIL_CLIP_BYTES
+        from app.src import GMAIL_CLIP_BYTES
 
         path = tmp_path / "n.html"
         path.write_bytes(b"x" * (GMAIL_CLIP_BYTES - 1))
@@ -664,7 +655,7 @@ class TestClippedNewsletterAlert:
         assert session.sns.published == []
 
     def test_alert_over_the_limit_reports_size_and_remedy(self, tmp_path):
-        from src import GMAIL_CLIP_BYTES
+        from app.src import GMAIL_CLIP_BYTES
 
         path = tmp_path / "n.html"
         path.write_bytes(b"x" * (GMAIL_CLIP_BYTES + 2048))

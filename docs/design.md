@@ -155,12 +155,10 @@ tech-digest/
 └── .github/workflows/           # ci.yml(lint, type-check, test, cdk synth), workflow-lint.yml(actionlint)
 ```
 
-> **임포트 경로 주의.** 이 프로젝트에는 두 가지 임포트 레이아웃이 공존합니다.
-> 저장소 루트에서 실행할 때는 `app.configs` / `app.src`로 임포트하고(`config.py`,
-> `deploy_infra.py`, 테스트가 이 경로를 씁니다), 컨테이너 안에서는
-> `WORKDIR=/app`이라 `configs` / `src`로 임포트합니다(`main.py`, `run_batch.py`가
-> 이 경로를 씁니다). 테스트 스위트는 `app.*` 한쪽으로 통일했고,
-> `tests/conftest.py`가 저장소 루트를 `sys.path`에 추가해 이를 맞춥니다.
+> **임포트 경로.** 모든 코드가 `app` 패키지 하나를 루트로 `app.configs`, `app.src`처럼
+> 임포트합니다. 진입점은 저장소 루트에서 `python -m app.main`, `python -m app.run_batch`로
+> 실행합니다. Batch 이미지는 패키지를 `/srv/app`에 두고 `/srv`에서 같은 명령으로, Lambda
+> 이미지는 태스크 루트 아래 `app/`에 두고 `app.main.handler`로 실행합니다.
 
 ---
 
@@ -1699,7 +1697,7 @@ SSM에서 Batch 잡 큐/정의 이름을 조회하고, 파라미터를 정제한
   `CHROME_BINARY`를 고정해, Selenium이 불안정한 네트워크 다운로드 없이 맞는 드라이버를
   찾게 합니다. `convert_to_images`를 켰다면 Batch를 씁니다. **비루트 사용자**(`appuser`)로
   실행하며(Chrome은 이미 `--no-sandbox`/`--disable-dev-shm-usage`로 띄우므로 호환), 런타임
-  쓰기는 `/app`이 아니라 `/tmp`(`ROOT_DIR`)로 갑니다.
+  쓰기는 `/srv`가 아니라 `/tmp`(`ROOT_DIR`)로 갑니다.
 - 두 이미지의 베이스는 **digest로 고정**해 재현 가능한 빌드를 보장합니다(태그와
   digest를 함께 갱신).
 - **의존성 락(`app/requirements.lock`).** `requirements.txt`는 "호환되는 범위"를 선언하고
@@ -1865,8 +1863,8 @@ Claude 5 세대 요청 계약은 특히 강하게 고정해 두었습니다. 새
 첫 번째 잡은 의존성 설치, `ruff check`, `ruff format --check`, mypy, 커버리지를 포함한
 pytest, 그리고 필터 평가 하네스 드라이런을 실행합니다.
 
-- mypy는 차단형이고 `cd app && mypy .`로 돕니다. 컨테이너의 임포트 루트와 맞추기
-  위해서이고, `.`으로 잡아야 진입점인 `main.py`와 `run_batch.py`까지 검사됩니다.
+- mypy는 차단형이고 `mypy app`으로 진입점인 `main.py`와 `run_batch.py`를 포함한 패키지
+  전체를 검사합니다.
 - pytest에는 `--cov-fail-under=87`이 붙어 있습니다. 목표치가 아니라 퇴행 방지선이라 실제
   커버리지에서 한두 포인트 안으로 유지하고, 커버리지가 오르면 바닥도 같이 올립니다. 그래야
   커버된 경로의 테스트를 지웠을 때 여기서 실패합니다.
@@ -1928,9 +1926,9 @@ CI 잡을 필수 검사로 둔 브랜치 보호가 걸려 있어 PR로만 바뀝
 
 ## 22. 운영 런북
 
-- **온디맨드 실행 트리거:** `python app/run_batch.py --end-date YYYY-MM-DD
+- **온디맨드 실행 트리거:** `python -m app.run_batch --end-date YYYY-MM-DD
   --language ko --recipients you@example.com`(Batch), 또는 로컬에서
-  `python app/main.py ...`.
+  `python -m app.main ...`.
 - "No posts found"가 뜰 때: 크롤 헬스 알림이나 로그에서 `FAILED` 소스를 확인하세요. 날짜
   윈도우(`days_back`)가 최신 글을 포함하는지도 확인합니다.
 - 특정 소스가 안 보일 때: 헬스 리포트에서 `FAILED`(페치 오류/안티봇)인지 `EMPTY`인지
