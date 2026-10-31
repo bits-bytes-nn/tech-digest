@@ -9,10 +9,10 @@ loudly in the prompt.
 
 from __future__ import annotations
 
+from app.application.greet import Greeter
+from app.application.prompts.prompts import GreetingPrompt
 from app.domain.constants import Language
 from app.domain.text import measure_greeting
-from app.src.greeter import Greeter
-from app.src.prompts.prompts import GreetingPrompt
 
 
 class _Chain:

@@ -1,15 +1,13 @@
 import json
 
-import boto3
 from langchain_core.output_parsers import StrOutputParser
 
-from app.adapters.bedrock import BedrockLanguageModelFactory
+from app.application.llm_batching import retry_with_backoff
+from app.application.ports import ChatModelProvider
+from app.application.prompts.prompts import TitleCasePrompt
 from app.domain.constants import LanguageModelId
 from app.domain.text import parse_recased
 from app.logger import logger
-
-from .prompts import TitleCasePrompt
-from .utils import retry_with_backoff
 
 # Output cap for the title-case call. Left unset, the request reserves the
 # model's full output maximum against the tokens-per-minute quota; a JSON array
@@ -18,9 +16,8 @@ TITLE_CASE_MAX_TOKENS: int = 4096
 
 
 class TitleCaser:
-    def __init__(self, boto_session: boto3.Session, model_id: LanguageModelId):
-        llm_factory = BedrockLanguageModelFactory(boto_session=boto_session)
-        llm = llm_factory.get_model(
+    def __init__(self, models: ChatModelProvider, model_id: LanguageModelId):
+        llm = models.get_model(
             model_id=model_id,
             temperature=0.0,
             max_tokens=TITLE_CASE_MAX_TOKENS,

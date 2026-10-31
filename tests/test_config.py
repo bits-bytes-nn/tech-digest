@@ -174,7 +174,7 @@ class TestSummarizationSwitchesReachTheSummarizer:
         "field", ["filter_on_visible_text", "summarize_on_cleaned_html"]
     )
     def test_false_in_yaml_reaches_summarizer_settings(self, field):
-        from app.src.summarizer import SummarizerSettings
+        from app.application.summarize import SummarizerSettings
 
         section = Summarization(
             filtering_criteria=FilteringCriteria.ALL,

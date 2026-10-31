@@ -316,8 +316,8 @@ class TestImageCaptions:
         assert "<p>Body</p>" in cleaned
 
     def test_prompts_ask_for_a_caption_in_both_languages(self):
+        from app.application.prompts.prompts import SummarizationPrompt
         from app.domain.constants import Language
-        from app.src.prompts.prompts import SummarizationPrompt
 
         for language in (Language.EN, Language.KO):
             template = SummarizationPrompt._human_prompt_template[language]

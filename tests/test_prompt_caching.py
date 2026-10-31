@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
+from app.application.prompts.prompts import FilteringPrompt, SummarizationPrompt
 from app.domain.constants import FilteringCriteria, Language
-from app.src.prompts.prompts import FilteringPrompt, SummarizationPrompt
 
 
 def _split_messages(prompt_cls, **fmt):
@@ -190,8 +190,8 @@ class TestCachingIsOnlyEnabledWhenItCanHit:
     """
 
     def _summarizer(self, **overrides):
+        from app.application.summarize import Summarizer, SummarizerSettings
         from app.domain.constants import LanguageModelId
-        from app.src.summarizer import Summarizer, SummarizerSettings
 
         base = {
             "filtering_model_id": LanguageModelId.CLAUDE_V5_SONNET,

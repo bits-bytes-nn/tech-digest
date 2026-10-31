@@ -120,9 +120,11 @@ def score(
     own filter step (same input preparation, retries and response checks)."""
     import boto3
 
+    from app.adapters.bedrock import BedrockLanguageModelFactory
+    from app.adapters.http import is_email_renderable_image
+    from app.application.summarize import Summarizer, SummarizerSettings
     from app.domain.post import Post
     from app.domain.summary import MODEL_FAILURE_PREFIXES
-    from app.src.summarizer import Summarizer, SummarizerSettings
 
     config = _config(stage)
     candidates = json.loads(_candidates_path(stage).read_text(encoding="utf-8"))
@@ -146,7 +148,11 @@ def score(
         region_name=config.resources.bedrock_region_name,
         profile_name=profile if profile is not None else config.resources.profile_name,
     )
-    summarizer = Summarizer(session, settings)
+    summarizer = Summarizer(
+        BedrockLanguageModelFactory(boto_session=session),
+        settings,
+        is_email_renderable_image,
+    )
     posts = [
         Post(
             title=c["title"],
@@ -202,8 +208,8 @@ def _lineup(candidates: list[dict[str, Any]], scores: dict, settings: Any) -> li
 
 
 def compare(stage: str, before: str, after: str) -> int:
+    from app.application.summarize import SummarizerSettings
     from app.domain.eval_metrics import band_of_score, is_anchor
-    from app.src.summarizer import SummarizerSettings
 
     config = _config(stage)
     settings = SummarizerSettings.model_validate(config.summarization.model_dump())

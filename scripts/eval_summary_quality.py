@@ -149,9 +149,11 @@ def regenerate(date: str, stage: str, profile: str | None, suffix: str) -> str:
     import boto3
 
     os.environ.setdefault("CONFIG_FILE_SUFFIX", stage)
+    from app.adapters.bedrock import BedrockLanguageModelFactory
+    from app.adapters.http import is_email_renderable_image
+    from app.application.summarize import Summarizer, SummarizerSettings
     from app.configs import Config
     from app.domain.post import Post
-    from app.src.summarizer import Summarizer, SummarizerSettings
 
     source = INPUTS_DIR / date
     stored = [
@@ -170,7 +172,9 @@ def regenerate(date: str, stage: str, profile: str | None, suffix: str) -> str:
     # The production Summarizer, so the A/B exercises the real chain — same
     # prompt, model and thinking settings — instead of a re-implementation.
     summarizer = Summarizer(
-        session, SummarizerSettings.model_validate(config.summarization.model_dump())
+        BedrockLanguageModelFactory(boto_session=session),
+        SummarizerSettings.model_validate(config.summarization.model_dump()),
+        is_email_renderable_image,
     )
     posts = [
         Post(

@@ -67,9 +67,11 @@ def _score_live(
     import boto3
 
     os.environ.setdefault("CONFIG_FILE_SUFFIX", stage)
+    from app.adapters.bedrock import BedrockLanguageModelFactory
+    from app.adapters.http import is_email_renderable_image
+    from app.application.summarize import Summarizer, SummarizerSettings
     from app.configs import Config
     from app.domain.constants import FilteringCriteria
-    from app.src.summarizer import Summarizer, SummarizerSettings
 
     config = Config.load()
     # --profile overrides the config's profile_name; an empty/None profile means
@@ -83,12 +85,13 @@ def _score_live(
     # (same prompt, model, temperature, thinking settings) — not a re-impl. The
     # eval set picks the criteria; everything else comes from the stage config.
     summarizer = Summarizer(
-        session,
+        BedrockLanguageModelFactory(boto_session=session),
         SummarizerSettings.model_validate(
             config.summarization.model_dump()
             | {"filtering_criteria": FilteringCriteria(data.get("criteria", "all"))}
             | ({"filtering_model_id": model} if model else {})
         ),
+        is_email_renderable_image,
     )
     included = ", ".join(data.get("included_topics", []))
     excluded = ", ".join(data.get("excluded_topics", []))

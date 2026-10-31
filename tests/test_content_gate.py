@@ -56,8 +56,8 @@ class TestContentLengthGate:
     def _make_summarizer(self, min_len: int):
         # Build a Summarizer-like object without triggering Bedrock setup by
         # using __new__ and setting only the attributes the gate touches.
+        from app.application.summarize import Summarizer, SummarizerSettings
         from app.domain.constants import LanguageModelId
-        from app.src.summarizer import Summarizer, SummarizerSettings
 
         s = Summarizer.__new__(Summarizer)
         s.settings = SummarizerSettings(

@@ -120,7 +120,9 @@ class TestGreetingFailureKeepsTheIssue:
             class summarization:
                 greeting_model_id = "unused"
 
-        intro = main._generate_greeting([], "2026-10-10", _Config(), None, language)
+        intro = main._generate_greeting(
+            [], "2026-10-10", _Config(), lambda: None, language
+        )
         assert intro == main.FALLBACK_INTRO[language]
 
 
@@ -152,7 +154,9 @@ class TestGreetingContext:
             one_liner="Image pulls drop from minutes to seconds.",
             summary="<h3>📌 개요</h3><p>Lazy loading <em>starts</em> jobs early.</p><p>x</p>",
         )
-        main._generate_greeting([post], "2026-10-31", _Config(), None, Language.KO)
+        main._generate_greeting(
+            [post], "2026-10-31", _Config(), lambda: None, Language.KO
+        )
         assert "Image pulls drop from minutes to seconds." in seen["context"]
         assert "summary opening: Lazy loading starts jobs early." in seen["context"]
 
@@ -173,7 +177,7 @@ class TestTitleCaseFailureKeepsTheTitles:
         post = Post(
             title="a guide", link="https://x.example/p", published_date="2026-10-09"
         )
-        main._title_case_titles([post], _Config(), None)
+        main._title_case_titles([post], _Config(), lambda: None)
         assert post.title == "a guide"
 
     def test_recased_titles_replace_the_feed_titles_in_order(self, monkeypatch):
@@ -196,7 +200,7 @@ class TestTitleCaseFailureKeepsTheTitles:
             Post(title=t, link=f"https://x.example/{i}", published_date="2026-10-09")
             for i, t in enumerate(["first post", "second post"])
         ]
-        main._title_case_titles(posts, _Config(), None)
+        main._title_case_titles(posts, _Config(), lambda: None)
         assert [p.title for p in posts] == ["First Post", "Second Post"]
 
 

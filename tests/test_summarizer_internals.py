@@ -8,9 +8,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.application.summarize import Summarizer, SummarizerSettings
 from app.domain.constants import LanguageModelId
 from app.domain.post import Post
-from app.src.summarizer import Summarizer, SummarizerSettings
 
 
 def _post(title: str, content: str = "body", source: str = "unknown") -> Post:
@@ -57,7 +57,9 @@ def _summarizer(min_score=0.7, **overrides):
     s.settings = _settings(min_score=min_score, **overrides)
     s.language = s.settings.language
     s.filtered_out_posts = []
-    from app.src.utils import BatchProcessor
+    # Every image loads; tests about the mail-client check pass their own probe.
+    s.image_probe = lambda url: True
+    from app.application.llm_batching import BatchProcessor
 
     s.batch_processor = BatchProcessor(max_concurrency=2, batch_size=10)
     return s
@@ -68,7 +70,7 @@ class TestFilterPosts:
         # The chain is faked everywhere else, so a key the prompt requires but
         # _filter_posts stops sending would KeyError on every real call while CI
         # stays green.
-        from app.src.prompts.prompts import FilteringPrompt
+        from app.application.prompts.prompts import FilteringPrompt
 
         seen: list[dict] = []
 
@@ -123,7 +125,7 @@ class TestFilterPosts:
     def test_filter_title_is_plain_text_not_escaped_markup(self):
         # decode_contents() returned "Q&amp;A"; autoescape then showed the
         # reader the entity. The filter's tags are all plain text.
-        from app.src.utils import HTMLTagOutputParser
+        from app.application.llm_batching import HTMLTagOutputParser
 
         parser = HTMLTagOutputParser(
             tag_names=["score", "title"], text_tags=["score", "title"]
@@ -334,12 +336,10 @@ class TestSummarizePosts:
         self, monkeypatch
     ):
         # Outlook shows a WebP's alt text, which then ran into the caption.
-        from app.src import summarizer as module
-
         webp = "https://cdn.example.com/chart.width-100.format-webp.webp"
         png = "https://cdn.example.com/arch.png"
-        monkeypatch.setattr(module, "is_email_renderable_image", lambda url: url == png)
         s = _summarizer()
+        s.image_probe = lambda url: url == png
         post = _post("a", content=f'<img src="{webp}"><img src="{png}">')
         post.images = [webp, png]
         s.summarizer = _FakeChain(
@@ -359,17 +359,13 @@ class TestSummarizePosts:
 
     def test_a_webp_is_swapped_for_a_png_rendition_the_article_lists(self, monkeypatch):
         # NVIDIA serves WebP as the main file and PNG in its srcset.
-        from app.src import summarizer as module
-
         base = "https://cdn.example.com/chart"
-        monkeypatch.setattr(
-            module, "is_email_renderable_image", lambda url: url.endswith(".png")
-        )
         source = (
             f'<img src="{base}.webp" srcset="{base}.webp 2048w, {base}-300.png 300w, '
             f'{base}-1536.png 1536w, {base}-2048.png 2048w">'
         )
         s = _summarizer()
+        s.image_probe = lambda url: url.endswith(".png")
         post = _post("a", content=source)
         post.images = [f"{base}.webp"]
         s.summarizer = _FakeChain(
@@ -389,13 +385,13 @@ class TestSummarizePosts:
         assert ".webp" not in post.summary
 
     def test_images_not_checked_within_the_budget_are_dropped(self, monkeypatch):
-        from app.src import summarizer as module
+        from app.application import summarize as module
 
         ticks = iter([0, 0, 1000])  # start, image a, image b
-        monkeypatch.setattr(module, "is_email_renderable_image", lambda url: True)
         html, dropped = module._drop_unrenderable_images(
             '<img src="https://x/a.png"><img src="https://x/b.png">',
             "",
+            is_renderable=lambda url: True,
             budget_seconds=60,
             clock=lambda: next(ticks),
         )
@@ -774,10 +770,10 @@ class TestOneLinerKeepsAngleBrackets:
     def test_escaped_generics_survive_the_parse_and_the_cleanup(self):
         # The parser read one_liner as text (decoding once) and _clean_one_liner
         # decoded again, so "List&lt;String&gt;" reached the card as "List".
+        from app.application.llm_batching import HTMLTagOutputParser
+        from app.application.prompts.prompts import SummarizationPrompt
+        from app.application.summarize import Summarizer
         from app.domain.summary import SummaryOutput
-        from app.src.prompts.prompts import SummarizationPrompt
-        from app.src.summarizer import Summarizer
-        from app.src.utils import HTMLTagOutputParser
 
         parser = HTMLTagOutputParser(
             tag_names=SummarizationPrompt.output_variables,

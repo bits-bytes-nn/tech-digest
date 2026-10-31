@@ -1,4 +1,5 @@
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -6,6 +7,7 @@ import re
 import shutil
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,8 +26,14 @@ from app.adapters.aws import (
     upload_to_s3,
     write_s3_json,
 )
+from app.adapters.bedrock import BedrockLanguageModelFactory
 from app.adapters.feeds import PostCollector
+from app.adapters.http import is_email_renderable_image
 from app.adapters.rendering import NewsletterBuilder
+from app.application.greet import Greeter
+from app.application.ports import ChatModelProvider
+from app.application.summarize import Summarizer, SummarizerSettings
+from app.application.title_case import TitleCaser
 from app.configs import Config
 from app.domain.alarms import format_alarm, validate_emails
 from app.domain.constants import (
@@ -41,9 +49,6 @@ from app.domain.newsletter import GMAIL_CLIP_BYTES, BuildConfiguration
 from app.domain.post import Post, get_date_range
 from app.domain.summary import MODEL_FAILURE_PREFIXES
 from app.logger import is_running_in_aws, logger
-from app.src.greeter import Greeter
-from app.src.summarizer import Summarizer, SummarizerSettings
-from app.src.title_caser import TitleCaser
 
 # SES caps this account at 1 message per second (MaxSendRate, checked
 # 2026-10-10; the account is still in the SES sandbox). 0.5s sent at twice
@@ -86,6 +91,11 @@ def _boto_sessions(config: Config) -> tuple[boto3.Session, boto3.Session]:
 def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
     config = Config.load()
     default_boto_session, bedrock_boto_session = _boto_sessions(config)
+    # Each stage that calls a model builds its own client, and only when it
+    # runs: a run with nothing to summarize never creates one.
+    models = functools.partial(
+        BedrockLanguageModelFactory, boto_session=bedrock_boto_session
+    )
     try:
         _setup_aws_env(config, default_boto_session)
         end_date_str = event.get("END_DATE")
@@ -95,7 +105,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         language = Language(language_str) if language_str else Language.KO
         posts, date_suffix, filtered_out_posts, crawl_report = _fetch_and_filter_posts(
             config,
-            bedrock_boto_session,
+            models,
             end_date_str=end_date_str,
             language=language,
         )
@@ -145,7 +155,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
             date_suffix,
             config,
             default_boto_session,
-            bedrock_boto_session,
+            models,
             language=language,
             archive_suffix=_archive_suffix(
                 config, default_boto_session, date_suffix, language, recipients
@@ -229,7 +239,7 @@ def _setup_aws_env(config: Config, boto_session: boto3.Session) -> None:
 
 def _fetch_and_filter_posts(
     config: Config,
-    boto_session: boto3.Session,
+    models: Callable[[], ChatModelProvider],
     end_date_str: str | None = None,
     language: Language = Language.KO,
 ) -> tuple[list[Post], str, list[tuple[Post, str]], CrawlReport]:
@@ -258,7 +268,7 @@ def _fetch_and_filter_posts(
     # Field names match the `summarization` config section, so the whole section
     # maps across without restating every key; extras are ignored by pydantic.
     summarizer = Summarizer(
-        boto_session,
+        models(),
         SummarizerSettings.model_validate(
             config.summarization.model_dump()
             | {
@@ -266,6 +276,7 @@ def _fetch_and_filter_posts(
                 "language": language,
             }
         ),
+        is_email_renderable_image,
     )
 
     # The score-rank and max_posts cap are applied inside process_posts BEFORE
@@ -284,16 +295,16 @@ def _process_posts_and_create_newsletter(
     date_suffix: str,
     config: Config,
     default_boto_session: boto3.Session,
-    bedrock_boto_session: boto3.Session,
+    models: Callable[[], ChatModelProvider],
     language: Language = Language.KO,
     archive_suffix: str = "",
 ) -> Path:
     """Build the issue and archive it in S3, under ``archive_suffix`` if given
     (see ``_archive_suffix``)."""
-    _title_case_titles(posts, config, bedrock_boto_session)
+    _title_case_titles(posts, config, models)
     inputs_dir = _prepare_and_save_posts(posts, date_suffix)
     first_section_intro = _generate_greeting(
-        posts, date_suffix, config, bedrock_boto_session, language
+        posts, date_suffix, config, models, language
     )
     outputs_dir = ROOT_DIR / LocalPaths.OUTPUTS_DIR.value
     outputs_dir.mkdir(parents=True, exist_ok=True)
@@ -421,13 +432,13 @@ def _save_post_to_file(post: Post, path: Path) -> None:
 
 
 def _title_case_titles(
-    posts: list[Post], config: Config, boto_session: boto3.Session
+    posts: list[Post], config: Config, models: Callable[[], ChatModelProvider]
 ) -> None:
     """Recase the shipping titles in place: feeds mix sentence and title case."""
     if not posts:
         return
     try:
-        caser = TitleCaser(boto_session, config.summarization.greeting_model_id)
+        caser = TitleCaser(models(), config.summarization.greeting_model_id)
     except Exception as e:
         # Like the greeting: cosmetic, and every summary is already paid for.
         logger.error("Title caser unavailable (%s); keeping the feed titles.", e)
@@ -440,10 +451,10 @@ def _generate_greeting(
     posts: list[Post],
     date_suffix: str,
     config: Config,
-    boto_session: boto3.Session,
+    models: Callable[[], ChatModelProvider],
     language: Language,
 ) -> str:
-    greeter = Greeter(boto_session, config.summarization.greeting_model_id, language)
+    greeter = Greeter(models(), config.summarization.greeting_model_id, language)
     # The summary's opening gives the model a detail beyond the card's own lede.
     lines = "\n".join(
         f"- {post.title}\n  card lede (already shown): {post.one_liner}"

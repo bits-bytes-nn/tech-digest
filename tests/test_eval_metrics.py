@@ -44,9 +44,9 @@ class TestBandOfScore:
         """The rubric text and ``ANCHOR_BANDS`` are one scale written twice."""
         import re
 
+        from app.application.prompts.prompts import FilteringPrompt
         from app.domain.constants import FilteringCriteria
         from app.domain.eval_metrics import ANCHOR_BANDS
-        from app.src.prompts.prompts import FilteringPrompt
 
         template = FilteringPrompt._human_prompt_template[FilteringCriteria(criteria)]
         stated = {float(m) for m in re.findall(r"- \*\*(\d\.\d\d)\*\* —", template)}
@@ -59,8 +59,8 @@ class TestBandOfScore:
         highest anchor for other content."""
         import re
 
+        from app.application.prompts.prompts import FilteringPrompt
         from app.domain.constants import FilteringCriteria
-        from app.src.prompts.prompts import FilteringPrompt
 
         template = FilteringPrompt._human_prompt_template[FilteringCriteria(criteria)]
         included, other = template.split("**OTHER ", 1)
@@ -73,7 +73,7 @@ class TestBandOfScore:
     def test_excluded_topics_override_included_ones(self):
         """Without a stated precedence the same article flipped between 0.85
         (included topic) and 0.05 (excluded topic) on identical input."""
-        from app.src.prompts.prompts import FilteringPrompt
+        from app.application.prompts.prompts import FilteringPrompt
 
         for template in FilteringPrompt._human_prompt_template.values():
             assert "An excluded topic overrides an included one" in template

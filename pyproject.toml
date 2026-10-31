@@ -115,7 +115,7 @@ ignore = [
 "tests/*" = ["B011", "SIM"]
 # Long prompt strings, unicode punctuation, and declarative prompt-class
 # attributes (input/output_variables) that are class-level by design.
-"app/src/prompts/prompts.py" = ["E501", "RUF001", "RUF012"]
+"app/application/prompts/prompts.py" = ["E501", "RUF001", "RUF012"]
 # σ (sigma) is intentional in the report table header (standard deviation).
 "app/domain/eval_metrics.py" = ["RUF001"]
 
@@ -155,5 +155,5 @@ disable_error_code = ["call-overload"]
 # templates) as class attributes; get_prompt reads them off the class object,
 # which is correct at runtime but mypy flags as instance-only access.
 [[tool.mypy.overrides]]
-module = ["app.src.prompts.prompts"]
+module = ["app.application.prompts.prompts"]
 disable_error_code = ["misc"]

@@ -455,7 +455,7 @@ class BedrockLanguageModelFactory:
         boto_config = BotoConfig(
             read_timeout=self.BOTO_READ_TIMEOUT,
             connect_timeout=60,
-            # No botocore retries: ``utils.retry_with_backoff`` owns them. With
+            # No botocore retries: ``llm_batching.retry_with_backoff`` owns them. With
             # both layers retrying a read timeout, one hung call could cost
             # 4 x 300 s per tenacity attempt, outlasting the Batch attempt.
             retries={"total_max_attempts": 1, "mode": "standard"},
@@ -473,6 +473,11 @@ class BedrockLanguageModelFactory:
     @staticmethod
     def get_model_info(model_id: LanguageModelId) -> LanguageModelInfo | None:
         return _LANGUAGE_MODEL_INFO.get(model_id)
+
+    @staticmethod
+    def is_converse(model: Any) -> bool:
+        """Whether ``model`` is the Converse-API class ``get_model`` built."""
+        return isinstance(model, ChatBedrockConverse)
 
     def get_model(
         self,

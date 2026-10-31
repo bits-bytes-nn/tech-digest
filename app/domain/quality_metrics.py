@@ -54,7 +54,7 @@ from dataclasses import dataclass, field
 from bs4 import BeautifulSoup
 
 # --------------------------------------------------------------------------- #
-# Targets, mirroring app/src/prompts/prompts.py. Keep the two in step; the
+# Targets, mirroring app/application/prompts/prompts.py. Keep the two in step; the
 # tests assert the prompt states the same numbers.
 # --------------------------------------------------------------------------- #
 KO_LENGTH_BAND: tuple[int, int] = (4000, 6000)
