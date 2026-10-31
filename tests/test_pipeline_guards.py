@@ -11,17 +11,11 @@ from __future__ import annotations
 import logging
 import runpy
 import sys
-from pathlib import Path
 
 import pytest
 
-APP_DIR = Path(__file__).resolve().parent.parent / "app"
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
-
-import main  # noqa: E402
-
-from src.constants import Language  # noqa: E402
+from app import main, run_batch
+from app.src.constants import Language
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +28,7 @@ class TestRunBatchRecipients:
     def test_only_invalid_addresses_refuse_to_fall_back(self, monkeypatch):
         # "--recipients" with nothing valid used to become "null", which means
         # "everyone on the S3 list". It must stop before anything is submitted.
-        from configs import Config
+        from app.configs import Config
 
         class _Submitted(BaseException):
             """Not an Exception, so run_batch's own handler cannot swallow it."""
@@ -49,7 +43,7 @@ class TestRunBatchRecipients:
             ["run_batch.py", "--recipients", "me@exmaple", "not-an-address"],
         )
         with pytest.raises(SystemExit) as exc:
-            runpy.run_path(str(APP_DIR / "run_batch.py"), run_name="__main__")
+            runpy.run_path(run_batch.__file__, run_name="__main__")
         assert exc.value.code == 1
 
 
@@ -130,7 +124,7 @@ class TestGreetingFailureKeepsTheIssue:
 
 class TestTitleCaseFailureKeepsTheTitles:
     def test_an_unavailable_caser_leaves_titles_alone(self, monkeypatch):
-        from src.feed_parser import Post
+        from app.src.feed_parser import Post
 
         def _broken(*args, **kwargs):
             raise ValueError("Unsupported model ID")
@@ -148,7 +142,7 @@ class TestTitleCaseFailureKeepsTheTitles:
         assert post.title == "a guide"
 
     def test_recased_titles_replace_the_feed_titles_in_order(self, monkeypatch):
-        from src.feed_parser import Post
+        from app.src.feed_parser import Post
 
         class _Caser:
             def __init__(self, *args, **kwargs):
@@ -173,7 +167,7 @@ class TestTitleCaseFailureKeepsTheTitles:
 
 class TestTestRunsKeepOutOfTheLogFile:
     def test_no_file_handler_under_pytest(self):
-        from src.logger import configure_logger
+        from app.src.logger import configure_logger
 
         configured = configure_logger("tech-digest-probe")
         assert not any(isinstance(h, logging.FileHandler) for h in configured.handlers)
@@ -208,7 +202,7 @@ class TestRecipientsOverrideInTheContainer:
     def test_the_override_reaches_the_send_phase_and_archives_as_a_test(
         self, monkeypatch, tmp_path
     ):
-        from src.feed_parser import CrawlReport, Post
+        from app.src.feed_parser import CrawlReport, Post
 
         seen: dict = {}
         post = Post(title="t", link="https://x.example/p", published_date="2026-10-09")
@@ -311,7 +305,7 @@ class TestModelFailureAlert:
             return self.sns
 
     def _post(self, title):
-        from src.feed_parser import Post
+        from app.src.feed_parser import Post
 
         return Post(
             title=title, link=f"https://x.example/{title}", published_date="2026-10-09"
@@ -347,7 +341,7 @@ class TestModelFailureAlert:
 
 class TestModelFailureAlertFromTheHandler:
     def test_a_shipped_issue_that_lost_a_post_pages(self, monkeypatch, tmp_path):
-        from src.feed_parser import CrawlReport, Post
+        from app.src.feed_parser import CrawlReport, Post
 
         sns = TestModelFailureAlert._SNS()
         session = TestModelFailureAlert._Session(sns)

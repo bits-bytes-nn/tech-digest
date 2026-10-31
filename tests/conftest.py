@@ -1,9 +1,7 @@
 """Shared pytest fixtures and path setup for the tech-digest test suite.
 
-The application uses a mixed import layout: ``app.configs`` / ``app.src`` from
-the repo root (used by ``config.py``, ``deploy_infra.py`` and the tests) and
-bare ``configs`` / ``src`` inside the container (``WORKDIR=/app``). Tests
-standardise on the ``app.*`` form, so we put the repo root on ``sys.path``.
+Everything imports from the one ``app`` package, so the repo root goes on
+``sys.path``.
 """
 
 from __future__ import annotations
@@ -59,7 +57,7 @@ def sample_article_data() -> dict:
 def propagating_logger():
     """Let ``caplog`` see the app logger.
 
-    ``src.logger`` sets ``propagate = False`` so container logs aren't emitted
+    ``app.src.logger`` sets ``propagate = False`` so container logs aren't emitted
     twice, which also stops pytest's root-handler capture from seeing them.
     """
     from app.src.logger import logger
@@ -101,14 +99,11 @@ def no_network(monkeypatch):
     # The article-page fetch behind Post.from_entry's thin-feed fallback: without
     # this, a blocked request is "transient" and the ladder sleeps through its
     # backoff. Tests that exercise the request layer import the function
-    # directly, so this module-level stub does not reach them. Both import
-    # layouts (app.src and the container's bare src) are covered.
-    for name in ("app.src.feed_parser", "src.feed_parser"):
-        if module := sys.modules.get(name):
-            monkeypatch.setattr(module, "_make_robust_request", lambda url: None)
+    # directly, so this module-level stub does not reach them.
+    if module := sys.modules.get("app.src.feed_parser"):
+        monkeypatch.setattr(module, "_make_robust_request", lambda url: None)
     # The summarizer fetches each summary image to check mail clients can show
     # it. Offline, every image would be dropped; tests about that check stub
     # it themselves.
-    for name in ("app.src.summarizer", "src.summarizer"):
-        if module := sys.modules.get(name):
-            monkeypatch.setattr(module, "is_email_renderable_image", lambda url: True)
+    if module := sys.modules.get("app.src.summarizer"):
+        monkeypatch.setattr(module, "is_email_renderable_image", lambda url: True)

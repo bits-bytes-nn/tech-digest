@@ -646,6 +646,11 @@
 
 ## 컨테이너와 의존성
 
+- **2026-11-01** 임포트 루트를 `app` 하나로 합쳤습니다. 진입점은 `sys.path`에 저장소 루트를 더한 뒤
+  `configs`·`src`로 임포트했고 `config.py`는 `app.src`로 임포트해, 컨테이너 안에서 같은 모듈이
+  두 이름으로 두 번 로드됐습니다. Lambda 이미지는 `app` 패키지 없이 `main.py`만 복사해 핸들러가
+  임포트 단계에서 실패할 수 있었습니다. 지금은 두 이미지 모두 패키지를 `app/`에 두고
+  `python -m app.main`과 `app.main.handler`로 실행합니다.
 - 베이스 이미지는 digest로 고정했지만 Python 의존성은 `>=` 범위뿐이어서 이미지 빌드마다 다시
   해석됐습니다. `requirements.lock`을 도입했습니다. CI가 락을 constraints로 쓰기 전에는 핵심
   패키지 12개가 이미지와 전부 달랐고 langchain은 1.2 대 1.3이었습니다.

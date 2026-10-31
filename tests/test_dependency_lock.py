@@ -86,7 +86,7 @@ class TestDockerfilesInstallFromTheLock:
     @pytest.mark.parametrize("dockerfile", ["Dockerfile-batch", "Dockerfile-lambda"])
     def test_lock_is_copied_into_the_build(self, dockerfile):
         body = (APP / dockerfile).read_text(encoding="utf-8")
-        assert "requirements.lock" in body.split("RUN")[0] or any(
+        assert any(
             "requirements.lock" in line
             for line in body.splitlines()
             if line.startswith("COPY")

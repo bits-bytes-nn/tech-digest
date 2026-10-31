@@ -14,9 +14,8 @@ from typing import Any, Final
 
 import boto3
 
-sys.path.append(str(Path(__file__).parent.parent))
-from configs import Config
-from src import (
+from app.configs import Config
+from app.src import (
     GMAIL_CLIP_BYTES,
     MODEL_FAILURE_PREFIXES,
     AppConstants,

@@ -47,13 +47,9 @@ jobs:
         run: ruff format --check .
 
       - name: Mypy type-check
-        # Run from inside app/ so the container import layout (`src`, `configs`)
-        # resolves to single module names (matches Dockerfile WORKDIR=/app).
-        # `.` (not `src`) so the entrypoints main.py / run_batch.py — the
-        # highest-blast-radius files — are also checked; tests/ is excluded in
-        # pyproject. (cdk.out etc. are excluded there too.)
-        working-directory: app
-        run: mypy .
+        # The whole `app` package, entry points main.py / run_batch.py included,
+        # under the one `app.*` import root the images also use.
+        run: mypy app
 
       - name: Run tests
         # --cov-fail-under is a ratchet, not a target: keep it within a point or
