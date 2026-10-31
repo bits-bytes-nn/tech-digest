@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 import boto3
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import BotoCoreError, ClientError, HTTPClientError
+from botocore.exceptions import ConnectionError as BotoConnectionError
 from bs4 import BeautifulSoup, NavigableString
 
 from .constants import (
@@ -26,6 +27,11 @@ DEFAULT_BATCH_POLL_INTERVAL: int = 30
 DEFAULT_BATCH_TIMEOUT: int = (
     BATCH_RUNNABLE_LIMIT_MINUTES + BATCH_ATTEMPTS * BATCH_ATTEMPT_TIMEOUT_MINUTES
 ) * 60 + 300
+# Error codes from describe_jobs that a later poll can get past: throttling and
+# Batch's own 5xx (ServerException).
+_TRANSIENT_BATCH_ERROR_CODES: frozenset[str] = frozenset(
+    {"ServerException", "ThrottlingException", "TooManyRequestsException"}
+)
 
 
 def check_and_download_from_s3(
@@ -317,6 +323,18 @@ def upload_to_s3(
         return False
 
 
+def _is_transient_poll_error(error: ClientError | BotoCoreError) -> bool:
+    """Whether a failed ``describe_jobs`` call is worth repeating.
+
+    Throttling, a Batch server fault, a dropped connection or a timed-out read
+    can pass; anything else (expired credentials, a denied call) will not.
+    """
+    if isinstance(error, ClientError):
+        code = error.response.get("Error", {}).get("Code", "")
+        return code in _TRANSIENT_BATCH_ERROR_CODES
+    return isinstance(error, BotoConnectionError | HTTPClientError)
+
+
 def wait_for_batch_job_completion(
     boto_session: boto3.Session,
     job_id: str,
@@ -342,14 +360,27 @@ def wait_for_batch_job_completion(
             if status == "SUCCEEDED":
                 logger.info("Job '%s' completed successfully.", job_id)
                 return True
-            if status in ["FAILED", "CANCELLED"]:
+            if status == "FAILED":
                 reason = job.get("statusReason", "No reason provided.")
-                logger.error("Job '%s' %s. Reason: %s", job_id, status.lower(), reason)
+                logger.error("Job '%s' failed. Reason: %s", job_id, reason)
                 return False
             time.sleep(poll_interval_seconds)
-        except ClientError as e:
+        except (ClientError, BotoCoreError) as e:
+            # A throttled or dropped status call says nothing about the job, which
+            # is still running: keep polling, within the same overall timeout.
+            if _is_transient_poll_error(e):
+                logger.warning(
+                    "Transient error checking Batch job '%s' (%s); polling again.",
+                    job_id,
+                    e,
+                )
+                time.sleep(poll_interval_seconds)
+                continue
             logger.error(
-                "Error while checking Batch job status for '%s': %s", job_id, e
+                "Could not check the status of Batch job '%s' (%s); the job may "
+                "still be running.",
+                job_id,
+                e,
             )
             return False
     logger.warning(
