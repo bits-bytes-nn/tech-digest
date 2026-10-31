@@ -193,10 +193,10 @@ pip install -r requirements.txt
 cp .env.template .env        # then edit .env
 
 # Generate and send a digest for a given week
-python app/main.py --end-date 2026-06-03 --recipients you@example.com
+python -m app.main --end-date 2026-06-03 --recipients you@example.com
 
 # Or submit it as a Batch job
-python app/run_batch.py --end-date 2026-06-03 --language ko --recipients you@example.com
+python -m app.run_batch --end-date 2026-06-03 --language ko --recipients you@example.com
 ```
 
 `--recipients` sends only to the addresses given and neither reads nor writes the
@@ -212,8 +212,7 @@ pip install -e ".[dev]"
 # Lint, format-check, type-check, and test
 ruff check .
 ruff format --check .
-cd app && mypy .             # run from app/ so the dual import layout resolves;
-                             # `.` (not `src`) also checks main.py / run_batch.py
+mypy app                     # the whole package, main.py / run_batch.py included
 pytest                       # fast, offline unit/integration suite
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline

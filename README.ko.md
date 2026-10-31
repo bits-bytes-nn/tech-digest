@@ -188,10 +188,10 @@ pip install -r requirements.txt
 cp .env.template .env        # 복사한 뒤 .env 편집
 
 # 특정 주차의 다이제스트 생성·발송
-python app/main.py --end-date 2026-06-03 --recipients you@example.com
+python -m app.main --end-date 2026-06-03 --recipients you@example.com
 
 # 또는 Batch 잡으로 제출
-python app/run_batch.py --end-date 2026-06-03 --language ko --recipients you@example.com
+python -m app.run_batch --end-date 2026-06-03 --language ko --recipients you@example.com
 ```
 
 `--recipients`는 지정한 주소로만 보내고 전달 원장을 읽지도 쓰지도 않습니다. 유효한 주소가
@@ -206,8 +206,7 @@ pip install -e ".[dev]"
 # 린트, 포맷 검사, 타입 검사, 테스트
 ruff check .
 ruff format --check .
-cd app && mypy .             # 듀얼 임포트 레이아웃을 해석하려면 app/에서 실행.
-                             # `.`(=`src` 아님)로 main.py / run_batch.py도 검사
+mypy app                     # main.py / run_batch.py를 포함한 패키지 전체
 pytest                       # 빠른 오프라인 단위/통합 스위트
 
 # 생성된 실행 결과에 대한 출력 품질 루브릭. 채점은 결정적이고 오프라인이며 무료입니다.

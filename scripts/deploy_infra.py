@@ -78,7 +78,7 @@ IMAGE_ASSET_EXCLUDES: list[str] = [
     # Local recipient lists hold real addresses; the runtime always reads the
     # list from S3, so no copy may ship in an image.
     "assets/recipients-*.txt",
-    # Local tool caches and secrets. `cd app && mypy .` leaves a 154 MB
+    # Local tool caches and secrets. Running mypy inside app/ leaves a 154 MB
     # .mypy_cache that shipped in the Batch image, and because it changes on
     # every type-check, the asset hash did too: a no-op deploy rebuilt and
     # pushed the image and cut a new job-definition revision. The ** forms
@@ -711,7 +711,8 @@ class NewsletterStack(Stack):
             job_role=self.role,
             command=[
                 "python",
-                "main.py",
+                "-m",
+                "app.main",
                 "--end-date",
                 "Ref::end_date",
                 "--language",

@@ -9,12 +9,14 @@
 # managed, non-root runtime, so no USER directive is needed here.)
 FROM public.ecr.aws/lambda/python:3.12-x86_64@sha256:c72ee3b3026d3629698cbaa30afaf7ee9a643ebb3e2e78758ac1e9f2bfdd6cc7
 
-COPY main.py requirements.txt requirements.lock ./
-COPY configs/ configs/
-COPY templates/ templates/
-COPY src/ src/
-
+COPY requirements.txt requirements.lock ./
 # From the lock, not the ranges — see the note in Dockerfile-batch.
 RUN python3.12 -m pip install --no-cache-dir -r requirements.lock -t .
 
-CMD ["main.handler"]
+# The `app` package under the task root, so the handler imports as in the repo.
+COPY __init__.py main.py app/
+COPY configs/ app/configs/
+COPY templates/ app/templates/
+COPY src/ app/src/
+
+CMD ["app.main.handler"]

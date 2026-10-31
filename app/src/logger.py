@@ -49,9 +49,8 @@ def configure_logger(
     logger_obj = logging.getLogger(name)
     logger_obj.setLevel(level)
     formatter = logging.Formatter(LOG_FORMAT)
-    # Close before dropping: the dual import layout (``src`` and ``app.src``)
-    # configures this logger twice, and clearing the list alone leaked the first
-    # file handle.
+    # Close before dropping: reconfiguring (as tests do) would otherwise leak the
+    # previous file handle, since clearing the list alone does not close it.
     for handler in logger_obj.handlers:
         handler.close()
     logger_obj.handlers.clear()

@@ -3,16 +3,7 @@ sanitization (round-trips with main.py's decode) and date validation."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# run_batch uses the container import layout (`from src/configs import ...`),
-# so it must be imported with app/ on the path.
-APP_DIR = Path(__file__).resolve().parent.parent / "app"
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
-
-import run_batch  # noqa: E402
+from app import run_batch
 
 
 class TestSanitizeParameters:

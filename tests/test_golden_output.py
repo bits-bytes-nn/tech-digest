@@ -15,7 +15,6 @@ import email
 import json
 import os
 import re
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -27,23 +26,16 @@ from botocore.exceptions import ClientError
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-# main.py uses the container import layout (`from src import ...`), so it and
-# the classes it calls are imported the same way.
-APP_DIR = Path(__file__).resolve().parent.parent / "app"
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
-
-import main  # noqa: E402
-
-from src.constants import Language  # noqa: E402
-from src.feed_parser import (  # noqa: E402
+from app import main
+from app.src.constants import Language
+from app.src.feed_parser import (
     CrawlReport,
     Post,
     PostCollector,
     SourceHealth,
     SourceStatus,
 )
-from src.model_factory import BedrockLanguageModelFactory  # noqa: E402
+from app.src.model_factory import BedrockLanguageModelFactory
 
 GOLDEN_DIR = Path(__file__).parent / "fixtures" / "golden"
 CI_CONFIG = Path(__file__).parent.parent / "app" / "configs" / "config-ci-batch.yaml"
