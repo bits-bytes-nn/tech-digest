@@ -30,9 +30,9 @@ import boto3
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from app.adapters.bedrock import BedrockCrossRegionModelHelper
 from app.domain.constants import EnvVars, LanguageModelId
 from app.logger import logger
-from app.src.model_factory import BedrockCrossRegionModelHelper
 from app.src.summarizer import SummarizerSettings
 
 

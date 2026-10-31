@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.adapters.rendering import NewsletterRenderer
 from app.domain.constants import Language
 from app.domain.newsletter import (
     GMAIL_CLIP_BYTES,
@@ -18,7 +19,6 @@ from app.domain.newsletter import (
     estimate_reading_minutes,
     normalize_date,
 )
-from app.src.newsletter_renderer import NewsletterRenderer
 
 
 class TestValidateDate:

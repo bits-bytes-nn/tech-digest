@@ -309,7 +309,7 @@ class TestCommittedSourcesReachTheirScraper:
 
         import yaml
 
-        from app.src.feed_parser import RssFetcher, ScraperRegistry
+        from app.adapters.feeds import RssFetcher, ScraperRegistry
 
         path = Path(__file__).resolve().parent.parent / "app" / "configs" / config_file
         urls = yaml.safe_load(path.read_text())["scraping"]["rss_urls"]

@@ -1,4 +1,4 @@
-"""Unit tests for feed_parser: date parsing, source detection, content/image
+"""Unit tests for the feed adapter: date parsing, source detection, content/image
 extraction, and the scraper registry routing. No network access."""
 
 from __future__ import annotations
@@ -9,19 +9,19 @@ from typing import ClassVar
 import feedparser
 import pytest
 
+from app.adapters.feeds import (
+    LinkedInBlogScraper,
+    PostCollector,
+    RssFetcher,
+    ScraperRegistry,
+    post_from_entry,
+)
 from app.domain.content import visible_text
 from app.domain.post import (
     Post,
     is_date_in_range,
     parse_published_date,
     try_parse_published_date,
-)
-from app.src.feed_parser import (
-    LinkedInBlogScraper,
-    PostCollector,
-    RssFetcher,
-    ScraperRegistry,
-    post_from_entry,
 )
 
 
@@ -297,11 +297,11 @@ class TestPostFromEntry:
         # A feed teaser below MIN_CONTENT_LENGTH triggers a scrape, but if the
         # scrape yields LESS visible text it must NOT replace the feed content
         # (which would push the post below the downstream gate and drop it).
-        from app.src import feed_parser
+        from app.adapters import feeds
 
         feed_body = "<p>" + ("word " * 400) + "</p>"  # ~2000 visible chars
         monkeypatch.setattr(
-            feed_parser,
+            feeds,
             "_scrape_full_content",
             lambda url, **_: "<p>tiny</p>",
         )
@@ -316,11 +316,11 @@ class TestPostFromEntry:
         assert "tiny" not in post.content
 
     def test_richer_scrape_replaces_thin_feed_content(self, monkeypatch):
-        from app.src import feed_parser
+        from app.adapters import feeds
 
         rich = "<p>" + ("word " * 800) + "</p>"
         monkeypatch.setattr(
-            feed_parser,
+            feeds,
             "_scrape_full_content",
             lambda url, **_: rich,
         )
@@ -347,10 +347,10 @@ class TestPageUnreadable:
         )
 
     def test_a_blocked_page_marks_the_post(self, monkeypatch):
-        from app.src import feed_parser
+        from app.adapters import feeds
 
         monkeypatch.setattr(
-            feed_parser,
+            feeds,
             "_scrape_full_content",
             lambda url, **_: None,
         )
@@ -359,20 +359,20 @@ class TestPageUnreadable:
         assert "page_unreadable" not in post.model_dump()
 
     def test_a_page_that_was_read_does_not(self, monkeypatch):
-        from app.src import feed_parser
+        from app.adapters import feeds
 
         monkeypatch.setattr(
-            feed_parser,
+            feeds,
             "_scrape_full_content",
             lambda url, **_: "<p>tiny</p>",
         )
         assert not post_from_entry(self._entry("<p>short teaser</p>")).page_unreadable
 
     def test_a_full_feed_body_needs_no_page(self, monkeypatch):
-        from app.src import feed_parser
+        from app.adapters import feeds
 
         monkeypatch.setattr(
-            feed_parser,
+            feeds,
             "_scrape_full_content",
             lambda url, **_: pytest.fail("fetched"),
         )
@@ -391,7 +391,7 @@ class TestRegisteredScrapersResolveToAMappedSource:
     """
 
     def test_each_scraper_url_maps_to_a_known_source(self):
-        from app.src.feed_parser import ScraperRegistry
+        from app.adapters.feeds import ScraperRegistry
 
         unmapped = {
             url: Post._determine_source(f"https://{url}/some-post")
@@ -412,7 +412,7 @@ class TestContentContainerSelection:
     """
 
     def _scrape(self, monkeypatch, html: str) -> str:
-        from app.src import feed_parser as fp
+        from app.adapters import feeds as fp
 
         class _Response:
             text = html
@@ -473,7 +473,7 @@ class TestContentContainerSelection:
         assert self._scrape(monkeypatch, "<div>fragment</div>") != "  "
 
     def test_fetch_failure_yields_empty(self, monkeypatch):
-        from app.src import feed_parser as fp
+        from app.adapters import feeds as fp
 
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
         assert (
@@ -497,7 +497,7 @@ class TestContentContainerSelection:
         )
 
     def _serve(self, monkeypatch, html: str) -> None:
-        from app.src import feed_parser as fp
+        from app.adapters import feeds as fp
 
         class _Response:
             text = html
@@ -531,7 +531,7 @@ class TestContentContainerSelection:
         assert "The real article text." in visible_text(post.content)
 
     def test_without_body_fallback_no_container_yields_empty(self, monkeypatch):
-        from app.src import feed_parser as fp
+        from app.adapters import feeds as fp
 
         self._serve(monkeypatch, self.SCIENCE_SHAPE)
         assert fp._scrape_full_content("https://x.example/p", body_fallback=False) == ""
@@ -561,7 +561,7 @@ class TestPageCharset:
         return response
 
     def test_meta_charset_is_honoured_when_the_header_has_none(self):
-        from app.src.feed_parser import parse_page
+        from app.adapters.http import parse_page
 
         text = "Xiaomi\u2019s \u201csimply\u201d"
         body = f'<html><head><meta charset="utf-8"></head><p>{text}</p>'
@@ -569,7 +569,7 @@ class TestPageCharset:
         assert page.p.get_text() == text
 
     def test_a_header_charset_still_wins(self):
-        from app.src.feed_parser import parse_page
+        from app.adapters.http import parse_page
 
         body = "<p>caf\xe9</p>".encode("latin-1")
         page = parse_page(self._response("text/html; charset=iso-8859-1", body))

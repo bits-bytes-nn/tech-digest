@@ -1,11 +1,11 @@
 import boto3
 from langchain_core.output_parsers import StrOutputParser
 
+from app.adapters.bedrock import BedrockLanguageModelFactory
 from app.domain.constants import Language, LanguageModelId
 from app.domain.text import measure_greeting
 from app.logger import logger
 
-from .model_factory import BedrockLanguageModelFactory
 from .prompts import GreetingPrompt, GreetingRevisionPrompt
 from .utils import retry_with_backoff
 

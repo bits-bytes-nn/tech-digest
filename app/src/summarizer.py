@@ -9,6 +9,8 @@ from langchain_classic.output_parsers import OutputFixingParser
 from langchain_core.runnables import Runnable
 from pydantic import Field
 
+from app.adapters.bedrock import BedrockLanguageModelFactory
+from app.adapters.http import is_email_renderable_image
 from app.domain.constants import Language, LanguageModelId
 from app.domain.content import content_html, visible_text
 from app.domain.eval_metrics import is_anchor
@@ -31,8 +33,6 @@ from app.domain.summary import (
 )
 from app.logger import logger
 
-from .feed_parser import is_email_renderable_image
-from .model_factory import BedrockLanguageModelFactory
 from .prompts.prompts import FilteringPrompt, SummarizationPrompt
 from .utils import (
     BatchProcessor,

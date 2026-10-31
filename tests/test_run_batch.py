@@ -12,8 +12,8 @@ import pytest
 import app.logger as app_logger
 from app import main as app_main
 from app import run_batch
+from app.adapters import aws
 from app.configs import Config
-from app.src import aws_helpers
 
 
 class TestSanitizeParameters:
@@ -125,7 +125,7 @@ def batch_calls(monkeypatch) -> dict:
         calls["waited"].append(job_id)
         return calls.get("wait_result", True)
 
-    for module in (aws_helpers, run_batch):
+    for module in (aws, run_batch):
         monkeypatch.setattr(module, "get_ssm_param_value", get_param)
         monkeypatch.setattr(module, "submit_batch_job", submit)
         monkeypatch.setattr(module, "wait_for_batch_job_completion", wait)

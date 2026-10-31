@@ -10,10 +10,10 @@ from types import SimpleNamespace
 import pytest
 from bs4 import BeautifulSoup
 
-import app.src.feed_parser as fp
+import app.adapters.feeds as fp
+from app.adapters.feeds import PostCollector, SourceFetchError
 from app.domain.crawl import CrawlReport, SourceHealth, SourceStatus
 from app.domain.post import Post
-from app.src.feed_parser import PostCollector, SourceFetchError
 
 
 def _post(link: str) -> Post:

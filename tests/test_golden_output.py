@@ -27,11 +27,11 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
 from app import main
+from app.adapters.bedrock import BedrockLanguageModelFactory
+from app.adapters.feeds import PostCollector
 from app.domain.constants import Language
 from app.domain.crawl import CrawlReport, SourceHealth, SourceStatus
 from app.domain.post import Post
-from app.src.feed_parser import PostCollector
-from app.src.model_factory import BedrockLanguageModelFactory
 
 GOLDEN_DIR = Path(__file__).parent / "fixtures" / "golden"
 CI_CONFIG = Path(__file__).parent.parent / "app" / "configs" / "config-ci-batch.yaml"

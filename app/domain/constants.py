@@ -42,7 +42,7 @@ class EnvVars(str, Enum):
     LOG_TO_FILE = "LOG_TO_FILE"
     # Identify the deployment for Bedrock cost attribution: they name this
     # project/stage's application inference profiles, which are what carry the
-    # cost-allocation tags (see model_factory.application_profile_name).
+    # cost-allocation tags (see bedrock.application_profile_name).
     PROJECT_NAME = "PROJECT_NAME"
     STAGE = "STAGE"
     TOPIC_ARN = "TOPIC_ARN"

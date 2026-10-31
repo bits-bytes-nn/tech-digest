@@ -13,8 +13,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.adapters.bedrock import BedrockCrossRegionModelHelper, TokenUsageLogger
 from app.domain.constants import LanguageModelId
-from app.src.model_factory import BedrockCrossRegionModelHelper, TokenUsageLogger
 
 MODEL = LanguageModelId.CLAUDE_V5_SONNET
 # _build_cross_region_model_id uses region[:2] outside ap-*, so us-west-2 -> "us."
@@ -226,7 +226,7 @@ class TestArnRequiresProvider:
     """
 
     def _factory(self):
-        from app.src.model_factory import BedrockLanguageModelFactory
+        from app.adapters.bedrock import BedrockLanguageModelFactory
 
         factory = BedrockLanguageModelFactory.__new__(BedrockLanguageModelFactory)
         factory.region_name = "us-west-2"
@@ -235,7 +235,7 @@ class TestArnRequiresProvider:
         return factory
 
     def test_provider_supplied_for_an_arn_model_id(self):
-        from app.src.model_factory import _LANGUAGE_MODEL_INFO
+        from app.adapters.bedrock import _LANGUAGE_MODEL_INFO
 
         config = self._factory()._build_model_config(
             _LANGUAGE_MODEL_INFO[MODEL], APP_ARN, True, model_id=MODEL
@@ -243,7 +243,7 @@ class TestArnRequiresProvider:
         assert config["provider"] == "anthropic"
 
     def test_no_provider_needed_for_a_plain_model_id(self):
-        from app.src.model_factory import _LANGUAGE_MODEL_INFO
+        from app.adapters.bedrock import _LANGUAGE_MODEL_INFO
 
         config = self._factory()._build_model_config(
             _LANGUAGE_MODEL_INFO[MODEL], SYSTEM_PROFILE, True, model_id=MODEL
@@ -251,7 +251,7 @@ class TestArnRequiresProvider:
         assert "provider" not in config
 
     def test_provider_derived_from_the_catalog_id_not_hardcoded(self):
-        from app.src.model_factory import BedrockLanguageModelFactory
+        from app.adapters.bedrock import BedrockLanguageModelFactory
 
         assert BedrockLanguageModelFactory._provider_of(MODEL) == "anthropic"
         assert BedrockLanguageModelFactory._provider_of(None) == "anthropic"

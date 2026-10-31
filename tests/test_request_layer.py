@@ -6,14 +6,14 @@ from __future__ import annotations
 import pytest
 import requests
 
-from app.src import feed_parser
-from app.src.feed_parser import _make_robust_request
+from app.adapters import http
+from app.adapters.http import _make_robust_request
 
 
 @pytest.fixture(autouse=True)
 def no_sleep(monkeypatch):
     # The retry layer now backs off with time.sleep; stub it so tests are fast.
-    monkeypatch.setattr(feed_parser.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(http.time, "sleep", lambda *_: None)
 
 
 class _FakeResponse:
@@ -64,7 +64,7 @@ class _FakeSession:
 
 
 def _patch_session(monkeypatch, session):
-    monkeypatch.setattr(feed_parser.requests, "Session", lambda: session)
+    monkeypatch.setattr(http.requests, "Session", lambda: session)
 
 
 class TestMakeRobustRequest:
@@ -95,7 +95,7 @@ class TestMakeRobustRequest:
 
     def test_honors_retry_after_header(self, monkeypatch):
         slept: list[float] = []
-        monkeypatch.setattr(feed_parser.time, "sleep", lambda s: slept.append(s))
+        monkeypatch.setattr(http.time, "sleep", lambda s: slept.append(s))
         session = _FakeSession(
             [_FakeResponse(429, headers={"Retry-After": "5"}), _FakeResponse(200)]
         )
@@ -174,7 +174,7 @@ class TestSSRFGuard:
         def fake_getaddrinfo(host, *a, **k):
             return [(2, 1, 6, "", ("169.254.169.254", 0))]
 
-        monkeypatch.setattr(feed_parser.socket, "getaddrinfo", fake_getaddrinfo)
+        monkeypatch.setattr(http.socket, "getaddrinfo", fake_getaddrinfo)
         session = _FakeSession([_FakeResponse(200)])
         _patch_session(monkeypatch, session)
         assert _make_robust_request("http://evil.example.com/") is None
@@ -188,7 +188,7 @@ class TestSSRFGuard:
             lookups.append(host)
             return [(2, 1, 6, "", ("93.184.216.34", 0))]
 
-        monkeypatch.setattr(feed_parser.socket, "getaddrinfo", fake_getaddrinfo)
+        monkeypatch.setattr(http.socket, "getaddrinfo", fake_getaddrinfo)
         _patch_session(monkeypatch, _FakeSession([_FakeResponse(200)]))
         assert _make_robust_request("https://example.com/post") is not None
         assert lookups == ["example.com"]
@@ -197,7 +197,7 @@ class TestSSRFGuard:
         "url", ["http://169.254.169.254/x.png", "http://2130706433/x.png"]
     )
     def test_an_image_on_a_blocked_host_is_never_requested(self, monkeypatch, url):
-        from app.src.feed_parser import is_email_renderable_image
+        from app.adapters.http import is_email_renderable_image
 
         session = _FakeSession([_FakeResponse(200)])
         _patch_session(monkeypatch, session)
@@ -208,7 +208,7 @@ class TestSSRFGuard:
         def fake_getaddrinfo(host, *a, **k):
             return [(2, 1, 6, "", ("93.184.216.34", 0))]  # example.com public IP
 
-        monkeypatch.setattr(feed_parser.socket, "getaddrinfo", fake_getaddrinfo)
+        monkeypatch.setattr(http.socket, "getaddrinfo", fake_getaddrinfo)
         session = _FakeSession([_FakeResponse(200, url="https://example.com/post")])
         _patch_session(monkeypatch, session)
         assert _make_robust_request("https://example.com") is not None
@@ -221,7 +221,7 @@ class TestHeadersAreSentAsDeclared:
         session = _FakeSession([_FakeResponse(200)])
         _patch_session(monkeypatch, session)
         _make_robust_request("https://example.com")
-        assert session.sent_headers == [feed_parser.ScraperConfig.REQUEST_HEADERS]
+        assert session.sent_headers == [http.REQUEST_HEADERS]
         assert session.headers == {}
 
 
@@ -230,7 +230,7 @@ class TestEmailRenderableImage:
 
     @pytest.fixture
     def respond(self, monkeypatch):
-        from app.src import feed_parser
+        from app.adapters import http
 
         calls: list[dict] = []
 
@@ -252,7 +252,7 @@ class TestEmailRenderableImage:
                     raise raises
                 return _Resp()
 
-            monkeypatch.setattr(feed_parser, "_get_following_redirects", fake)
+            monkeypatch.setattr(http, "_get_following_redirects", fake)
             return calls
 
         return install
@@ -261,7 +261,7 @@ class TestEmailRenderableImage:
         "content_type", ["image/png", "image/jpeg; q=1", "image/gif"]
     )
     def test_email_safe_types_are_kept(self, respond, content_type):
-        from app.src.feed_parser import is_email_renderable_image
+        from app.adapters.http import is_email_renderable_image
 
         respond(content_type)
         assert is_email_renderable_image("https://cdn.example.com/a")
@@ -271,13 +271,13 @@ class TestEmailRenderableImage:
         ["image/webp", "image/avif", "image/svg+xml", "application/octet-stream"],
     )
     def test_types_mail_clients_do_not_show_are_dropped(self, respond, content_type):
-        from app.src.feed_parser import is_email_renderable_image
+        from app.adapters.http import is_email_renderable_image
 
         respond(content_type)
         assert not is_email_renderable_image("https://cdn.example.com/a")
 
     def test_an_image_that_does_not_load_is_dropped(self, respond):
-        from app.src.feed_parser import is_email_renderable_image
+        from app.adapters.http import is_email_renderable_image
 
         respond(ok=False)
         assert not is_email_renderable_image("https://cdn.example.com/a")
@@ -287,7 +287,7 @@ class TestEmailRenderableImage:
         # downloaded; now one bounded attempt that reads only the headers.
         import requests
 
-        from app.src.feed_parser import (
+        from app.adapters.http import (
             IMAGE_PROBE_TIMEOUT_SECONDS,
             is_email_renderable_image,
         )
@@ -297,6 +297,6 @@ class TestEmailRenderableImage:
         assert calls == [{"timeout": IMAGE_PROBE_TIMEOUT_SECONDS, "stream": True}]
 
     def test_an_unsafe_scheme_is_never_fetched(self):
-        from app.src.feed_parser import is_email_renderable_image
+        from app.adapters.http import is_email_renderable_image
 
         assert not is_email_renderable_image("javascript:alert(1)")

@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import pytest
 
-import app.src.model_factory as factory_mod
-from app.domain.constants import LanguageModelId
-from app.src.model_factory import (
+import app.adapters.bedrock as factory_mod
+from app.adapters.bedrock import (
     _LANGUAGE_MODEL_INFO,
     BedrockCrossRegionModelHelper,
     BedrockLanguageModelFactory,
     LanguageModelInfo,
 )
+from app.domain.constants import LanguageModelId
 
 
 class TestModelInfoRegistry:
