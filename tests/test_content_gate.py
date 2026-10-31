@@ -34,6 +34,21 @@ class TestPostTextLength:
     def test_plain_text_counted(self):
         assert _post("hello world").text_length() == len("hello world")
 
+    def test_a_parser_failure_counts_no_text_not_the_markup(
+        self, monkeypatch, caplog, propagating_logger
+    ):
+        """Returning the raw HTML on failure let markup clear the content gate."""
+        from app.src import feed_parser
+
+        def broken(*_a, **_k):
+            raise RuntimeError("parser blew up")
+
+        monkeypatch.setattr(feed_parser, "BeautifulSoup", broken)
+        html = "<div class='x'>" + "<span></span>" * 200 + "</div>"
+        with caplog.at_level("WARNING"):
+            assert _post(html).text_length() == 0
+        assert any("parser blew up" in r.getMessage() for r in caplog.records)
+
 
 class TestContentLengthGate:
     """The gate lives on Summarizer; we exercise it directly without Bedrock."""

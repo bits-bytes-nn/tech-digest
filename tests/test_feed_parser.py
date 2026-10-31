@@ -299,7 +299,7 @@ class TestPostFromEntry:
         monkeypatch.setattr(
             feed_parser.Post,
             "_scrape_full_content",
-            staticmethod(lambda url: "<p>tiny</p>"),
+            staticmethod(lambda url, **_: "<p>tiny</p>"),
         )
         entry = feedparser.FeedParserDict(
             title="T",
@@ -316,7 +316,7 @@ class TestPostFromEntry:
 
         rich = "<p>" + ("word " * 800) + "</p>"
         monkeypatch.setattr(
-            feed_parser.Post, "_scrape_full_content", staticmethod(lambda url: rich)
+            feed_parser.Post, "_scrape_full_content", staticmethod(lambda url, **_: rich)
         )
         entry = feedparser.FeedParserDict(
             title="T",
@@ -344,7 +344,7 @@ class TestPageUnreadable:
         from app.src import feed_parser
 
         monkeypatch.setattr(
-            feed_parser.Post, "_scrape_full_content", staticmethod(lambda url: "")
+            feed_parser.Post, "_scrape_full_content", staticmethod(lambda url, **_: None)
         )
         post = Post.from_entry(self._entry("<p>short teaser</p>"))
         assert post.page_unreadable
@@ -356,7 +356,7 @@ class TestPageUnreadable:
         monkeypatch.setattr(
             feed_parser.Post,
             "_scrape_full_content",
-            staticmethod(lambda url: "<p>tiny</p>"),
+            staticmethod(lambda url, **_: "<p>tiny</p>"),
         )
         assert not Post.from_entry(self._entry("<p>short teaser</p>")).page_unreadable
 
@@ -366,7 +366,7 @@ class TestPageUnreadable:
         monkeypatch.setattr(
             feed_parser.Post,
             "_scrape_full_content",
-            staticmethod(lambda url: pytest.fail("fetched")),
+            staticmethod(lambda url, **_: pytest.fail("fetched")),
         )
         body = "<p>" + ("word " * 800) + "</p>"
         assert not Post.from_entry(self._entry(body)).page_unreadable
@@ -468,7 +468,62 @@ class TestContentContainerSelection:
         from app.src import feed_parser as fp
 
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
-        assert fp.Post._scrape_full_content("https://x.example/post") == ""
+        assert fp.Post._scrape_full_content("https://x.example/post") is None
+
+    # amazon.science: the <article> holds the post, but related-content rails make
+    # it 16% of the page, so the share rule falls back to <body>.
+    SCIENCE_SHAPE = (
+        "<html><body><article>" + ("The short article. " * 30) + "</article>"
+        "<section>" + ("Related research teaser. " * 400) + "</section></body></html>"
+    )
+
+    def _entry(self, **fields) -> feedparser.FeedParserDict:
+        return feedparser.FeedParserDict(
+            title="T",
+            link="https://www.amazon.science/blog/x",
+            published="2026-10-30T10:00:00Z",
+            **fields,
+        )
+
+    def _serve(self, monkeypatch, html: str) -> None:
+        from app.src import feed_parser as fp
+
+        class _Response:
+            text = html
+            headers: ClassVar[dict[str, str]] = {
+                "content-type": "text/html; charset=utf-8"
+            }
+
+        monkeypatch.setattr(fp, "_make_robust_request", lambda url: _Response())
+
+    def test_a_full_feed_body_is_kept_over_the_whole_page(self, monkeypatch):
+        self._serve(monkeypatch, self.SCIENCE_SHAPE)
+        body = "<p>" + ("The short article. " * 30) + "</p>"
+        post = Post.from_entry(self._entry(content=[{"value": body}]))
+        assert post.content == body
+        assert not post.page_unreadable
+
+    def test_a_summary_only_entry_still_takes_the_whole_page(self, monkeypatch):
+        self._serve(monkeypatch, self.SCIENCE_SHAPE)
+        post = Post.from_entry(self._entry(summary="A teaser."))
+        assert "The short article." in visible_text(post.content)
+        assert not post.page_unreadable
+
+    def test_a_full_feed_body_still_takes_a_trusted_container(self, monkeypatch):
+        """NVIDIA's content:encoded is a teaser; its <article> holds 94% of the
+        page, so the scrape must still replace it."""
+        self._serve(monkeypatch, self.NORMAL_SHAPE)
+        post = Post.from_entry(self._entry(content=[{"value": "<p>A teaser.</p>"}]))
+        assert "The real article text." in visible_text(post.content)
+
+    def test_without_body_fallback_no_container_yields_empty(self, monkeypatch):
+        from app.src import feed_parser as fp
+
+        self._serve(monkeypatch, self.SCIENCE_SHAPE)
+        assert (
+            fp.Post._scrape_full_content("https://x.example/p", body_fallback=False)
+            == ""
+        )
 
 
 class TestFeedTitles:

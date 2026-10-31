@@ -226,8 +226,10 @@ def visible_text(html: str) -> str:
         for tag in soup(list(NON_CONTENT_TAGS)):
             tag.decompose()
         return soup.get_text(separator=" ", strip=True)
-    except Exception:
-        return html
+    except Exception as e:
+        # Never the raw HTML: markup would count as prose at the content gate.
+        logger.warning("Could not extract visible text, counting none: %s", e)
+        return ""
 
 
 # Elements that carry site furniture rather than article content. ``noscript`` is
@@ -520,47 +522,47 @@ class Post(BaseModel):
             if content_items
             else getattr(entry, "summary", "")
         )
-        # Decide whether to scrape the full article based on VISIBLE text length,
-        # not raw HTML length. A feed teaser that is mostly markup can exceed the
-        # raw-HTML threshold yet have little readable prose; measuring visible
-        # text keeps the scrape decision consistent with the content gate (\u00a711)
-        # so we don't skip scraping and then drop the thin post.
+        # Visible text, not raw HTML length, so the scrape decision agrees with
+        # the content gate on what a short post is.
         feed_text_len = len(visible_text(content))
         if feed_text_len >= ScraperConfig.FULL_SCRAPE_TEXT_THRESHOLD:
             return content, False
-        scraped_content = cls._scrape_full_content(link)
-        # Only adopt the scrape if it actually has MORE readable prose than the
-        # feed content. A JS-rendered/consent-walled page can yield a thin body
-        # that, if it blindly replaced a decent feed teaser, would push the post
-        # below the downstream content gate and silently drop a healthy post.
-        if scraped_content and len(visible_text(scraped_content)) > feed_text_len:
+        # An entry with its own body (content:encoded) holds the article or its
+        # lead; the page's whole <body> is that article plus the site around it
+        # (amazon.science: the article is 16% of the page), so it is no better.
+        # A summary-only feed has nothing better, so <body> is still taken there.
+        scraped_content = cls._scrape_full_content(
+            link, body_fallback=not (content_items and feed_text_len)
+        )
+        if scraped_content is None:
+            return content, True
+        # A thin page (JS-rendered, consent wall) must not replace a fuller feed
+        # body and push the post below the content gate.
+        if len(visible_text(scraped_content)) > feed_text_len:
             content = scraped_content
-        return content, not scraped_content
+        return content, False
 
     @staticmethod
-    def _scrape_full_content(url: str) -> str:
-        """The article's HTML from its own page, or "" if it cannot be fetched.
+    def _scrape_full_content(url: str, *, body_fallback: bool = True) -> str | None:
+        """The article's HTML from its own page.
 
-        Picks the candidate container that actually HOLDS the prose, rather than
-        the first selector that happens to match. The old version returned
-        ``select_one(selector)`` for the earliest matching selector without looking
-        inside it, which made the ``<body>`` fallback unreachable whenever any
-        selector matched — even an empty one.
+        Returns None if the page cannot be fetched or parsed, and "" if it holds
+        no trusted article container and ``body_fallback`` is off.
 
-        Measured on Hugging Face's blog, where ``<article>`` is a near-empty
-        wrapper: it returned 82 visible characters while the same page carried
-        21,669 (and 93 against 64,950 on another post). Those posts then died at
-        the content-sufficiency gate, so a healthy source silently contributed
-        nothing — 21 of 26 collected posts were dropped that way in one run.
+        The container chosen is the one that HOLDS the prose, not the first
+        selector that matches: on Hugging Face's blog ``<article>`` is a
+        near-empty wrapper (82 visible characters against 21,669 on the page).
         """
         if not url or not (response := _make_robust_request(url)):
-            return ""
+            return None
         try:
             soup = parse_page(response)
             body = soup.find("body")
+            if body is None:
+                return None
             # get_text on the parsed element, not visible_text on its string: the
             # latter would re-parse every candidate.
-            body_length = len(body.get_text(separator=" ", strip=True)) if body else 0
+            body_length = len(body.get_text(separator=" ", strip=True))
             best: Tag | None = None
             best_length = 0
             for selector in ScraperConfig.CONTENT_SELECTORS:
@@ -568,19 +570,17 @@ class Post(BaseModel):
                     length = len(element.get_text(separator=" ", strip=True))
                     if length > best_length:
                         best, best_length = element, length
-            # A narrower container is preferable when it keeps the article, because
-            # it excludes nav/footer chrome. It is only worth trusting if it holds
-            # most of the page's prose: the HF wrapper held 0.4%, while a site whose
-            # <article> really is the article holds 60-90%. Half is nowhere near
-            # either case, so the cut needs no tuning to separate them.
+            # A narrower container excludes nav/footer chrome, but is trusted only
+            # if it holds most of the page's prose: the HF wrapper held 0.4%, a
+            # real <article> 60-90% (NVIDIA: 94%).
             if best is not None and best_length >= body_length * (
                 ScraperConfig.CONTENT_CONTAINER_MIN_SHARE
             ):
                 return str(best)
-            return str(body or "")
+            return str(body) if body_fallback else ""
         except Exception as e:
             logger.error(f"Error parsing content for '{url}': {e}")
-            return ""
+            return None
 
     @staticmethod
     def _determine_source(url: str) -> SourceType:
