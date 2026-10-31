@@ -2,7 +2,7 @@
   "description": "Labeled eval set for the AMAZON filtering criteria that prod runs. Items are synthetic-but-representative: each mirrors a kind of post the prod feeds (AWS ML blog, Amazon Science) actually carry, written fresh rather than copied. Labels follow the rubric's wording and were fixed before any live run. Bands: included/high/strong/moderate/weak/reject; 'included' is the included-topic anchors, so a launch scored as ordinary content is a miss.",
   "criteria": "amazon",
   "included_topics": [
-    "Announcements of newly launched AWS AI services, features or models, where the launch is the post's main subject (not tutorials, customer case studies or roundups)"
+    "Announcements of newly launched AWS AI services, features or models, including posts that introduce a new feature through a worked example (not tutorials that only use existing features, customer case studies or roundups)"
   ],
   "excluded_topics": [
     "Quantum Computing"
@@ -28,6 +28,20 @@
       "title": "Amazon Bedrock AgentCore now supports scheduled agent runs",
       "link": "https://aws.amazon.com/blogs/machine-learning/agentcore-now-supports-scheduled-agent-runs/",
       "content": "Amazon Bedrock AgentCore Runtime now runs agents on a schedule. A new Schedule resource takes a cron or rate expression, a target agent and a JSON payload, and AgentCore starts a fresh session at each tick with the payload as the first message. Runs that overlap are skipped by default (OverlapPolicy=SKIP) or queued (QUEUE, up to 3). Each run gets the agent's normal identity and memory configuration, and its outcome is recorded as a ScheduleRunSucceeded or ScheduleRunFailed event. In this post we launch the feature and then walk through a nightly report agent end to end: the IaC for the schedule, how the agent reads yesterday's metrics through a Gateway tool, how to alarm on two consecutive failed runs, and the limits at launch (1-minute minimum interval, 500 schedules per account). Pricing is the standard Runtime per-second rate; schedules themselves are free."
+    },
+    {
+      "id": "implicit-launch-walkthrough",
+      "expected_band": "included",
+      "title": "Build a document triage agent with Amazon Bedrock AgentCore Memory branches",
+      "link": "https://aws.amazon.com/blogs/machine-learning/document-triage-agent-agentcore-memory-branches/",
+      "content": "Memory branches are the new option in Amazon Bedrock AgentCore Memory for keeping parallel lines of an agent's conversation apart. A branch forks the short-term event history at a chosen event, and each branch accumulates its own events while long-term extraction still runs over the parent. In this post we build a document triage agent that opens one branch per incoming contract so that its clause analysis never leaks into another contract's context. We create the memory with a 30-day event expiry, call CreateEvent with a branch name derived from the contract ID, and list a branch with ListEvents filtered by that name. When a reviewer approves the triage, the agent merges nothing back: the approved summary is written to the parent as a single event, which keeps long-term extraction cheap. We measured the agent on 400 contracts: with one shared session the clause classifier cited the wrong contract in 7% of answers, and with branches it cited none. Branch creation adds about 40 ms per contract. Branches count against the same events quota as sessions, so size the expiry to your review cycle."
+    },
+    {
+      "id": "existing-feature-tutorial",
+      "expected_band": "strong",
+      "title": "Build a support-ticket summarizer with Amazon Bedrock and AWS Step Functions",
+      "link": "https://aws.amazon.com/blogs/machine-learning/support-ticket-summarizer-bedrock-step-functions/",
+      "content": "This post shows how to summarize support tickets as they arrive using Amazon Bedrock, AWS Step Functions and Amazon EventBridge, all with features that have been available for some time. An EventBridge rule matches new tickets from the ticketing system's partner event source and starts a Standard workflow. The first state calls the Bedrock Converse API through the optimized Step Functions integration with a prompt that asks for a three-line summary, the affected product and a severity guess; the second validates the JSON with a Choice state and retries once with the validation error appended. Summaries are written to DynamoDB with the ticket ID as key, and a third state posts high-severity tickets to an on-call channel. We walk through the IAM policy scoped to one model ARN, the Converse request shape, the retry and catch configuration, and how to keep prompts in Parameter Store so they can change without a redeploy. On 1,200 historical tickets the severity guess matched the agent-assigned severity 81% of the time; we discuss where it disagreed and why the workflow keeps a human in the loop for those."
     },
     {
       "id": "monthly-launch-roundup",

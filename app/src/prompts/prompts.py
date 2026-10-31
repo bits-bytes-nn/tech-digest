@@ -286,7 +286,8 @@ This keeps scoring reproducible: the same content must receive the same score ev
 context — >30% as a PRIMARY focus, not a passing mention). These anchors sit ABOVE every
 anchor for other content:
 - **0.95** — The included topic IS the post's subject (e.g. the AWS launch announcement itself), with technical substance.
-- **0.90** — The included topic is the primary focus, covered in depth, though the post is not the launch itself.
+- **0.90** — The included topic is a primary focus, covered in depth, but shares the post with another purpose (e.g. a
+  new feature introduced through a worked example).
 - **0.85** — Meets the substantial-coverage bar with basic depth, or with noticeable promotional mixing.
 
 **OTHER AWS ML CONTENT** (no included topic as primary focus). Pick the band, then the anchor:
@@ -296,7 +297,7 @@ anchor for other content:
 - **0.60** — Good: competent AWS ML work or a useful, well-structured AWS guide.
 - **0.50** — Moderate: moderate AWS ML depth, or educational with some insight.
 - **0.35** — Weak: basic AWS ML tutorial with minimal depth.
-- **0.15** — Poor: marketing disguised as AWS technical content, or minimal AWS ML focus.
+- **0.15** — Poor: marketing disguised as AWS technical content, a launch roundup or recap, or minimal AWS ML focus.
 - **0.05** — Not relevant: a competitor's platform, non-ML content, or an excluded topic.
 
 **UNCERTAINTY:** When torn between two anchors, always choose the LOWER one. Promotional
