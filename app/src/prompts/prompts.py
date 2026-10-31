@@ -357,7 +357,7 @@ going long pushes that article below the fold.
    banned: facts unrelated to this week's topics, and vague claims ("AI is moving fast")
 3. If the articles genuinely share a theme, name it concretely. If they do not, do not invent
    one: introduce two or three of them in a phrase each
-4. Close with one short line that hands off to the articles
+4. Each card already opens with its one-line summary; do not restate or paraphrase it
 5. Casual, confident, technically fluent. No markdown, plain text only
 6. No praise or vague adjectives ("groundbreaking", "powerful", "amazing", "various"); say the
    specific thing instead
@@ -379,7 +379,7 @@ going long pushes that article below the fold.
    이번 주 주제와 무관한 잡지식, "AI가 빠르게 발전하고 있어" 같은 뻔한 서술도 금지
 3. 아티클끼리 실제로 겹치는 주제가 있으면 그것을 구체적으로 짚고, 없으면 억지로 묶지 말고
    두세 편을 각각 한 구절로 소개하세요
-4. 마지막은 아티클로 넘겨주는 짧은 한 문장으로 닫으세요
+4. 각 카드에는 그 아티클의 한 줄 요약이 실리므로, 그 문장을 옮기거나 풀어 쓰지 마세요
 5. 반말, 자신감 있는 어조. 기술 용어는 필요하면 영어 그대로
 6. "혁신적인", "강력한", "놀라운", "다양한" 같은 칭찬·뭉갬 형용사와 "~라는 점이야" 같은
    맺음은 쓰지 마세요. 구체적인 것을 그냥 말하면 됩니다
@@ -558,8 +558,9 @@ explanations that make complex technical concepts accessible without sacrificing
      already given in an earlier section
    - The 📊 Results section is where the article's headline results are stated, ONCE. 📌 and 🛠️
      name the mechanism and describe its effect in words; the figure ("5x faster", "30% cost
-     reduction") appears in 📊 only. Do not point to another section ("see the results below");
-     just describe the effect. Do not add business implications, ratios you computed, or
+     reduction") appears in 📊 only. A supporting figure needed to explain a trade-off stays in 🛠️
+     and is not repeated in 📊. Do not point to another section ("see the results below", "(figures
+     in 📊)"); just describe the effect. Do not add business implications, ratios you computed, or
      forecasts the article does not state
    - The 🔮 Future section is NOT a place to re-state limitations already listed in 🛠️. Cover the
      roadmap, expansion directions, and opportunities the article explicitly mentions. If there is
@@ -660,7 +661,9 @@ into a published issue, so look for each one in your draft and fix it before you
 4. Count the words in one_liner. If it is outside 15-28 words, fix it.
 5. Check that every image src is copied character for character from the article, query string included.
 6. Delete every sentence whose point is that something is missing (not described, not reported, no figure
-   given), and every reason or intention the article does not state ("likely because", "this suggests").
+   given, "these are the only figures reported"), every sentence about how you built the summary ("I left
+   out"), every reason or intention the article does not state ("likely because", "this suggests"), and
+   every causal link it does not make ("based on this", "so"). Open 📊 with a figure.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
@@ -731,8 +734,8 @@ Korean:
    - 각 섹션은 **새로운 정보**를 담아야 합니다. 앞 섹션에서 이미 말한 수치·문장·결론을 뒤 섹션에서
      그대로 반복하지 마세요
    - 원문의 대표 성과 수치(예: "5배 향상", "30% 절감")는 **📊에서 한 번만** 제시합니다. 📌·🛠️에서는
-     메커니즘을 설명하고 그 효과는 말로만 서술하세요. "결과는 아래 📊에 정리했습니다"처럼 다른
-     섹션을 가리키지 말고 효과 자체를 쓰세요. 원문에 없는 비즈니스 함의, 직접 계산한 비율,
+     메커니즘을 설명하고 그 효과는 말로만 서술하세요. 트레이드오프를 설명하는 데 필요한 보조 수치는
+     🛠️에 두고 📊에서 반복하지 않습니다. "(수치는 📊)"처럼 다른 섹션을 가리키지 마세요. 원문에 없는 비즈니스 함의, 직접 계산한 비율,
      전망은 덧붙이지 마세요
    - 🔮 향후 섹션은 🛠️에서 이미 열거한 한계점을 뒤집어 재서술하는 곳이 아닙니다. 원문이 명시한
      **로드맵·확장 방향·기회**를 다루세요. 새로 덧붙일 forward-looking 내용이 없으면 이 섹션을 생략하세요
@@ -753,9 +756,11 @@ Korean:
 7. **상투구 금지 (내용이 없거나, 모델이 기본값으로 집어드는 문형입니다)**
    - 평가는 형용사가 아니라 **측정값이 합니다**. "강력한 성능" 대신 "p99 지연 12ms".
      "혁신적인", "획기적인", "놀라운", "인상적인"을 쓰지 마세요
-   - "다양한"은 몇 가지인지로: "다양한 로봇에서" → "ALOHA 2와 Apollo 두 기종에서"
+   - "다양한"은 몇 가지인지로: "다양한 모델에서" → "크기가 다른 세 모델에서"
    - "단순히 X가 아니라 Y입니다" 대조 문형과 "결론적으로", "요약하면", "살펴보겠습니다" 같은
      메타 서술을 쓰지 마세요. 각 섹션은 요약이 아니라 내용입니다
+   - 단락을 "~하는 구조입니다"로 맺거나 "핵심은 ~입니다"로 열지 마세요. 앞 문장을 요약하는 마무리
+     문장은 지우면 됩니다
    - 절을 "~라는/다는 점"으로 감싸지 마세요. 문장 끝("~다는 점입니다")이든 주어("~다는 점이
      핵심입니다")든 같습니다. 감싸던 절을 서술문으로 내려 쓰면 됩니다:
      "지연이 줄었다는 점이 핵심입니다" → "지연이 22% 줄었습니다"
@@ -829,10 +834,7 @@ avoid speculation.
 - Inline code goes in <code>, never Markdown backticks; write math as plain text or Unicode (QKᵀ), never LaTeX
 - Ensure all code uses <pre><code> blocks
 - Make technical explanations accessible but accurate
-- Write content in Korean, translating technical terms when possible
-- Keep technical terms in English only when translation would be awkward or unclear
-- End Korean sentences with a period (.), never a colon (:). Korean prose does not
-  terminate a sentence with a colon — use a colon only to introduce a list or example
+- Write content in Korean; keep a technical term in English when the Korean rendering would be awkward
 - 한 개념에는 처음 고른 용어 하나만 쓰세요. 같은 구성 요소를 "추론"과 "인퍼런스"처럼 번갈아 부르지 마세요
 - No meta-commentary about following these instructions
 
@@ -849,8 +851,11 @@ avoid speculation.
 4. one_liner의 글자 수를 공백을 포함해 세세요. 40~100자를 벗어나면 고치세요.
 5. 이미지 src는 원문에 있는 URL을 글자 그대로(쿼리 문자열 포함) 옮겼는지 확인하세요.
 6. 무언가가 없다는 것이 요지인 문장은 표현과 상관없이 지우세요("~는 설명하지 않습니다", "~는
-   보고되지 않았습니다", "~수치는 없습니다", "글에 나오지 않으므로"). 원문이 밝히지 않은 이유·의도
-   ("~때문으로 보입니다", "~라고 볼 수 있습니다")도 지우세요. 원문이 스스로 밝힌 한계만 남깁니다.
+   보고되지 않았습니다", "~수치는 없습니다", "글에 나오지 않으므로", "수치는 위 표가 전부입니다",
+   "~는 벤치마크 수치가 아닙니다"). 요약을 어떻게 만들었는지 밝히는 문장("~는 제외했습니다")도
+   지우세요. 📊의 첫 문장은 수치 자체로 시작합니다. 원문이 밝히지 않은 이유·의도("~때문으로
+   보입니다", "~라고 볼 수 있습니다")와 원문에 없는 인과 연결("이를 근거로", "그래서")도 지우세요.
+   원문이 스스로 밝힌 한계만 남깁니다.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
