@@ -755,12 +755,16 @@ class RssFetcher:
         self.rss_url = rss_url
         self.source_url = rss_url
         self.candidates: int | None = None
+        #: The feed's oldest dated entry is newer than the window start, so posts
+        #: from the start of the window may already have scrolled off it.
+        self.truncated = False
 
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
         logger.info(f"Fetching posts from RSS feed: '{self.rss_url}'")
         # Reset first: a stale count from a previous call would describe the wrong
         # fetch if this collector is reused.
         self.candidates = None
+        self.truncated = False
         posts = []
         try:
             with force_ipv4():
@@ -789,6 +793,7 @@ class RssFetcher:
                 # one whose dates no longer parse: either way nothing can ever
                 # pass the window. A quiet blog still lists a dated back catalogue.
                 self.candidates = sum(d is not None for d in dates)
+                self._check_coverage([d for d in dates if d is not None], start_date)
 
                 skipped = 0
                 for entry, published_date in zip(feed.entries, dates, strict=True):
@@ -823,6 +828,26 @@ class RssFetcher:
             ) from e
 
         return posts
+
+    def _check_coverage(self, dates: list[datetime], start_date: datetime) -> None:
+        """Flag a feed whose oldest dated entry is newer than the window start.
+
+        A feed lists only its newest N entries, so a busy blog can push the start
+        of the week off it before the run. Nothing is stored between runs: if the
+        oldest entry offered is inside the window, the feed did not cover it.
+        """
+        if not dates:
+            return
+        oldest = min(dates)
+        if oldest > start_date.astimezone(UTC):
+            self.truncated = True
+            logger.warning(
+                "Feed '%s' does not reach back to the window start %s: its oldest "
+                "entry is dated %s, so earlier posts may be missing.",
+                self.rss_url,
+                start_date.date(),
+                oldest.isoformat(),
+            )
 
     def _fetch_feed(self) -> feedparser.FeedParserDict:
         """Download the feed through the request layer, then parse the bytes.
@@ -1003,6 +1028,8 @@ class SourceHealth:
     #: Contributed posts whose article page was needed but could not be read
     #: (``Post.page_unreadable``).
     unreadable_pages: int = 0
+    #: The feed did not reach back to the window start (``RssFetcher.truncated``).
+    truncated: bool = False
     error: str | None = None
 
 
@@ -1056,6 +1083,11 @@ class CrawlReport:
         return [
             s for s in self.ok if s.post_count and s.unreadable_pages == s.post_count
         ]
+
+    @property
+    def truncated(self) -> list[SourceHealth]:
+        """Sources whose feed did not reach back to the window start."""
+        return [s for s in self.sources if s.truncated]
 
     @property
     def total_posts(self) -> int:
@@ -1195,6 +1227,8 @@ class PostCollector:
                         post_count=contributed,
                         duplicates=len(fetched) - contributed,
                         unreadable_pages=unreadable,
+                        # Only RssFetcher can tell; other fetchers report False.
+                        truncated=getattr(fetcher, "truncated", False),
                     )
                 )
                 if not fetched:

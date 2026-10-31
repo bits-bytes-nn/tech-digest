@@ -15,7 +15,13 @@ scraping:
   rss_urls:
     - "https://medium.com/feed/airbnb-engineering"
     - "https://www.amazon.science/index.rss"
-    - "https://aws.amazon.com/blogs/amazon-ai/feed/"
+    # Lists only the newest 20 posts (4.3 days on 2026-11-01), so it does not
+    # reach back a full week and crawl health logs it as truncated. Add the
+    # blog's category feeds for the topics you need, e.g.
+    # .../blogs/machine-learning/category/artificial-intelligence/generative-ai/feed/
+    # or .../category/artificial-intelligence/amazon-machine-learning/amazon-bedrock/feed/;
+    # a post carried by several feeds is collected once.
+    - "https://aws.amazon.com/blogs/machine-learning/feed/"
     - "https://deepmind.google/blog/rss.xml" # was www.deepmind.com/blog/rss.xml (302 redirect)
     - "https://research.google/blog/rss/" # the index-page scraper stopped dating posts; the article body is fetched from each post page
     - "https://huggingface.co/blog/feed.xml"

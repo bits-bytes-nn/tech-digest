@@ -339,15 +339,132 @@ class TestPagesUnreadable:
         assert "unreadable" not in report.summary_line()
 
     def test_the_collector_counts_contributed_posts_only(self):
-        blocked = _post("https://openai.com/index/a")
+        blocked = _post("https://aws.amazon.com/blogs/machine-learning/a")
         blocked.page_unreadable = True
-        duplicate = _post("https://openai.com/index/a")
+        duplicate = _post("https://aws.amazon.com/blogs/machine-learning/a")
         duplicate.page_unreadable = True
         collector = PostCollector(
-            [_OkFetcher("https://openai.com/news/rss.xml", [blocked, duplicate])]
+            [_OkFetcher("https://aws.amazon.com/blogs/machine-learning/feed/", [blocked, duplicate])]
         )
         now = datetime.now(UTC)
         collector.collect_posts(now, now)
         source = collector.report.sources[0]
         assert (source.post_count, source.unreadable_pages) == (1, 1)
         assert collector.report.pages_unreadable == [source]
+
+
+class TestTruncatedFeeds:
+    """A feed that lists only its newest N entries can drop the start of the week
+    before the run. Detected without stored state: the oldest dated entry offered
+    is newer than the window start."""
+
+    WINDOW = (datetime(2026, 10, 24, tzinfo=UTC), datetime(2026, 10, 31, tzinfo=UTC))
+
+    @pytest.fixture(autouse=True)
+    def offline(self, monkeypatch):
+        monkeypatch.setattr(
+            fp,
+            "_try_request",
+            lambda session, url, headers: SimpleNamespace(
+                content=b"", headers={}, url=url
+            ),
+        )
+        monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
+
+    def _fetch(self, monkeypatch, dates: list[str]) -> fp.RssFetcher:
+        entries = [
+            fp.feedparser.FeedParserDict(
+                title=f"t{i}",
+                link=f"https://aws.amazon.com/blogs/machine-learning/{i}",
+                published=date,
+                content=[{"value": "<p>" + "word " * 800 + "</p>"}],
+            )
+            for i, date in enumerate(dates)
+        ]
+        feed = SimpleNamespace(bozo=0, entries=entries, get=lambda _k, _d=None: None)
+        monkeypatch.setattr(fp.feedparser, "parse", lambda *a, **k: feed)
+        fetcher = fp.RssFetcher("https://aws.amazon.com/blogs/machine-learning/feed/")
+        fetcher.fetch(*self.WINDOW)
+        return fetcher
+
+    def test_a_feed_whose_oldest_entry_is_in_the_window_is_flagged(
+        self, monkeypatch, caplog, propagating_logger
+    ):
+        with caplog.at_level("WARNING"):
+            fetcher = self._fetch(
+                monkeypatch, ["2026-10-30T10:00:00Z", "2026-10-26T17:15:00Z"]
+            )
+        assert fetcher.truncated
+        warning = next(r for r in caplog.records if r.levelname == "WARNING")
+        assert "machine-learning/feed/" in warning.getMessage()
+        assert "2026-10-26T17:15:00+00:00" in warning.getMessage()
+
+    def test_a_feed_reaching_before_the_window_is_not(self, monkeypatch):
+        fetcher = self._fetch(
+            monkeypatch, ["2026-10-30T10:00:00Z", "2026-10-20T00:00:00Z"]
+        )
+        assert not fetcher.truncated
+
+    def test_an_entry_exactly_at_the_window_start_covers_it(self, monkeypatch):
+        """The window is half-open, ``start <= date``: nothing before it is wanted."""
+        assert not self._fetch(monkeypatch, ["2026-10-24T00:00:00Z"]).truncated
+
+    def test_undated_entries_do_not_count_and_an_empty_feed_is_not_truncated(
+        self, monkeypatch
+    ):
+        assert not self._fetch(monkeypatch, []).truncated
+        assert not self._fetch(monkeypatch, ["not a date"]).truncated
+        assert self._fetch(
+            monkeypatch, ["not a date", "2026-10-28T00:00:00Z"]
+        ).truncated
+
+    def test_the_flag_does_not_leak_into_the_next_fetch(self, monkeypatch):
+        fetcher = self._fetch(monkeypatch, ["2026-10-30T10:00:00Z"])
+        assert fetcher.truncated
+        monkeypatch.setattr(
+            fp.feedparser,
+            "parse",
+            lambda *a, **k: SimpleNamespace(
+                bozo=0, entries=[], get=lambda _k, _d=None: None
+            ),
+        )
+        fetcher.fetch(*self.WINDOW)
+        assert not fetcher.truncated
+
+    def test_the_collector_records_it_and_it_stays_out_of_the_alert(self):
+        class _Truncated(_OkFetcher):
+            truncated = True
+
+        collector = PostCollector(
+            [
+                _Truncated("https://a.example/feed", [_post("https://a.example/1")]),
+                _OkFetcher("https://b.example/feed", [_post("https://b.example/1")]),
+            ]
+        )
+        collector.collect_posts(*self.WINDOW)
+        report = collector.report
+        assert [s.url for s in report.truncated] == ["https://a.example/feed"]
+        # Logged and counted, not alerted on: no SNS trigger reads it.
+        assert not (report.failed or report.likely_broken or report.pages_unreadable)
+
+    def test_run_summary_counts_truncated_sources(self, caplog, propagating_logger):
+        import json
+
+        from app import main
+        from app.src.constants import Language
+
+        report = CrawlReport(
+            sources=[
+                SourceHealth(
+                    url="https://a.example/feed",
+                    fetcher="RssFetcher",
+                    status=SourceStatus.OK,
+                    post_count=1,
+                    truncated=True,
+                )
+            ]
+        )
+        with caplog.at_level("INFO"):
+            main._log_run_summary(report, [], [], Language.EN)
+        line = next(r.getMessage() for r in caplog.records if "RUN_SUMMARY" in r.getMessage())
+        assert json.loads(line.removeprefix("RUN_SUMMARY "))["sources_truncated"] == 1
