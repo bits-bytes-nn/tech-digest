@@ -72,7 +72,7 @@ class TestLockCoversTheDeclaredRanges:
 
 
 class TestDockerfilesInstallFromTheLock:
-    @pytest.mark.parametrize("dockerfile", ["Dockerfile-batch", "Dockerfile-lambda"])
+    @pytest.mark.parametrize("dockerfile", ["Dockerfile-batch"])
     def test_pip_installs_the_lock_not_the_ranges(self, dockerfile):
         body = (APP / dockerfile).read_text(encoding="utf-8")
         install_lines = [line for line in body.splitlines() if "pip install" in line]
@@ -83,7 +83,7 @@ class TestDockerfilesInstallFromTheLock:
             )
             assert "-r requirements.txt" not in line, line.strip()
 
-    @pytest.mark.parametrize("dockerfile", ["Dockerfile-batch", "Dockerfile-lambda"])
+    @pytest.mark.parametrize("dockerfile", ["Dockerfile-batch"])
     def test_lock_is_copied_into_the_build(self, dockerfile):
         body = (APP / dockerfile).read_text(encoding="utf-8")
         assert any(
@@ -92,7 +92,7 @@ class TestDockerfilesInstallFromTheLock:
             if line.startswith("COPY")
         ), f"{dockerfile} never COPYs the lock, so the install would fail"
 
-    @pytest.mark.parametrize("dockerfile", ["Dockerfile-batch", "Dockerfile-lambda"])
+    @pytest.mark.parametrize("dockerfile", ["Dockerfile-batch"])
     def test_base_image_is_digest_pinned(self, dockerfile):
         body = (APP / dockerfile).read_text(encoding="utf-8")
         from_lines = [ln for ln in body.splitlines() if ln.startswith("FROM ")]

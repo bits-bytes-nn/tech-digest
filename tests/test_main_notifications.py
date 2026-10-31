@@ -615,7 +615,7 @@ class TestNoRecipientsAlert:
 
         # The committed CI config, not the developer's: config-dev.yaml is
         # gitignored, so loading it passes locally and fails in CI.
-        monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci")
+        monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci-batch")
         session = _FakeSession()
         config = Config.load()
         main._send_no_recipients_alert(session, "arn:topic", config, self._report())

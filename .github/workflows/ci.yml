@@ -103,25 +103,13 @@ jobs:
           pip install -r requirements.txt -c app/requirements.lock
           npm install -g aws-cdk@2.1139.0
 
-      - name: CDK synth — Lambda path (validates infra compiles; no AWS creds)
+      - name: CDK synth (Batch + new VPC, the production topology; no AWS creds)
+        # The app makes no AWS call, so a dummy account and dummy AZs are all
+        # an offline synth needs.
         run: cdk synth --quiet
         env:
           CDK_DEFAULT_ACCOUNT: "111111111111"
           CDK_DEFAULT_REGION: "ap-northeast-2"
           CDK_SYNTH_DUMMY_AZS: "1"
-          CDK_SYNTH_ONLY: "1"
-          JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION: "1"
-          CONFIG_FILE_SUFFIX: ci
-
-      - name: CDK synth — Batch path (the production compute topology)
-        # The Batch + new-VPC combination is what production deploys; synthesize
-        # it too so infra regressions on that path (compute envs, EventBridge ->
-        # Batch parameter wiring) are caught in CI, not at deploy time.
-        run: cdk synth --quiet
-        env:
-          CDK_DEFAULT_ACCOUNT: "111111111111"
-          CDK_DEFAULT_REGION: "ap-northeast-2"
-          CDK_SYNTH_DUMMY_AZS: "1"
-          CDK_SYNTH_ONLY: "1"
           JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION: "1"
           CONFIG_FILE_SUFFIX: ci-batch

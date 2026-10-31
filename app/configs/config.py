@@ -64,8 +64,10 @@ class Resources(BaseModelWithDefaults):
     s3_prefix: str | None = Field(default=None)
     vpc_id: str | None = Field(default=None)
     subnet_ids: list[str] | None = Field(default=None)
-    lambda_or_batch: Literal["lambda", "batch"] = Field(default="lambda")
     cron_expression: str | None = Field(default=None)
+    # LangSmith tracing for the deployed job (LANGCHAIN_TRACING_V2). Set per
+    # stage here, never from the deploying shell; the API key stays in SSM.
+    langchain_tracing: bool = Field(default=False)
 
     @field_validator("s3_prefix")
     @classmethod
