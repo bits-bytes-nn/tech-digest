@@ -978,7 +978,7 @@ class TestDeliveryAlertsFromTheHandler:
     def test_the_suppressed_alert_says_why(self, monkeypatch):
         from app.configs import Config
 
-        monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci")
+        monkeypatch.setenv("CONFIG_FILE_SUFFIX", "ci-batch")
         session = _FakeSession()
         main._send_no_recipients_alert(
             session,
