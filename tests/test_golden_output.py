@@ -347,7 +347,7 @@ def test_the_delivered_issue_matches_its_snapshot(monkeypatch, tmp_path, languag
     )
     # The lineup itself, so a snapshot refresh cannot quietly accept a wrong pick:
     # by score, recency breaking the 0.75 tie, capped at max_posts.
-    titles = re.findall(r'<div class="card-title">([^<]+)</div>', html)
+    titles = re.findall(r'<h2 class="card-title"[^>]*>([^<]+)</h2>', html)
     assert titles == [
         "Announcing Faster SageMaker AI Jobs",
         "TorchNeuron, Amazon\u2019s New PyTorch Backend",

@@ -128,7 +128,7 @@ class Article(BaseModel):
         # originates from scraped/feed content, so a javascript:/data: scheme
         # would be a phishing/injection vector in clients that don't strip it.
         # Blank an unsafe scheme rather than raise, so one bad link doesn't drop
-        # the whole article (the template guards against an empty href).
+        # the whole article (the template then leaves out the CTA).
         link = str(v) if v is not None else ""
         return link if is_safe_url(link) else ""
 
@@ -138,8 +138,16 @@ class Article(BaseModel):
         """Human-friendly source name for alt text / accessibility. Exposed as a
         computed field so it appears in ``model_dump()`` and the templates can
         use it directly (single source of truth instead of duplicating the
-        replace/title filter chain in each template)."""
-        return "" if self.source == "unknown" else self.source.replace("_", " ").title()
+        replace/title filter chain in each template).
+
+        The logo's alt text is the only place a screen reader learns the
+        source. A key of three letters or fewer is an acronym ("aws" -> "AWS",
+        which "Aws" read aloud as a word); longer keys are title-cased.
+        """
+        if self.source == "unknown":
+            return ""
+        name = self.source.replace("_", " ")
+        return name.upper() if len(name) <= 3 else name.title()
 
 
 class Footer(BaseModel):
