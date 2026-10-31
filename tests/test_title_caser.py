@@ -34,6 +34,36 @@ class TestAcceptRecased:
     def test_anything_beyond_case_keeps_the_original(self, answer):
         assert accept_recased("a guide to agents", answer) == "a guide to agents"
 
+    @pytest.mark.parametrize(
+        ("original", "answer", "expected"),
+        [
+            (
+                "TorchNeuron, Amazon\u2019s new PyTorch backend",
+                "TorchNeuron, Amazon's New PyTorch Backend",
+                "TorchNeuron, Amazon\u2019s New PyTorch Backend",
+            ),
+            (
+                "QA automation with Nova Act \u2013 part 3",
+                "QA Automation with Nova Act - Part 3",
+                "QA Automation with Nova Act \u2013 Part 3",
+            ),
+            (
+                "\u201cagentic\u201d retrieval",
+                '"Agentic" Retrieval',
+                "\u201cAgentic\u201d Retrieval",
+            ),
+        ],
+    )
+    def test_straightened_punctuation_takes_the_case_and_keeps_the_mark(
+        self, original, answer, expected
+    ):
+        assert accept_recased(original, answer) == expected
+
+    def test_a_straight_apostrophe_in_the_feed_is_not_curled(self):
+        assert accept_recased("amazon's backend", "Amazon\u2019s Backend") == (
+            "Amazon's Backend"
+        )
+
 
 class TestParseRecased:
     def test_pairs_titles_in_order(self):

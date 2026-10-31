@@ -9,16 +9,30 @@ from .model_factory import BedrockLanguageModelFactory
 from .prompts import TitleCasePrompt
 from .utils import retry_with_backoff
 
+# Typographic marks the model tends to swap for their ASCII forms when it
+# echoes a title back. Equal for comparison only; the feed's mark is kept.
+_ASCII_MARKS = str.maketrans("\u2018\u2019\u201c\u201d\u2013\u2014", "''\"\"--")
+
 
 def accept_recased(original: str, recased: object) -> str:
-    """``recased`` if it differs from ``original`` in letter case only, else
-    ``original``.
+    """``original`` with ``recased``'s letter case if the two differ in case
+    only, else ``original``.
 
     The model is trusted to judge casing, not wording: a title it translated,
-    shortened or "fixed" would misquote the source article on the card.
+    shortened or "fixed" would misquote the source article on the card. A curly
+    apostrophe or dash it straightened is not a wording change, so the casing is
+    taken and the feed's punctuation kept.
     """
-    if isinstance(recased, str) and recased.lower() == original.lower():
-        return recased
+    if (
+        isinstance(recased, str)
+        and len(recased) == len(original)
+        and recased.translate(_ASCII_MARKS).lower()
+        == original.translate(_ASCII_MARKS).lower()
+    ):
+        return "".join(
+            r if r.lower() == o.lower() else o
+            for o, r in zip(original, recased, strict=True)
+        )
     logger.warning(
         "Title-case answer %r changes more than case; keeping %r.", recased, original
     )
