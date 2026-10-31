@@ -121,7 +121,8 @@ class TestSourceDetection:
         "url,expected",
         [
             ("https://aws.amazon.com/blogs/ml/post", "aws"),
-            ("https://openai.com/news/foo", "openai"),
+            # The dropped OpenAI source has no mapping left.
+            ("https://openai.com/news/foo", "unknown"),
             ("https://qwenlm.github.io/blog/qwen3", "qwen"),
             # The medium.com/feed/@palantir feed links some posts on this host.
             ("https://palantir.medium.com/some-post-1a2b", "palantir"),
@@ -155,7 +156,7 @@ class TestSourceDetection:
         )
 
     def test_www_prefix_stripped(self):
-        assert Post._determine_source("https://www.openai.com/news/x") == "openai"
+        assert Post._determine_source("https://www.amazon.science/blog/x") == "amazon"
 
 
 class TestImageExtraction:
@@ -266,13 +267,13 @@ class TestPostFromEntry:
     def test_from_entry_basic(self):
         entry = feedparser.FeedParserDict(
             title="  Hello World  ",
-            link="https://openai.com/news/x",
+            link="https://aws.amazon.com/blogs/machine-learning/x",
             published="2026-05-30T10:00:00Z",
             summary="A short summary.",
         )
         post = Post.from_entry(entry)
         assert post.title == "Hello World"
-        assert post.source == "openai"
+        assert post.source == "aws"
 
     def test_image_urls_keep_their_exact_characters(self):
         # The content used to have every U+202F turned into a space, which
@@ -303,7 +304,7 @@ class TestPostFromEntry:
         )
         entry = feedparser.FeedParserDict(
             title="T",
-            link="https://openai.com/news/x",
+            link="https://aws.amazon.com/blogs/machine-learning/x",
             published="2026-05-30T10:00:00Z",
             content=[{"value": feed_body}],
         )
@@ -316,11 +317,13 @@ class TestPostFromEntry:
 
         rich = "<p>" + ("word " * 800) + "</p>"
         monkeypatch.setattr(
-            feed_parser.Post, "_scrape_full_content", staticmethod(lambda url, **_: rich)
+            feed_parser.Post,
+            "_scrape_full_content",
+            staticmethod(lambda url, **_: rich),
         )
         entry = feedparser.FeedParserDict(
             title="T",
-            link="https://openai.com/news/x",
+            link="https://aws.amazon.com/blogs/machine-learning/x",
             published="2026-05-30T10:00:00Z",
             content=[{"value": "<p>short teaser</p>"}],
         )
@@ -335,7 +338,7 @@ class TestPageUnreadable:
     def _entry(self, body: str) -> feedparser.FeedParserDict:
         return feedparser.FeedParserDict(
             title="T",
-            link="https://openai.com/index/x",
+            link="https://aws.amazon.com/blogs/machine-learning/x",
             published="2026-05-30T10:00:00Z",
             content=[{"value": body}],
         )
@@ -344,7 +347,9 @@ class TestPageUnreadable:
         from app.src import feed_parser
 
         monkeypatch.setattr(
-            feed_parser.Post, "_scrape_full_content", staticmethod(lambda url, **_: None)
+            feed_parser.Post,
+            "_scrape_full_content",
+            staticmethod(lambda url, **_: None),
         )
         post = Post.from_entry(self._entry("<p>short teaser</p>"))
         assert post.page_unreadable
