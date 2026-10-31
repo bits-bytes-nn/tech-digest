@@ -94,10 +94,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
         end_date_str = event.get("END_DATE")
         language_str = event.get("LANGUAGE")
         recipients = event.get("RECIPIENTS")
-        # Resolve once here so every downstream stage (filtering, greeting,
-        # newsletter build/filenames) uses the SAME language. Passing it only to
-        # filtering — as before — left the greeting and output filenames stuck on
-        # the KO default even when --language en was requested.
+        # Resolved once so every stage (filtering, greeting, filenames) agrees.
         language = Language(language_str) if language_str else Language.KO
         posts, date_suffix, filtered_out_posts, crawl_report = _fetch_and_filter_posts(
             config,
@@ -174,26 +171,25 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                 language,
                 None if recipients is None else recipients.split(","),
             )
-            if outcome.skipped and not outcome.attempted:
-                # A retry of an issue that was already fully delivered. Not a
-                # failure and not alarm-worthy — the guard did its job.
+            retry_of_completed_send = (
+                outcome.resolved > 0 and outcome.skipped == outcome.resolved
+            )
+            if retry_of_completed_send:
+                # Not a failure and not alarm-worthy: the ledger did its job.
                 logger.info(
                     "All %d recipient(s) had already received this issue; "
                     "nothing was sent. This run is a retry of a completed send.",
                     outcome.skipped,
                 )
             if is_running_in_aws() and topic_arn:
-                if outcome.resolved == 0:
-                    # No recipients could be RESOLVED at all — keyed on the
-                    # resolved count, not on how many were attempted, so a retry
-                    # that legitimately skipped everyone does not read as "nobody
-                    # to send to". The partial-delivery alert below cannot catch
-                    # this either: it keys on failed recipients, and a run with no
-                    # recipients has none. So an unreadable or missing recipients
-                    # file in S3 meant the issue was built, uploaded and silently
-                    # never sent, with the run still returning 200.
+                if not outcome.attempted and not retry_of_completed_send:
+                    # Nobody to send to: no recipient resolved, or every one not
+                    # already served is on the SES suppression list. The
+                    # partial-delivery alert below keys on FAILED sends and
+                    # neither case has any, so without this the issue is built,
+                    # uploaded and never sent while the run returns 200.
                     _send_no_recipients_alert(
-                        default_boto_session, topic_arn, config, crawl_report
+                        default_boto_session, topic_arn, config, crawl_report, outcome
                     )
                 _maybe_send_partial_delivery_alert(
                     default_boto_session,
@@ -494,7 +490,7 @@ def _build_newsletter(
     # through to BuildConfiguration's default rather than becoming "" (which the
     # renderer rejects for the title).
     chrome = {
-        "header_title": config.newsletter.header_title,
+        "header_title": _header_title(config),
         "header_description": config.newsletter.header_description,
         "header_thumbnail": config.newsletter.header_thumbnail,
         "first_section_intro": first_section_intro,
@@ -511,6 +507,16 @@ def _build_newsletter(
     newsletter_path, article_filenames = builder.build(build_config)
     logger.info("Newsletter created: '%s'", newsletter_path)
     return newsletter_path, article_filenames
+
+
+def _header_title(config: Config) -> str:
+    """The issue's title: the stage config's, else the renderer's default.
+
+    The rendered header and the email subject both use it, so a stage that leaves
+    the title unset does not send a subject reading "[date] None".
+    """
+    default: str = BuildConfiguration.model_fields["header_title"].default
+    return config.newsletter.header_title or default
 
 
 def _upload_files_to_s3(
@@ -736,7 +742,7 @@ def _send_emails_to_recipients(
     would deliver the issue again; with it, the retry serves exactly the readers
     not yet reached. An issue-level marker could only say "all" or "none".
     """
-    subject = f"[{date_suffix}] {config.newsletter.header_title}"
+    subject = f"[{date_suffix}] {_header_title(config)}"
     already = (
         _already_delivered(boto_session, config, ledger_key) if ledger_key else set()
     )
@@ -923,30 +929,39 @@ def _send_no_recipients_alert(
     topic_arn: str,
     config: Config,
     crawl_report: CrawlReport,
+    outcome: DeliveryOutcome | None = None,
 ) -> None:
     """Alert when a built issue had nobody to send to.
 
     This is the pipeline's worst silent failure: the crawl worked, the summaries
     cost real money, the file went to S3 — and every status says success while no
     reader receives anything. The cause is always outside the code (the
-    per-stage recipients object missing from S3, empty, or holding no address
-    that passes validation), so the alarm names where to look.
+    per-stage recipients object missing from S3, empty, holding no address that
+    passes validation, or listing only addresses SES suppresses), so the alarm
+    names where to look.
     """
+    outcome = outcome or DeliveryOutcome()
+    fields = {
+        # Recipients an earlier attempt already served are not owed this send.
+        "Delivered": f"0/{outcome.resolved - outcome.skipped}",
+        "Expected object": (
+            f"s3://{config.resources.s3_bucket_name}/"
+            f"{(config.resources.s3_prefix or '').strip('/')}/"
+            f"{S3Paths.RECIPIENTS.value}/{_generate_recipients_filename(config)}"
+        ),
+    }
+    if outcome.suppressed:
+        fields["Suppressed by SES"] = (
+            f"{outcome.suppressed} (bounced or complained; remove them from the list)"
+        )
+    fields["Crawl health"] = crawl_report.summary_line()
     _publish_alarm(
         boto_session,
         topic_arn,
         project=config.resources.project_name,
         event="No Recipients",
         status="ALERT",
-        fields={
-            "Delivered": "0/0",
-            "Expected object": (
-                f"s3://{config.resources.s3_bucket_name}/"
-                f"{(config.resources.s3_prefix or '').strip('/')}/"
-                f"{S3Paths.RECIPIENTS.value}/{_generate_recipients_filename(config)}"
-            ),
-            "Crawl health": crawl_report.summary_line(),
-        },
+        fields=fields,
     )
 
 
@@ -1128,10 +1143,8 @@ def cli(argv: list[str] | None = None) -> int:
         event["RECIPIENTS"] or "",
     )
     result = handler(event, None)
-    # The handler reports failure in its return value, which a Lambda invocation
-    # passes back but a process does not: exiting 0 here made Batch record every
-    # failed run as SUCCEEDED, so neither the job's retries nor the FAILED-state
-    # alarm ever saw one. The in-app failure alert has already gone out.
+    # A process reports failure only through its exit code, which is all Batch
+    # retries and the FAILED-state alarm can see.
     return 0 if int(result["statusCode"]) < 400 else 1
 
 
