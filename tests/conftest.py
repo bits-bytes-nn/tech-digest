@@ -122,8 +122,3 @@ def no_network(monkeypatch):
     # directly, so this module-level stub does not reach them.
     if module := sys.modules.get("app.adapters.feeds"):
         monkeypatch.setattr(module, "_make_robust_request", lambda url: None)
-    # The summarizer fetches each summary image to check mail clients can show
-    # it, through the probe the composition root hands it. Offline, every image
-    # would be dropped; tests that build a Summarizer pass their own probe.
-    if module := sys.modules.get("app.main"):
-        monkeypatch.setattr(module, "is_email_renderable_image", lambda url: True)

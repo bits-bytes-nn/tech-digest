@@ -41,10 +41,9 @@ from app.application.pipeline import (
 from app.configs import Config
 from app.domain.constants import AppConstants, EnvVars, Language, LocalPaths, SSMParams
 from app.logger import is_running_in_aws, logger
+from app.paths import APP_DIR, REPO_ROOT
 
-ROOT_DIR: Path = (
-    Path("/tmp") if is_running_in_aws() else Path(__file__).resolve().parent.parent
-)
+ROOT_DIR: Path = Path("/tmp") if is_running_in_aws() else REPO_ROOT
 
 
 def _boto_sessions(config: Config) -> tuple[boto3.Session, boto3.Session]:
@@ -209,7 +208,7 @@ def _newsletter_builder(
     return NewsletterBuilder(
         inputs_dir,
         outputs_dir,
-        Path(__file__).resolve().parent / LocalPaths.TEMPLATES_DIR.value,
+        APP_DIR / LocalPaths.TEMPLATES_DIR.value,
         logos=config.newsletter.logos,
     )
 

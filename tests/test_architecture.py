@@ -66,9 +66,15 @@ ALLOWED: tuple[tuple[str, str], ...] = (
     ("adapters/*", "app.application.ports"),
 )
 
+# Top-level modules every layer imports, held to the domain's rule so that
+# importing them cannot pull an outer layer into the domain.
+SHARED_AS_DOMAIN: frozenset[str] = frozenset({"logger.py", "paths.py"})
+
 
 def _layer(path: Path, root: Path = APP) -> str | None:
     top = path.relative_to(root).parts[0]
+    if top in SHARED_AS_DOMAIN:
+        return "domain"
     return top if top in FORBIDDEN else None
 
 
@@ -167,6 +173,11 @@ class TestTheCheckItself:
             encoding="utf-8",
         )
         assert _violations(probe, root) == ["app.application.summarize.Summarizer"]
+
+    def test_the_shared_logger_is_held_to_the_domain_rule(self, root):
+        probe = root / "logger.py"
+        probe.write_text("from app.adapters.aws import send_email\n", "utf-8")
+        assert _violations(probe, root) == ["app.adapters.aws.send_email"]
 
     def test_the_botocore_exception_is_allowed_only_where_it_is_listed(self, root):
         source = "from botocore.exceptions import ClientError\n"
