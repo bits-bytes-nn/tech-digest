@@ -75,15 +75,22 @@ Powered by Amazon Bedrock (GPT-6.1 Sol filters, Claude summarizes) · orchestrat
 
 ### Core components
 
+The code under `app/` has three layers: `domain/` holds the rules with no I/O,
+`application/` the services written against the interfaces in
+`application/ports.py`, and `adapters/` the code that talks to Bedrock, AWS, the
+web and the templates. Dependencies point inward, `main.py` wires the layers
+together, and `tests/test_architecture.py` checks the rule
+([design.md §3](./docs/design.md#3-저장소-구조)).
+
 | Module | Responsibility |
 | --- | --- |
-| `feed_parser.py` | RSS parsing + HTML scraping (BeautifulSoup4), per-source health tracking |
-| `summarizer.py` | Content gate → relevance filter → rank/cap → summarize, all via Bedrock |
-| `model_factory.py` | Bedrock model capability registry + LangChain chat-model construction, cost-attribution profiles |
-| `quality_metrics.py` | Deterministic output-quality rubric (pure functions) |
-| `eval_metrics.py` | Filtering-score metrics (pure functions) |
-| `newsletter_renderer.py` | HTML generation with Jinja2 (responsive, dark-mode, localized, size-checked) |
-| `aws_helpers.py` | S3, SES, SNS, SSM, and Batch operations |
+| `adapters/feeds.py` | RSS parsing + HTML scraping (BeautifulSoup4), per-source health tracking |
+| `application/summarize.py` | Content gate → relevance filter → rank/cap → summarize, all via Bedrock |
+| `adapters/bedrock.py` | Bedrock model capability registry + LangChain chat-model construction, cost-attribution profiles |
+| `domain/quality_metrics.py` | Deterministic output-quality rubric (pure functions) |
+| `domain/eval_metrics.py` | Filtering-score metrics (pure functions) |
+| `adapters/rendering.py` | HTML generation with Jinja2 (responsive, dark-mode, localized, size-checked) |
+| `adapters/aws.py` | S3, SES, SNS, SSM, and Batch operations |
 
 ### Pipeline
 
@@ -101,7 +108,7 @@ collect → gate → filter → rank → summarize → greet → render → deli
 - **SES**. newsletter delivery. **SNS** — alerts, sent only when something goes wrong.
 - **Bedrock (us-west-2)**. GPT-6.1 Sol (filter), Claude Sonnet 5.5 (summarize), Claude
   Haiku 5.5 (greeting, title casing and output repair). Any model in the `LanguageModelId`
-  catalog in [`app/src/constants.py`](./app/src/constants.py) is selectable per
+  catalog in [`app/domain/constants.py`](./app/domain/constants.py) is selectable per
   stage, including OpenAI GPT-6 models; per-model request rules (thinking
   off-switches, effort, the GPT dialect) are in design.md §8.
 
@@ -150,7 +157,7 @@ newsletter:
 ```
 
 > Model IDs come from the `LanguageModelId` catalog in
-> [`app/src/constants.py`](./app/src/constants.py).
+> [`app/domain/constants.py`](./app/domain/constants.py).
 
 ---
 
@@ -182,7 +189,7 @@ profile falls back to the system-defined id. Each call also logs
 - Activate the `Project` cost allocation tag under **Billing → Cost allocation tags**
   (takes up to 24h, not retroactive).
 
-See [design.md §8](./docs/design.md#8-bedrock-모델-팩토리-appsrcmodel_factorypy--배치-처리-appsrcutilspy) for details.
+See [design.md §8](./docs/design.md#8-bedrock-모델-팩토리-appadaptersbedrockpy--배치-처리-appapplicationllm_batchingpy) for details.
 
 ### Run locally
 

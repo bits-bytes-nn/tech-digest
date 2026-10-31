@@ -64,7 +64,7 @@ def offline_feed_download(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_scrape(monkeypatch):
-    # Post.from_entry may scrape when feed content is thin; neutralize network.
+    # post_from_entry may scrape when feed content is thin; neutralize network.
     monkeypatch.setattr(feeds, "_make_robust_request", lambda url: None)
 
 
