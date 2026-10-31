@@ -23,8 +23,8 @@ Powered by Amazon Bedrock (GPT-6.1 Sol filters, Claude summarizes) · orchestrat
 
 - **AI-powered curation**. On Amazon Bedrock, GPT-6.1 Sol scores each post for
   relevance and Claude writes a structured, multi-section summary.
-- **Multi-source aggregation**. pulls from \~20 tech blogs via RSS and resilient
-  HTML scraping (AWS, Google, Meta, Microsoft, NVIDIA, and more), with
+- **Multi-source aggregation**. pulls from about 15 tech blogs, all through RSS
+  but one HTML scraper (AWS, Google, Meta, Microsoft, NVIDIA, and more), with
   SSRF-guarded requests and per-source health tracking.
 - **Content quality gate**. drops posts whose visible text is too thin to
   summarize *before* they reach the LLM, so the digest never ships empty write-ups.
@@ -38,9 +38,9 @@ Powered by Amazon Bedrock (GPT-6.1 Sol filters, Claude summarizes) · orchestrat
   scraper look identical to a quiet blog otherwise, and most sources are
   legitimately empty in a normal week. A quiet blog never pages; an allow-list
   covers sources known to fail from AWS egress IPs, so the alarm stays actionable.
-- **Serverless infrastructure**. AWS Lambda *or* Batch (config-selectable),
+- **Managed infrastructure**. AWS Batch on EC2 Spot with an on-demand fallback,
   scheduled by EventBridge, defined as code with the AWS CDK.
-- **Professional email**. responsive HTML templates with dark-mode support,
+- **Email templates**. responsive HTML templates with dark-mode support,
   per-source logos, score badges, captioned figures and fully localized chrome
   (KO/EN), delivered through Amazon SES.
 - **Idempotent delivery**. a per-issue ledger in S3 records which recipients an
@@ -93,11 +93,12 @@ collect → gate → filter → rank → summarize → greet → render → deli
 
 ### Infrastructure
 
-- **Lambda / Batch**. execution environment selected by `lambda_or_batch`.
+- **Batch**. runs the pipeline container on EC2, Spot first and on-demand as the fallback.
 - **EventBridge**. scheduled execution (template default: Fridays 01:00 UTC; prod runs Saturdays).
 - **S3**. config, recipients, generated newsletters, and article HTML.
-- **SSM Parameter Store**. LangChain API key and Batch queue/definition names.
-- **SES**. newsletter delivery. **SNS** — run/health notifications.
+- **SSM Parameter Store**. LangChain API key (a SecureString you put yourself) and Batch
+  queue/definition names.
+- **SES**. newsletter delivery. **SNS** — alerts, sent only when something goes wrong.
 - **Bedrock (us-west-2)**. GPT-6.1 Sol (filter), Claude Sonnet 5.5 (summarize), Claude
   Haiku 5.5 (greeting, title casing and output repair). Any model in the `LanguageModelId`
   catalog in [`app/src/constants.py`](./app/src/constants.py) is selectable per
@@ -125,22 +126,21 @@ top-level sections map to the Pydantic models in
 resources:
   project_name: tech-digest
   stage: dev
-  lambda_or_batch: batch
   cron_expression: "cron(0 1 ? * 6 *)"   # Fridays 01:00 UTC (EventBridge: 1 = SUN)
 
 scraping:
   min_content_length: 600                # drop posts thinner than this (visible chars)
   expected_flaky_urls: []                # URL substrings whose failures are reported, not alerted
   rss_urls:
-    - "https://aws.amazon.com/blogs/amazon-ai/feed/"
+    - "https://aws.amazon.com/blogs/machine-learning/feed/"
     - "https://www.amazon.science/index.rss"
 
 summarization:
   filtering_model_id: openai.gpt-6.1-sol
   summarization_model_id: anthropic.claude-sonnet-5-5
   greeting_model_id: anthropic.claude-haiku-5-5
-  min_score: 0.7                         # keep posts scoring >= this
-  max_posts: 5                           # cap kept posts (applied before summarizing)
+  min_score: 0.75                        # keep posts scoring >= this
+  max_posts: 3                           # 5 needs the KO budget tightened to ~4,000 chars (design.md §9)
   max_per_source: 2                      # optional diversity cap; unfilled slots are
                                          # backfilled, so it never shrinks the issue
 
@@ -159,9 +159,10 @@ newsletter:
 ### Deploy infrastructure
 
 ```bash
-# deploy_infra.py is the CDK app; it only synthesizes. `cdk deploy` deploys it.
-# --profile must reach the same account as resources.profile_name: the app
-# resolves the account and writes the SSM secret with the config's profile.
+# deploy_infra.py is the CDK app; it only synthesizes and makes no AWS call.
+# `cdk deploy` deploys it to the account --profile reaches.
+# For LangSmith tracing, set resources.langchain_tracing and put the key yourself
+# as the SSM SecureString /<project>/<stage>/langchain-api-key.
 CONFIG_FILE_SUFFIX=dev cdk deploy NewsletterDevStack --profile <aws-profile>
 CONFIG_FILE_SUFFIX=prod cdk deploy NewsletterProdStack --profile <aws-profile>
 python scripts/put_inference_profiles.py --stage dev   # once per account/stage

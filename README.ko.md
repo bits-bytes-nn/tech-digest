@@ -2,7 +2,7 @@
 
 # 🤖 주간 AI 기술 블로그 다이제스트
 
-**선도적인 기술 블로그에서 그 주의 가장 좋은 AI/ML 엔지니어링 글을 모아 큐레이션·필터링·요약한 뒤 이메일로 보내 주는 자동화 뉴스레터.**
+**그 주의 AI/ML 엔지니어링 블로그 글을 골라 요약해 메일로 보내 주는 자동화 뉴스레터.**
 
 Amazon Bedrock 기반(필터 GPT-6.1 Sol, 요약 Claude) · AWS 위에서 CDK로 정의·오케스트레이션.
 
@@ -23,9 +23,9 @@ Amazon Bedrock 기반(필터 GPT-6.1 Sol, 요약 Claude) · AWS 위에서 CDK로
 
 - **AI 기반 큐레이션**. Amazon Bedrock에서 GPT-6.1 Sol이 글마다 관련성을 점수로 매기고,
   Claude가 여러 섹션으로 구조화된 요약을 씁니다.
-- **다중 소스 집계**. RSS와 견고한 HTML 스크레이핑으로 약 20개 기술 블로그(AWS,
-  Google, Meta, Microsoft, NVIDIA 등)에서 글을 모읍니다. 모든 요청에는
-  SSRF 가드와 소스별 헬스 추적이 따라붙습니다.
+- **다중 소스 집계**. 약 15개 기술 블로그(AWS, Google, Meta, Microsoft, NVIDIA 등)에서
+  글을 모읍니다. HTML 스크레이퍼 하나를 빼면 모두 RSS로 읽습니다. 요청마다 SSRF 가드를
+  거치고, 소스별 헬스를 추적합니다.
 - **콘텐츠 품질 게이트**. 본문이 너무 빈약한 글은 LLM에 닿기 *전에* 걸러내, 빈
   껍데기 글이 다이제스트에 실리지 않게 합니다.
 - **훑어볼 수 있는 카드**. 카드마다 핵심을 한 문장으로 먼저 제시하고 읽는 시간을
@@ -38,9 +38,9 @@ Amazon Bedrock 기반(필터 GPT-6.1 Sol, 요약 Claude) · AWS 위에서 CDK로
   깨진 스크레이퍼가 조용한 블로그와 구별되지 않고, 정상적인 주에도 소스 대부분이
   비어 있습니다. 조용한 블로그는 절대 알림을 띄우지 않으며, AWS 송신 IP에서 상시
   실패하는 소스는 허용 목록으로 빼서 알람이 계속 조치 가능한 상태로 남습니다.
-- **서버리스 인프라**. 설정으로 고르는 AWS Lambda *또는* Batch 위에서 돌아가며,
+- **관리형 인프라**. EC2 스팟을 먼저 쓰고 온디맨드로 넘어가는 AWS Batch 위에서 돌아가며,
   EventBridge로 스케줄링하고 AWS CDK로 코드화합니다.
-- **완성도 높은 이메일**. 다크모드, 소스별 로고, 점수 배지, 캡션 달린 이미지, 그리고
+- **이메일 템플릿**. 다크모드, 소스별 로고, 점수 배지, 캡션 달린 이미지, 그리고
   완전히 현지화된 UI 문구(KO/EN)를 갖춘 반응형 HTML 템플릿을 Amazon SES로 전달합니다.
 - **멱등한 발송**. 호마다 어떤 수신자에게 전달됐는지를 S3 원장에 기록하므로, 재시도된
   실행(스팟 회수, OOM 등)이 같은 호를 두 번 보내지 않고 아직 못 받은 독자에게만
@@ -77,7 +77,7 @@ Amazon Bedrock 기반(필터 GPT-6.1 Sol, 요약 Claude) · AWS 위에서 CDK로
 | --- | --- |
 | `feed_parser.py` | RSS 파싱 + HTML 스크레이핑(BeautifulSoup4), 소스별 헬스 추적 |
 | `summarizer.py` | 콘텐츠 게이트 → 관련성 필터 → 랭킹/캡 → 요약까지, 모두 Bedrock으로 |
-| `model_factory.py` | Bedrock 모델 능력 레지스트리 + LangChain 채팅 모델 생성, 비용 귀속 프로파일 |
+| `model_factory.py` | Bedrock 모델 역량 레지스트리 + LangChain 채팅 모델 생성, 비용 귀속 프로파일 |
 | `quality_metrics.py` | 결정적 출력 품질 루브릭 (순수 함수) |
 | `eval_metrics.py` | 필터 점수 지표 (순수 함수) |
 | `newsletter_renderer.py` | Jinja2 기반 HTML 생성(반응형, 다크모드, 현지화, 크기 검사) |
@@ -91,11 +91,12 @@ collect → gate → filter → rank → summarize → greet → render → deli
 
 ### 인프라
 
-- **Lambda / Batch**. `lambda_or_batch` 설정으로 실행 환경을 고릅니다.
+- **Batch**. 파이프라인 컨테이너를 EC2에서 돌립니다. 스팟을 먼저 쓰고 온디맨드로 넘어갑니다.
 - **EventBridge**. 정해진 일정에 실행합니다(템플릿 기본값: 금요일 01:00 UTC, prod는 토요일).
 - **S3**. 설정, 수신자 목록, 생성된 뉴스레터, 글 HTML을 보관합니다.
-- **SSM Parameter Store**. LangChain API 키와 Batch 큐/정의 이름을 저장합니다.
-- **SES**로 뉴스레터를 전달하고, **SNS**로 실행·헬스 알림을 보냅니다.
+- **SSM Parameter Store**. LangChain API 키(직접 넣는 SecureString)와 Batch 큐/정의 이름을
+  저장합니다.
+- **SES**로 뉴스레터를 전달하고, **SNS**로는 문제가 있을 때만 알림을 보냅니다.
 - **Bedrock(us-west-2)**. GPT-6.1 Sol(필터), Claude Sonnet 5.5(요약), Claude Haiku 5.5(인사말,
   제목 Title Case, 출력 복구). [`app/src/constants.py`](./app/src/constants.py)의 `LanguageModelId`
   카탈로그에 있는 모델은 OpenAI GPT-6 모델을 포함해 스테이지별로 골라 쓸 수 있습니다.
@@ -122,22 +123,21 @@ collect → gate → filter → rank → summarize → greet → render → deli
 resources:
   project_name: tech-digest
   stage: dev
-  lambda_or_batch: batch
   cron_expression: "cron(0 1 ? * 6 *)"   # 금요일 01:00 UTC(EventBridge는 1 = 일요일)
 
 scraping:
   min_content_length: 600                # 이보다 빈약한 글은 제외(가시 텍스트 문자 수)
   expected_flaky_urls: []                # 실패를 리포트만 하고 알림은 띄우지 않을 URL 일부
   rss_urls:
-    - "https://aws.amazon.com/blogs/amazon-ai/feed/"
+    - "https://aws.amazon.com/blogs/machine-learning/feed/"
     - "https://www.amazon.science/index.rss"
 
 summarization:
   filtering_model_id: openai.gpt-6.1-sol
   summarization_model_id: anthropic.claude-sonnet-5-5
   greeting_model_id: anthropic.claude-haiku-5-5
-  min_score: 0.7                         # 이 점수 이상인 글만 유지
-  max_posts: 5                           # 남길 글 수 상한(요약 전에 적용)
+  min_score: 0.75                        # 이 점수 이상인 글만 유지
+  max_posts: 3                           # 5로 올리려면 KO 예산을 약 4,000자로 조여야 함(design.md §9)
   max_per_source: 2                      # 소스 다양성 캡(선택). 빈 자리는 랭크 순으로
                                          # 다시 채우므로 발행 편수는 줄지 않음
 
@@ -156,9 +156,10 @@ newsletter:
 ### 인프라 배포
 
 ```bash
-# deploy_infra.py는 CDK 앱이라 합성만 합니다. 배포는 `cdk deploy`로 합니다.
-# --profile은 resources.profile_name과 같은 계정이어야 합니다. 앱은 계정 조회와
-# SSM 시크릿 쓰기에 설정의 프로필을 씁니다.
+# deploy_infra.py는 CDK 앱이라 합성만 하고 AWS를 호출하지 않습니다.
+# `cdk deploy`가 --profile이 가리키는 계정에 배포합니다.
+# LangSmith 트레이싱을 쓰려면 resources.langchain_tracing을 켜고, 키를 SSM SecureString
+# /<project>/<stage>/langchain-api-key로 직접 넣습니다.
 CONFIG_FILE_SUFFIX=dev cdk deploy NewsletterDevStack --profile <aws-profile>
 CONFIG_FILE_SUFFIX=prod cdk deploy NewsletterProdStack --profile <aws-profile>
 python scripts/put_inference_profiles.py --stage dev   # 계정/스테이지마다 한 번
