@@ -34,6 +34,8 @@ GMAIL_CLIP_BYTES: int = 102_400
 # Reading speed used for the per-card "N min read" estimate, per language.
 # Korean is counted in characters and English in words; both are deliberately
 # conservative for dense technical prose.
+# Source keys whose display name is not their title case (logo alt text).
+SOURCE_LABELS: dict[str, str] = {"aws": "AWS"}
 READING_SPEED: dict[Language, tuple[str, int]] = {
     Language.KO: ("chars", 450),
     Language.EN: ("words", 200),
@@ -146,8 +148,7 @@ class Article(BaseModel):
         """
         if self.source == "unknown":
             return ""
-        name = self.source.replace("_", " ")
-        return name.upper() if len(name) <= 3 else name.title()
+        return SOURCE_LABELS.get(self.source) or self.source.replace("_", " ").title()
 
 
 class Footer(BaseModel):

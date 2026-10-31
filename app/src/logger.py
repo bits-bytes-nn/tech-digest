@@ -12,7 +12,6 @@ LOGGER_NAME: str = "app"
 def is_running_in_aws() -> bool:
     aws_env_vars = [
         "AWS_EXECUTION_ENV",
-        "AWS_LAMBDA_FUNCTION_NAME",
         "AWS_BATCH_JOB_ID",
         "ECS_CONTAINER_METADATA_URI",
     ]

@@ -519,7 +519,9 @@ class Post(BaseModel):
         scraped_content = cls._scrape_full_content(
             link, body_fallback=not (content_items and feed_text_len)
         )
-        if scraped_content is None:
+        # None: the page could not be read. "": it was read but holds no article
+        # container we trust, so a teaser kept from the feed is still unreadable.
+        if not scraped_content:
             return content, True
         # A thin page (JS-rendered, consent wall) must not replace a fuller feed
         # body and push the post below the content gate.
@@ -528,7 +530,7 @@ class Post(BaseModel):
         return content, False
 
     @staticmethod
-    def _scrape_full_content(url: str, *, body_fallback: bool = True) -> str | None:
+    def _scrape_full_content(url: str, *, body_fallback: bool) -> str | None:
         """The article's HTML from its own page.
 
         Returns None if the page cannot be fetched or parsed, and "" if it holds
@@ -819,7 +821,7 @@ class RssFetcher:
         oldest = min(dates)
         if oldest > start_date.astimezone(UTC):
             self.truncated = True
-            logger.warning(
+            logger.info(
                 "Feed '%s' does not reach back to the window start %s: its oldest "
                 "entry is dated %s, so earlier posts may be missing.",
                 self.rss_url,

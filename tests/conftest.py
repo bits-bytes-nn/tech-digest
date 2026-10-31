@@ -24,7 +24,6 @@ os.environ.setdefault("LOG_TO_FILE", "false")
 # main.py resolves ROOT_DIR at import time, and again per test below.
 AWS_RUNTIME_ENV_VARS: tuple[str, ...] = (
     "AWS_EXECUTION_ENV",
-    "AWS_LAMBDA_FUNCTION_NAME",
     "AWS_BATCH_JOB_ID",
     "ECS_CONTAINER_METADATA_URI",
 )

@@ -172,8 +172,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
                 language,
                 None if recipients is None else recipients.split(","),
             )
+            # Everyone was served earlier, apart from addresses SES suppresses.
             retry_of_completed_send = (
-                outcome.resolved > 0 and outcome.skipped == outcome.resolved
+                outcome.skipped > 0
+                and outcome.skipped + outcome.suppressed == outcome.resolved
             )
             if retry_of_completed_send:
                 # Not a failure and not alarm-worthy: the ledger did its job.
@@ -380,8 +382,7 @@ def _log_run_summary(
         "sources_failed": len(crawl_report.failed),
         "sources_pages_unreadable": len(crawl_report.pages_unreadable),
         # Feeds whose oldest entry is inside the window: posts may have scrolled
-        # off. Logged and charted only; the AWS ML main feed is in this state
-        # every week by design, which the category feeds make up for.
+        # off. Counted only; overlapping feeds can cover the gap.
         "sources_truncated": len(crawl_report.truncated),
         "posts_collected": crawl_report.total_posts,
         "posts_filtered_out": len(filtered_out_posts),
@@ -447,9 +448,7 @@ def _generate_greeting(
     language: Language,
 ) -> str:
     greeter = Greeter(boto_session, config.summarization.greeting_model_id, language)
-    # Titles alone made the model invent a common theme, and the one-liner alone
-    # left it nothing to say but the card's own lede; the summary's opening gives
-    # it a detail of its own to pick.
+    # The summary's opening gives the model a detail beyond the card's own lede.
     lines = "\n".join(
         f"- {post.title}\n  card lede (already shown): {post.one_liner}"
         f"\n  summary opening: {_summary_opening(post.summary)}"
@@ -468,11 +467,11 @@ def _generate_greeting(
     return greeting
 
 
-def _summary_opening(summary_html: str, limit: int = 300) -> str:
-    """The first paragraph of a summary as plain text, cut at ``limit`` chars."""
+def _summary_opening(summary_html: str) -> str:
+    """The first paragraph of a summary as plain text, cut at 300 chars."""
     paragraph = BeautifulSoup(summary_html or "", "html.parser").find("p")
     text = " ".join(paragraph.get_text(" ").split()) if paragraph else ""
-    return text[:limit]
+    return text[:300]
 
 
 def _save_greeting_to_file(greeting: str, date_suffix: str) -> None:
@@ -942,7 +941,7 @@ def _send_no_recipients_alert(
     topic_arn: str,
     config: Config,
     crawl_report: CrawlReport,
-    outcome: DeliveryOutcome | None = None,
+    outcome: DeliveryOutcome,
 ) -> None:
     """Alert when a built issue had nobody to send to.
 
@@ -953,7 +952,6 @@ def _send_no_recipients_alert(
     passes validation, or listing only addresses SES suppresses), so the alarm
     names where to look.
     """
-    outcome = outcome or DeliveryOutcome()
     fields = {
         # Recipients an earlier attempt already served are not owed this send.
         "Delivered": f"0/{outcome.resolved - outcome.skipped}",
