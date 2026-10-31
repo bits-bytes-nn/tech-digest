@@ -13,6 +13,7 @@ from pprint import pformat
 from typing import Any, Final
 
 import boto3
+from bs4 import BeautifulSoup
 
 from app.configs import Config
 from app.src import (
@@ -446,9 +447,14 @@ def _generate_greeting(
     language: Language,
 ) -> str:
     greeter = Greeter(boto_session, config.summarization.greeting_model_id, language)
-    # Titles alone made the model invent a common theme; the one-liners say what
-    # each article actually covers.
-    lines = "\n".join(f"- {post.title}: {post.one_liner}" for post in posts)
+    # Titles alone made the model invent a common theme, and the one-liner alone
+    # left it nothing to say but the card's own lede; the summary's opening gives
+    # it a detail of its own to pick.
+    lines = "\n".join(
+        f"- {post.title}\n  card lede (already shown): {post.one_liner}"
+        f"\n  summary opening: {_summary_opening(post.summary)}"
+        for post in posts
+    )
     context = f"Today is {date_suffix}. This week's articles:\n{lines}"
     try:
         greeting = greeter.greet(context=context)
@@ -460,6 +466,13 @@ def _generate_greeting(
     logger.debug("Generated greeting: %s", greeting)
     _save_greeting_to_file(greeting, date_suffix)
     return greeting
+
+
+def _summary_opening(summary_html: str, limit: int = 300) -> str:
+    """The first paragraph of a summary as plain text, cut at ``limit`` chars."""
+    paragraph = BeautifulSoup(summary_html or "", "html.parser").find("p")
+    text = " ".join(paragraph.get_text(" ").split()) if paragraph else ""
+    return text[:limit]
 
 
 def _save_greeting_to_file(greeting: str, date_suffix: str) -> None:
