@@ -127,15 +127,6 @@ def write_s3_json(
         return False
 
 
-def get_account_id(boto_session: boto3.Session) -> str:
-    try:
-        sts_client = boto_session.client("sts")
-        return sts_client.get_caller_identity()["Account"]
-    except ClientError as e:
-        logger.error("Failed to get AWS Account ID: %s", e)
-        raise
-
-
 def get_ssm_param_value(boto_session: boto3.Session, param_name: str) -> str:
     ssm_client = boto_session.client("ssm")
     try:

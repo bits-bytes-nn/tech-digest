@@ -525,7 +525,7 @@ class SummaryOutput(BaseModel):
 class SummarizationOptions(BaseModel):
     """The settings the ``summarization`` config section and the Summarizer share.
 
-    Declared once: the config model (``configs.Summarization``) extends this with
+    Declared once: the config model (``app.configs.Summarization``) extends this with
     the greeting model, and ``SummarizerSettings`` with what only the run knows.
     """
 

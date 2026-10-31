@@ -1,6 +1,5 @@
 from .aws_helpers import (
     check_and_download_from_s3,
-    get_account_id,
     get_ssm_param_value,
     read_s3_json,
     send_email,
@@ -85,7 +84,6 @@ __all__ = [
     "TitleCaser",
     "check_and_download_from_s3",
     "format_alarm",
-    "get_account_id",
     "get_date_range",
     "get_ssm_param_value",
     "is_running_in_aws",
