@@ -118,41 +118,7 @@ class LanguageModelInfo(BaseModel):
 
 
 _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
-    LanguageModelId.CLAUDE_V3_HAIKU: LanguageModelInfo(
-        context_window_size=200000,
-        max_output_tokens=4096,
-        supports_prompt_caching=True,
-    ),
-    LanguageModelId.CLAUDE_V3_5_HAIKU: LanguageModelInfo(
-        context_window_size=200000,
-        max_output_tokens=8192,
-        supports_prompt_caching=True,
-    ),
     LanguageModelId.CLAUDE_V4_5_HAIKU: LanguageModelInfo(
-        context_window_size=200000,
-        max_output_tokens=64000,
-        supports_prompt_caching=True,
-        supports_thinking=True,
-    ),
-    LanguageModelId.CLAUDE_V3_5_SONNET: LanguageModelInfo(
-        context_window_size=200000, max_output_tokens=8192
-    ),
-    LanguageModelId.CLAUDE_V3_5_SONNET_V2: LanguageModelInfo(
-        context_window_size=200000, max_output_tokens=8192, supports_prompt_caching=True
-    ),
-    LanguageModelId.CLAUDE_V3_7_SONNET: LanguageModelInfo(
-        context_window_size=200000,
-        max_output_tokens=64000,
-        supports_prompt_caching=True,
-        supports_thinking=True,
-    ),
-    LanguageModelId.CLAUDE_V4_SONNET: LanguageModelInfo(
-        context_window_size=200000,
-        max_output_tokens=64000,
-        supports_prompt_caching=True,
-        supports_thinking=True,
-    ),
-    LanguageModelId.CLAUDE_V4_5_SONNET: LanguageModelInfo(
         context_window_size=200000,
         max_output_tokens=64000,
         supports_prompt_caching=True,
@@ -173,18 +139,6 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         uses_adaptive_thinking=True,
         thinks_when_omitted=True,
         thinking_off_type="disabled",
-    ),
-    LanguageModelId.CLAUDE_V4_OPUS: LanguageModelInfo(
-        context_window_size=200000,
-        max_output_tokens=64000,
-        supports_prompt_caching=True,
-        supports_thinking=True,
-    ),
-    LanguageModelId.CLAUDE_V4_1_OPUS: LanguageModelInfo(
-        context_window_size=200000,
-        max_output_tokens=64000,
-        supports_prompt_caching=True,
-        supports_thinking=True,
     ),
     LanguageModelId.CLAUDE_V4_5_OPUS: LanguageModelInfo(
         context_window_size=200000,
@@ -289,6 +243,18 @@ _LANGUAGE_MODEL_INFO: dict[LanguageModelId, LanguageModelInfo] = {
         supports_thinking=True,
         supports_sampling_params=False,
         thinks_when_omitted=True,
+        request_dialect="openai",
+        supports_stop_sequences=False,
+    ),
+    # Probed 2026-11-01: rejects temperature and stopSequences like its siblings,
+    # and accepts reasoning.effort "none". Caching follows the siblings (not probed).
+    LanguageModelId.GPT_6_1_TERRA: LanguageModelInfo(
+        context_window_size=1050000,
+        max_output_tokens=64000,
+        supports_thinking=True,
+        supports_sampling_params=False,
+        thinks_when_omitted=True,
+        thinking_off_type="none",
         request_dialect="openai",
         supports_stop_sequences=False,
     ),

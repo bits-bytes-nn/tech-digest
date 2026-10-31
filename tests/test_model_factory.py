@@ -14,6 +14,7 @@ from app.src.model_factory import (
     _LANGUAGE_MODEL_INFO,
     BedrockCrossRegionModelHelper,
     BedrockLanguageModelFactory,
+    LanguageModelInfo,
 )
 
 
@@ -145,7 +146,7 @@ class TestThinkingBudgetClamp:
     def test_no_thinking_block_when_unsupported(self):
         factory = self._factory()
         # A model without thinking support must not get a thinking block.
-        info = _LANGUAGE_MODEL_INFO[LanguageModelId.CLAUDE_V3_5_SONNET]
+        info = LanguageModelInfo(context_window_size=200000, max_output_tokens=8192)
         config: dict = {"model_kwargs": {}}
         factory._apply_model_features(
             config, info, use_converse=False, enable_thinking=True
@@ -406,7 +407,7 @@ class TestGetModelRouting:
         )
         captured = self._capture(monkeypatch)
         factory.get_model(
-            LanguageModelId.CLAUDE_V3_5_SONNET,
+            LanguageModelId.CLAUDE_V4_5_HAIKU,
             temperature=0.0,
             max_tokens=4096,
         )
@@ -769,13 +770,18 @@ class TestThinkingOff:
 
 GPT_6 = [
     LanguageModelId.GPT_6_1_SOL,
+    LanguageModelId.GPT_6_1_TERRA,
     LanguageModelId.GPT_6_SOL,
     LanguageModelId.GPT_6_LUNA,
     LanguageModelId.GPT_6_ASTRA,
 ]
-# Measured 2026-10-10: GPT-6 Sol and Luna accept reasoning.effort "none";
-# GPT-6.1 Sol and Astra reject it and always reason.
-GPT_CAN_STOP_REASONING = {LanguageModelId.GPT_6_SOL, LanguageModelId.GPT_6_LUNA}
+# Measured 2026-10-10 (Terra 2026-11-01): GPT-6 Sol, Luna and GPT-6.1 Terra accept
+# reasoning.effort "none"; GPT-6.1 Sol and Astra reject it and always reason.
+GPT_CAN_STOP_REASONING = {
+    LanguageModelId.GPT_6_SOL,
+    LanguageModelId.GPT_6_LUNA,
+    LanguageModelId.GPT_6_1_TERRA,
+}
 
 
 class TestOpenAIDialect:
