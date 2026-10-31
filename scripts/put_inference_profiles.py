@@ -30,8 +30,10 @@ import boto3
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from app.src import EnvVars, LanguageModelId, SummarizerSettings, logger
+from app.domain.constants import EnvVars, LanguageModelId
+from app.logger import logger
 from app.src.model_factory import BedrockCrossRegionModelHelper
+from app.src.summarizer import SummarizerSettings
 
 
 def _configured_models(config) -> dict[LanguageModelId, str]:

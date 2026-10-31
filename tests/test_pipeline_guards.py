@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from app import main, run_batch
-from app.src.constants import Language
+from app.domain.constants import Language
 
 
 @pytest.fixture(autouse=True)
@@ -126,7 +126,7 @@ class TestGreetingFailureKeepsTheIssue:
 
 class TestGreetingContext:
     def test_the_greeting_sees_the_summary_opening_not_only_the_lede(self, monkeypatch):
-        from app.src.feed_parser import Post
+        from app.domain.post import Post
 
         seen = {}
 
@@ -159,7 +159,7 @@ class TestGreetingContext:
 
 class TestTitleCaseFailureKeepsTheTitles:
     def test_an_unavailable_caser_leaves_titles_alone(self, monkeypatch):
-        from app.src.feed_parser import Post
+        from app.domain.post import Post
 
         def _broken(*args, **kwargs):
             raise ValueError("Unsupported model ID")
@@ -177,7 +177,7 @@ class TestTitleCaseFailureKeepsTheTitles:
         assert post.title == "a guide"
 
     def test_recased_titles_replace_the_feed_titles_in_order(self, monkeypatch):
-        from app.src.feed_parser import Post
+        from app.domain.post import Post
 
         class _Caser:
             def __init__(self, *args, **kwargs):
@@ -202,7 +202,7 @@ class TestTitleCaseFailureKeepsTheTitles:
 
 class TestTestRunsKeepOutOfTheLogFile:
     def test_no_file_handler_under_pytest(self):
-        from app.src.logger import configure_logger
+        from app.logger import configure_logger
 
         configured = configure_logger("tech-digest-probe")
         assert not any(isinstance(h, logging.FileHandler) for h in configured.handlers)
@@ -213,12 +213,11 @@ class TestLogFileOutsideAws:
 
     @pytest.fixture
     def logs_root(self, monkeypatch, tmp_path):
-        # The module, not the `logger` object app.src re-exports under that name.
-        logger_module = sys.modules["app.src.logger"]
-        # _file_handler places logs/ three levels above logger.py (the repo root);
-        # point that resolution at a tmp tree instead of the real logs/.
-        fake_module = tmp_path / "app" / "src" / "logger.py"
-        monkeypatch.setattr(logger_module, "__file__", str(fake_module))
+        # The module, not the `logger` object it defines under the same name.
+        logger_module = sys.modules["app.logger"]
+        # _file_handler places logs/ under the repo root; point that at a tmp tree
+        # instead of the real logs/.
+        monkeypatch.setattr(logger_module, "REPO_ROOT", tmp_path.resolve())
         monkeypatch.delenv("LOG_TO_FILE", raising=False)
         yield tmp_path.resolve()
         probe = logging.getLogger("tech-digest-file-probe")
@@ -227,8 +226,8 @@ class TestLogFileOutsideAws:
         probe.handlers.clear()
 
     def test_exactly_one_file_handler_in_the_logs_dir(self, logs_root):
-        from app.src.constants import LocalPaths
-        from app.src.logger import configure_logger
+        from app.domain.constants import LocalPaths
+        from app.logger import configure_logger
 
         configure_logger("tech-digest-file-probe")
         configured = configure_logger("tech-digest-file-probe")
@@ -242,7 +241,7 @@ class TestLogFileOutsideAws:
         assert "probe line" in path.read_text(encoding="utf-8")
 
     def test_no_file_handler_in_aws(self, logs_root, monkeypatch):
-        from app.src.logger import configure_logger
+        from app.logger import configure_logger
 
         monkeypatch.setenv("AWS_BATCH_JOB_ID", "job-1")
         configured = configure_logger("tech-digest-file-probe")
@@ -278,7 +277,8 @@ class TestRecipientsOverrideInTheContainer:
     def test_the_override_reaches_the_send_phase_and_archives_as_a_test(
         self, monkeypatch, tmp_path
     ):
-        from app.src.feed_parser import CrawlReport, Post
+        from app.domain.crawl import CrawlReport
+        from app.domain.post import Post
 
         seen: dict = {}
         post = Post(title="t", link="https://x.example/p", published_date="2026-10-09")
@@ -397,7 +397,7 @@ class TestModelFailureAlert:
             return self.sns
 
     def _post(self, title):
-        from app.src.feed_parser import Post
+        from app.domain.post import Post
 
         return Post(
             title=title, link=f"https://x.example/{title}", published_date="2026-10-09"
@@ -433,7 +433,8 @@ class TestModelFailureAlert:
 
 class TestModelFailureAlertFromTheHandler:
     def test_a_shipped_issue_that_lost_a_post_pages(self, monkeypatch, tmp_path):
-        from app.src.feed_parser import CrawlReport, Post
+        from app.domain.crawl import CrawlReport
+        from app.domain.post import Post
 
         sns = TestModelFailureAlert._SNS()
         session = TestModelFailureAlert._Session(sns)
@@ -490,13 +491,13 @@ class TestMarkdownFailureStillSanitizes:
     the fallback must still escape and sanitize, never pass model text through."""
 
     def test_script_and_event_handlers_do_not_survive(self, monkeypatch):
-        from app.src import summarizer
+        from app.domain import summary
 
         def _broken(*args, **kwargs):
             raise RuntimeError("markdown extension crashed")
 
-        monkeypatch.setattr(summarizer.markdown, "markdown", _broken)
-        output = summarizer.SummaryOutput(
+        monkeypatch.setattr(summary.markdown, "markdown", _broken)
+        output = summary.SummaryOutput(
             summary='<script>alert(1)</script><img src=x onerror="alert(2)">'
         )
         html = output.summary.lower()

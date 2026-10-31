@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.src.eval_metrics import (
+from app.domain.eval_metrics import (
     ArticleScoreStats,
     band_of_score,
     build_report,
@@ -15,7 +15,7 @@ from app.src.eval_metrics import (
 
 class TestIsAnchor:
     def test_every_anchor_is_one(self):
-        from app.src.eval_metrics import ANCHOR_BANDS
+        from app.domain.eval_metrics import ANCHOR_BANDS
 
         for s in ANCHOR_BANDS:
             assert is_anchor(s), s
@@ -44,9 +44,9 @@ class TestBandOfScore:
         """The rubric text and ``ANCHOR_BANDS`` are one scale written twice."""
         import re
 
-        from app.src.constants import FilteringCriteria
-        from app.src.eval_metrics import ANCHOR_BANDS
-        from app.src.prompts import FilteringPrompt
+        from app.domain.constants import FilteringCriteria
+        from app.domain.eval_metrics import ANCHOR_BANDS
+        from app.src.prompts.prompts import FilteringPrompt
 
         template = FilteringPrompt._human_prompt_template[FilteringCriteria(criteria)]
         stated = {float(m) for m in re.findall(r"- \*\*(\d\.\d\d)\*\* —", template)}
@@ -59,8 +59,8 @@ class TestBandOfScore:
         highest anchor for other content."""
         import re
 
-        from app.src.constants import FilteringCriteria
-        from app.src.prompts import FilteringPrompt
+        from app.domain.constants import FilteringCriteria
+        from app.src.prompts.prompts import FilteringPrompt
 
         template = FilteringPrompt._human_prompt_template[FilteringCriteria(criteria)]
         included, other = template.split("**OTHER ", 1)
@@ -73,7 +73,7 @@ class TestBandOfScore:
     def test_excluded_topics_override_included_ones(self):
         """Without a stated precedence the same article flipped between 0.85
         (included topic) and 0.05 (excluded topic) on identical input."""
-        from app.src.prompts import FilteringPrompt
+        from app.src.prompts.prompts import FilteringPrompt
 
         for template in FilteringPrompt._human_prompt_template.values():
             assert "An excluded topic overrides an included one" in template
@@ -82,7 +82,7 @@ class TestBandOfScore:
         """Reproducibility is measured as band stability plus bounded spread,
         because models from Sonnet 5 on expose no sampling controls and so cannot
         be asked for byte-identical repeats."""
-        from app.src.eval_metrics import build_report
+        from app.domain.eval_metrics import build_report
 
         report = build_report(
             # a: varies but never leaves its band. b: varies across bands.
@@ -94,7 +94,7 @@ class TestBandOfScore:
         assert report.determinism_rate == 0.0
 
     def test_band_stability_is_all_repeats_not_just_the_mean(self):
-        from app.src.eval_metrics import build_report
+        from app.domain.eval_metrics import build_report
 
         # Mean 0.70 lands in "strong", but one repeat did not — band_match would
         # call this a pass while band_stability correctly does not.
@@ -179,7 +179,7 @@ class TestBandsHaveNoSecondScale:
         assert band_of_score(0.25) == "reject"  # between 0.35 weak / 0.15 reject
 
     def test_a_score_reads_as_its_nearest_anchor(self):
-        from app.src.eval_metrics import ANCHOR_BANDS
+        from app.domain.eval_metrics import ANCHOR_BANDS
 
         for anchor, band in ANCHOR_BANDS.items():
             assert band_of_score(anchor) == band, anchor
@@ -215,7 +215,7 @@ class TestEvalSets:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def test_labels_are_bands_and_ids_unique(self, eval_set):
-        from app.src.eval_metrics import ANCHOR_BANDS
+        from app.domain.eval_metrics import ANCHOR_BANDS
 
         # The filter sees the URL in production, so every item carries one.
         assert all(
@@ -228,6 +228,6 @@ class TestEvalSets:
         )
 
     def test_criteria_has_a_rubric(self, eval_set):
-        from app.src.constants import FilteringCriteria
+        from app.domain.constants import FilteringCriteria
 
         FilteringCriteria(eval_set["criteria"])

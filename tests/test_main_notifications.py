@@ -9,7 +9,7 @@ from copy import deepcopy
 import pytest
 
 from app import main
-from app.src.feed_parser import CrawlReport, SourceHealth, SourceStatus
+from app.domain.crawl import CrawlReport, SourceHealth, SourceStatus
 
 
 @pytest.fixture(autouse=True)
@@ -236,7 +236,7 @@ class TestEmptyDigestAlert:
     def _post(self, title: str):
         from datetime import datetime
 
-        from app.src.feed_parser import Post
+        from app.domain.post import Post
 
         return Post(
             title=title, link="https://x.com", published_date=datetime(2026, 7, 11)
@@ -300,7 +300,7 @@ class TestGeneratePostFilename:
     def _post(self, title: str, link: str):
         from datetime import datetime
 
-        from app.src.feed_parser import Post
+        from app.domain.post import Post
 
         return Post(
             title=title,
@@ -476,7 +476,7 @@ class TestHandlerControlFlow:
 
     def test_no_posts_returns_200(self, monkeypatch):
         self._patch_common(monkeypatch)
-        from app.src.feed_parser import CrawlReport
+        from app.domain.crawl import CrawlReport
 
         monkeypatch.setattr(
             main,
@@ -512,7 +512,7 @@ class TestHandlerControlFlow:
 
         from datetime import datetime
 
-        from app.src.feed_parser import Post
+        from app.domain.post import Post
 
         report = CrawlReport(
             sources=[
@@ -683,7 +683,7 @@ class TestClippedNewsletterAlert:
     prod issue (2026-06-02) shipped at 101.4% of the limit."""
 
     def test_no_alert_under_the_limit(self, tmp_path):
-        from app.src import GMAIL_CLIP_BYTES
+        from app.domain.newsletter import GMAIL_CLIP_BYTES
 
         path = tmp_path / "n.html"
         path.write_bytes(b"x" * (GMAIL_CLIP_BYTES - 1))
@@ -694,7 +694,7 @@ class TestClippedNewsletterAlert:
         assert session.sns.published == []
 
     def test_alert_over_the_limit_reports_size_and_remedy(self, tmp_path):
-        from app.src import GMAIL_CLIP_BYTES
+        from app.domain.newsletter import GMAIL_CLIP_BYTES
 
         path = tmp_path / "n.html"
         path.write_bytes(b"x" * (GMAIL_CLIP_BYTES + 2048))
@@ -928,7 +928,7 @@ class TestDeliveryAlertsFromTheHandler:
             send_emails = True
 
     def _alerts(self, monkeypatch, tmp_path, outcome) -> list[str]:
-        from app.src.feed_parser import Post
+        from app.domain.post import Post
 
         session = _FakeSession()
         post = Post(title="t", link="https://x.example/p", published_date="2026-10-09")

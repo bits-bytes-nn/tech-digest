@@ -16,38 +16,34 @@ import boto3
 from bs4 import BeautifulSoup
 
 from app.configs import Config
-from app.src import (
-    GMAIL_CLIP_BYTES,
-    MODEL_FAILURE_PREFIXES,
+from app.domain.alarms import format_alarm, validate_emails
+from app.domain.constants import (
     AppConstants,
-    BuildConfiguration,
-    CrawlReport,
     EnvVars,
-    Greeter,
     Language,
     LocalPaths,
-    NewsletterBuilder,
-    Post,
-    PostCollector,
     S3Paths,
-    SourceHealth,
     SSMParams,
-    Summarizer,
-    SummarizerSettings,
-    TitleCaser,
+)
+from app.domain.crawl import CrawlReport, SourceHealth
+from app.domain.newsletter import GMAIL_CLIP_BYTES, BuildConfiguration
+from app.domain.post import Post, get_date_range
+from app.domain.summary import MODEL_FAILURE_PREFIXES
+from app.logger import is_running_in_aws, logger
+from app.src.aws_helpers import (
     check_and_download_from_s3,
-    format_alarm,
-    get_date_range,
     get_ssm_param_value,
-    is_running_in_aws,
-    logger,
     read_s3_json,
     send_email,
     suppressed_destinations,
     upload_to_s3,
-    validate_emails,
     write_s3_json,
 )
+from app.src.feed_parser import PostCollector
+from app.src.greeter import Greeter
+from app.src.newsletter_renderer import NewsletterBuilder
+from app.src.summarizer import Summarizer, SummarizerSettings
+from app.src.title_caser import TitleCaser
 
 # SES caps this account at 1 message per second (MaxSendRate, checked
 # 2026-10-10; the account is still in the SES sandbox). 0.5s sent at twice

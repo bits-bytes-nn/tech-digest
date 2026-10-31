@@ -417,12 +417,12 @@ class TestWaitForBatchJob:
     def test_waiter_outlasts_the_longest_possible_job(self):
         """The waiter must not give up before the job it waits on can, or a long
         but healthy run is reported as failed and exits non-zero."""
-        from app.src.aws_helpers import DEFAULT_BATCH_TIMEOUT
-        from app.src.constants import (
+        from app.domain.constants import (
             BATCH_ATTEMPT_TIMEOUT_MINUTES,
             BATCH_ATTEMPTS,
             BATCH_RUNNABLE_LIMIT_MINUTES,
         )
+        from app.src.aws_helpers import DEFAULT_BATCH_TIMEOUT
 
         longest_job_seconds = 60 * (
             BATCH_RUNNABLE_LIMIT_MINUTES

@@ -158,7 +158,7 @@ def test_no_wildcard_actions_and_only_profile_listing_is_account_wide(template):
 
 def test_a_failed_run_is_not_retried_but_an_infrastructure_death_is(template):
     [job_definition] = _resources(template, "AWS::Batch::JobDefinition")
-    from app.src.constants import BATCH_ATTEMPTS
+    from app.domain.constants import BATCH_ATTEMPTS
 
     assert job_definition["Properties"]["RetryStrategy"] == {
         "Attempts": BATCH_ATTEMPTS,
@@ -289,7 +289,7 @@ def test_job_logs_expire_and_jobs_time_out(template):
     groups = _resources(template, "AWS::Logs::LogGroup")
     assert groups and all(g["Properties"].get("RetentionInDays") for g in groups)
     [job_definition] = _resources(template, "AWS::Batch::JobDefinition")
-    from app.src.constants import BATCH_ATTEMPT_TIMEOUT_MINUTES
+    from app.domain.constants import BATCH_ATTEMPT_TIMEOUT_MINUTES
 
     assert job_definition["Properties"]["Timeout"] == {
         "AttemptDurationSeconds": BATCH_ATTEMPT_TIMEOUT_MINUTES * 60

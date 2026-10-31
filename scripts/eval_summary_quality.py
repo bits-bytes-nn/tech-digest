@@ -5,7 +5,7 @@ the write-up any good?" — the part the reader actually receives, and therefore
 the thing prompt tuning has to be steered by.
 
 Every check is deterministic and maps onto a specific instruction in the
-summarization prompt (see ``app/src/quality_metrics``), so a low dimension points
+summarization prompt (see ``app/domain/quality_metrics``), so a low dimension points
 at the sentence of the prompt to change.
 
 Scoring is free and offline. ``--regenerate`` is the one exception: it re-runs the
@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from app.src.quality_metrics import (
+from app.domain.quality_metrics import (
     QualityReport,
     SummaryQuality,
     evaluate_summary,
@@ -150,7 +150,8 @@ def regenerate(date: str, stage: str, profile: str | None, suffix: str) -> str:
 
     os.environ.setdefault("CONFIG_FILE_SUFFIX", stage)
     from app.configs import Config
-    from app.src import Post, Summarizer, SummarizerSettings
+    from app.domain.post import Post
+    from app.src.summarizer import Summarizer, SummarizerSettings
 
     source = INPUTS_DIR / date
     stored = [

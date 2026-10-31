@@ -9,16 +9,19 @@ from typing import ClassVar
 import feedparser
 import pytest
 
-from app.src.feed_parser import (
-    LinkedInBlogScraper,
+from app.domain.content import visible_text
+from app.domain.post import (
     Post,
-    PostCollector,
-    RssFetcher,
-    ScraperRegistry,
     is_date_in_range,
     parse_published_date,
     try_parse_published_date,
-    visible_text,
+)
+from app.src.feed_parser import (
+    LinkedInBlogScraper,
+    PostCollector,
+    RssFetcher,
+    ScraperRegistry,
+    post_from_entry,
 )
 
 
@@ -271,7 +274,7 @@ class TestPostFromEntry:
             published="2026-05-30T10:00:00Z",
             summary="A short summary.",
         )
-        post = Post.from_entry(entry)
+        post = post_from_entry(entry)
         assert post.title == "Hello World"
         assert post.source == "aws"
 
@@ -286,7 +289,7 @@ class TestPostFromEntry:
             published="2026-05-30T10:00:00Z",
             content=[{"value": body}],
         )
-        post = Post.from_entry(entry)
+        post = post_from_entry(entry)
         assert url in post.content
         assert post.images == [url]
 
@@ -298,9 +301,9 @@ class TestPostFromEntry:
 
         feed_body = "<p>" + ("word " * 400) + "</p>"  # ~2000 visible chars
         monkeypatch.setattr(
-            feed_parser.Post,
+            feed_parser,
             "_scrape_full_content",
-            staticmethod(lambda url, **_: "<p>tiny</p>"),
+            lambda url, **_: "<p>tiny</p>",
         )
         entry = feedparser.FeedParserDict(
             title="T",
@@ -308,7 +311,7 @@ class TestPostFromEntry:
             published="2026-05-30T10:00:00Z",
             content=[{"value": feed_body}],
         )
-        post = Post.from_entry(entry)
+        post = post_from_entry(entry)
         assert "word" in post.content
         assert "tiny" not in post.content
 
@@ -317,9 +320,9 @@ class TestPostFromEntry:
 
         rich = "<p>" + ("word " * 800) + "</p>"
         monkeypatch.setattr(
-            feed_parser.Post,
+            feed_parser,
             "_scrape_full_content",
-            staticmethod(lambda url, **_: rich),
+            lambda url, **_: rich,
         )
         entry = feedparser.FeedParserDict(
             title="T",
@@ -327,7 +330,7 @@ class TestPostFromEntry:
             published="2026-05-30T10:00:00Z",
             content=[{"value": "<p>short teaser</p>"}],
         )
-        post = Post.from_entry(entry)
+        post = post_from_entry(entry)
         assert post.content == rich
 
 
@@ -347,11 +350,11 @@ class TestPageUnreadable:
         from app.src import feed_parser
 
         monkeypatch.setattr(
-            feed_parser.Post,
+            feed_parser,
             "_scrape_full_content",
-            staticmethod(lambda url, **_: None),
+            lambda url, **_: None,
         )
-        post = Post.from_entry(self._entry("<p>short teaser</p>"))
+        post = post_from_entry(self._entry("<p>short teaser</p>"))
         assert post.page_unreadable
         assert "page_unreadable" not in post.model_dump()
 
@@ -359,22 +362,22 @@ class TestPageUnreadable:
         from app.src import feed_parser
 
         monkeypatch.setattr(
-            feed_parser.Post,
+            feed_parser,
             "_scrape_full_content",
-            staticmethod(lambda url, **_: "<p>tiny</p>"),
+            lambda url, **_: "<p>tiny</p>",
         )
-        assert not Post.from_entry(self._entry("<p>short teaser</p>")).page_unreadable
+        assert not post_from_entry(self._entry("<p>short teaser</p>")).page_unreadable
 
     def test_a_full_feed_body_needs_no_page(self, monkeypatch):
         from app.src import feed_parser
 
         monkeypatch.setattr(
-            feed_parser.Post,
+            feed_parser,
             "_scrape_full_content",
-            staticmethod(lambda url, **_: pytest.fail("fetched")),
+            lambda url, **_: pytest.fail("fetched"),
         )
         body = "<p>" + ("word " * 800) + "</p>"
-        assert not Post.from_entry(self._entry(body)).page_unreadable
+        assert not post_from_entry(self._entry(body)).page_unreadable
 
 
 class TestRegisteredScrapersResolveToAMappedSource:
@@ -418,9 +421,7 @@ class TestContentContainerSelection:
             }
 
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: _Response())
-        return fp.Post._scrape_full_content(
-            "https://x.example/post", body_fallback=True
-        )
+        return fp._scrape_full_content("https://x.example/post", body_fallback=True)
 
     # An <article> that is a wrapper around a heading, with the prose elsewhere.
     HF_SHAPE = (
@@ -476,7 +477,7 @@ class TestContentContainerSelection:
 
         monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
         assert (
-            fp.Post._scrape_full_content("https://x.example/post", body_fallback=True)
+            fp._scrape_full_content("https://x.example/post", body_fallback=True)
             is None
         )
 
@@ -512,13 +513,13 @@ class TestContentContainerSelection:
         # unreadable: a teaser kept here would otherwise die at the gate silently.
         self._serve(monkeypatch, self.SCIENCE_SHAPE)
         body = "<p>" + ("The short article. " * 30) + "</p>"
-        post = Post.from_entry(self._entry(content=[{"value": body}]))
+        post = post_from_entry(self._entry(content=[{"value": body}]))
         assert post.content == body
         assert post.page_unreadable
 
     def test_a_summary_only_entry_still_takes_the_whole_page(self, monkeypatch):
         self._serve(monkeypatch, self.SCIENCE_SHAPE)
-        post = Post.from_entry(self._entry(summary="A teaser."))
+        post = post_from_entry(self._entry(summary="A teaser."))
         assert "The short article." in visible_text(post.content)
         assert not post.page_unreadable
 
@@ -526,17 +527,14 @@ class TestContentContainerSelection:
         """NVIDIA's content:encoded is a teaser; its <article> holds 94% of the
         page, so the scrape must still replace it."""
         self._serve(monkeypatch, self.NORMAL_SHAPE)
-        post = Post.from_entry(self._entry(content=[{"value": "<p>A teaser.</p>"}]))
+        post = post_from_entry(self._entry(content=[{"value": "<p>A teaser.</p>"}]))
         assert "The real article text." in visible_text(post.content)
 
     def test_without_body_fallback_no_container_yields_empty(self, monkeypatch):
         from app.src import feed_parser as fp
 
         self._serve(monkeypatch, self.SCIENCE_SHAPE)
-        assert (
-            fp.Post._scrape_full_content("https://x.example/p", body_fallback=False)
-            == ""
-        )
+        assert fp._scrape_full_content("https://x.example/p", body_fallback=False) == ""
 
 
 class TestFeedTitles:
@@ -548,7 +546,7 @@ class TestFeedTitles:
             published="2026-10-01T00:00:00Z",
             summary="body " * 400,
         )
-        assert Post.from_entry(entry).title == "Why don\u2019t models generalize?"
+        assert post_from_entry(entry).title == "Why don\u2019t models generalize?"
 
 
 class TestPageCharset:

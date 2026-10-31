@@ -4,22 +4,19 @@ import functools
 import math
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import tenacity
 from botocore.exceptions import ClientError, HTTPClientError
 from botocore.exceptions import ConnectionError as BotoConnectionError
 from bs4 import BeautifulSoup
-from email_validator import EmailNotValidError
-from email_validator import validate_email as _validate_email
 from langchain_core.exceptions import OutputParserException
 from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-from .logger import logger
+from app.logger import logger
 
 # Retry policy for a single Bedrock call, shared by the batch processor's
 # sequential fallback and by ``retry_with_backoff``.
@@ -343,105 +340,6 @@ class HTMLTagOutputParser(BaseOutputParser):
     @property
     def _type(self) -> str:
         return "html_tag_output_parser"
-
-
-def validate_email(email: str) -> bool:
-    """Whether ``email`` is a syntactically valid address.
-
-    Delegates to ``email_validator``, which the project already depends on (it is
-    what backs pydantic's ``EmailStr``, used for ``newsletter.sender``). This was
-    a hand-written regex, which is both a second definition of "valid address"
-    and a weaker one — it rejects tagged locals with unusual characters and any
-    internationalized domain, and a recipient it drops is a reader who silently
-    stops receiving the digest.
-
-    Deliverability is NOT checked: that would issue an MX lookup per recipient
-    from inside the run.
-    """
-    try:
-        _validate_email(email.strip(), check_deliverability=False)
-    except EmailNotValidError:
-        return False
-    return True
-
-
-def validate_emails(emails: list[str]) -> list[str]:
-    # The address is returned as written (stripped), not in the validator's
-    # normalized form: SES sends to what the recipients file says, and silently
-    # rewriting an address is not this function's job.
-    valid_emails = [email.strip() for email in emails if validate_email(email)]
-    if len(valid_emails) < len(emails):
-        logger.warning(
-            "Filtered out %d invalid email addresses", len(emails) - len(valid_emails)
-        )
-    return valid_emails
-
-
-def format_alarm(
-    *,
-    event: str,
-    status: str,
-    fields: dict[str, str],
-    project: str,
-    timestamp: datetime | None = None,
-) -> tuple[str, str]:
-    """Build a ``(subject, message)`` pair in the project family's unified alarm
-    format, shared verbatim across omnisummary/paper-bridge/scholar-lens:
-
-        Subject: [<project>] <event> — <STATUS>
-
-        <event> <STATUS>
-
-        Key:   Value
-
-        — 2026-06-10 04:12:00 UTC
-
-    ``status`` is a short uppercase state (``FAILED``/``ALERT``). ``fields`` is an
-    ordered mapping; single-line values render as an aligned ``Key: Value`` block,
-    multi-line values render under their own ``Key:`` header. Omit a row by leaving
-    it out of the dict.
-
-    ``project`` is required so the subject names the deployment
-    (``resources.project_name``), not a hardcoded default.
-    """
-    ts = (timestamp or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M:%S")
-    subject = f"[{project}] {event} — {status}"
-
-    inline = {k: v for k, v in fields.items() if "\n" not in v}
-    block = {k: v for k, v in fields.items() if "\n" in v}
-
-    lines = [f"{event} {status}", ""]
-    if inline:
-        width = max(len(k) for k in inline)
-        lines += [f"{k + ':':<{width + 1}} {v}" for k, v in inline.items()]
-    for k, v in block.items():
-        lines += ["", f"{k}:", v.strip("\n")]
-    lines.append("")
-    lines.append(f"— {ts} UTC")
-
-    return subject, "\n".join(lines)
-
-
-def get_date_range(
-    end_date_str: str | None, days_back: int
-) -> tuple[datetime, datetime]:
-    """The half-open window ``[start, end)`` an issue dated ``end`` covers.
-
-    ``end`` is midnight UTC at the START of the issue date (today when no date is
-    given), and the issue covers the ``days_back`` full days before it. Gates
-    compare with ``start <= t < end`` (see ``is_date_in_range``), so the windows
-    of consecutive weekly runs abut exactly, whatever hour the job runs at.
-
-    Ending the window at the run hour or at 23:59 instead would leave posts
-    published on a run day after the job ran in no issue at all.
-    """
-    if end_date_str:
-        day = datetime.strptime(end_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
-    else:
-        day = datetime.now(UTC)
-    end_date = day.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_date = end_date - timedelta(days=days_back)
-    return start_date, end_date
 
 
 def measure_execution_time(func: Callable) -> Callable:

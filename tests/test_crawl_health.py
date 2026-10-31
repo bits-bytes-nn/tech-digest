@@ -11,14 +11,9 @@ import pytest
 from bs4 import BeautifulSoup
 
 import app.src.feed_parser as fp
-from app.src.feed_parser import (
-    CrawlReport,
-    Post,
-    PostCollector,
-    SourceFetchError,
-    SourceHealth,
-    SourceStatus,
-)
+from app.domain.crawl import CrawlReport, SourceHealth, SourceStatus
+from app.domain.post import Post
+from app.src.feed_parser import PostCollector, SourceFetchError
 
 
 def _post(link: str) -> Post:
@@ -450,7 +445,7 @@ class TestTruncatedFeeds:
         import json
 
         from app import main
-        from app.src.constants import Language
+        from app.domain.constants import Language
 
         report = CrawlReport(
             sources=[

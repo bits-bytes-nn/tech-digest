@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.src.quality_metrics import (
+from app.domain.quality_metrics import (
     KO_LENGTH_BAND,
     QualityReport,
     cliche_hits,
@@ -302,8 +302,8 @@ class TestToneRulesAreInThePrompt:
 
     @staticmethod
     def _template() -> str:
-        from app.src.constants import Language
-        from app.src.prompts import SummarizationPrompt
+        from app.domain.constants import Language
+        from app.src.prompts.prompts import SummarizationPrompt
 
         return SummarizationPrompt._human_prompt_template[Language.KO]
 
@@ -326,8 +326,8 @@ class TestToneRulesAreInThePrompt:
         assert phrase in self._template()
 
     def test_english_template_bans_its_own_filler(self):
-        from app.src.constants import Language
-        from app.src.prompts import SummarizationPrompt
+        from app.domain.constants import Language
+        from app.src.prompts.prompts import SummarizationPrompt
 
         template = SummarizationPrompt._human_prompt_template[Language.EN]
         for phrase in ("groundbreaking", "not just X, it's Y", "let's dive in"):
@@ -364,17 +364,17 @@ class TestRubricMatchesThePrompt:
     """The rubric's targets and the prompt's stated numbers must not drift."""
 
     def test_length_band_matches_the_korean_prompt(self):
-        from app.src.constants import Language
-        from app.src.prompts import SummarizationPrompt
+        from app.domain.constants import Language
+        from app.src.prompts.prompts import SummarizationPrompt
 
         template = SummarizationPrompt._human_prompt_template[Language.KO]
         low, high = KO_LENGTH_BAND
         assert f"{low:,}~{high:,}자" in template
 
     def test_lede_band_matches_the_korean_prompt(self):
-        from app.src.constants import Language
-        from app.src.prompts import SummarizationPrompt
-        from app.src.quality_metrics import KO_LEDE_BAND
+        from app.domain.constants import Language
+        from app.domain.quality_metrics import KO_LEDE_BAND
+        from app.src.prompts.prompts import SummarizationPrompt
 
         template = SummarizationPrompt._human_prompt_template[Language.KO]
         low, high = KO_LEDE_BAND
@@ -382,8 +382,8 @@ class TestRubricMatchesThePrompt:
 
     @pytest.mark.parametrize("phrase", ["측정값", "표", "코드"])
     def test_specificity_rules_are_actually_in_the_prompt(self, phrase):
-        from app.src.constants import Language
-        from app.src.prompts import SummarizationPrompt
+        from app.domain.constants import Language
+        from app.src.prompts.prompts import SummarizationPrompt
 
         assert phrase in SummarizationPrompt._human_prompt_template[Language.KO]
 
@@ -406,12 +406,12 @@ class TestSpecificitySaturationIsReachable:
     def test_todays_output_density_can_reach_full_marks(self):
         """The tuned prompt produces 5.1-5.8 per 1,000 chars, so the target has to
         sit within reach of that, not at twice it."""
-        from app.src.quality_metrics import SPECIFICITY_SATURATION
+        from app.domain.quality_metrics import SPECIFICITY_SATURATION
 
         assert SPECIFICITY_SATURATION <= 6.0
 
     def test_at_the_saturation_point_the_density_term_is_full(self):
-        from app.src.quality_metrics import SPECIFICITY_SATURATION
+        from app.domain.quality_metrics import SPECIFICITY_SATURATION
 
         # Two sections of the same body, so the visible length is ~2x the body.
         per_section = 1000
@@ -439,7 +439,7 @@ class TestMeasuredQuantitiesRequireARealUnit:
         "text", ["2 pods를 배치했습니다", "3 papers를 인용합니다", "5 people"]
     )
     def test_a_number_before_an_ordinary_p_word_is_not_a_measurement(self, text):
-        from app.src.quality_metrics import quantities
+        from app.domain.quality_metrics import quantities
 
         assert quantities(text) == set()
 
@@ -457,7 +457,7 @@ class TestMeasuredQuantitiesRequireARealUnit:
         ],
     )
     def test_real_units_still_count(self, text, expected):
-        from app.src.quality_metrics import quantities
+        from app.domain.quality_metrics import quantities
 
         assert quantities(text) == expected
 
@@ -484,7 +484,7 @@ class TestTerminalColonAgreesWithTheCorrector:
     """
 
     def test_list_introducing_colon_is_not_a_defect(self):
-        from app.src.summarizer import _postprocess_summary
+        from app.domain.summary import _postprocess_summary
 
         html = (
             "<h3>📌 왜</h3><p>구성 요소는 다음과 같습니다:</p><ul><li>A</li></ul>"
@@ -512,7 +512,7 @@ class TestIsKorean:
     """
 
     def test_korean_summary_with_english_identifiers(self):
-        from app.src.quality_metrics import is_korean
+        from app.domain.quality_metrics import is_korean
 
         assert is_korean(
             "PD_BUFFER_SIZE를 8로 두면 prefill 지연이 22% 줄어듭니다. "
@@ -520,7 +520,7 @@ class TestIsKorean:
         )
 
     def test_english_summary_is_rejected(self):
-        from app.src.quality_metrics import is_korean
+        from app.domain.quality_metrics import is_korean
 
         assert not is_korean(
             "Splitting prefill and decode onto separate GPU pools over RDMA cuts "
@@ -528,7 +528,7 @@ class TestIsKorean:
         )
 
     def test_empty_is_not_korean(self):
-        from app.src.quality_metrics import is_korean
+        from app.domain.quality_metrics import is_korean
 
         assert not is_korean("   ")
 
@@ -577,7 +577,7 @@ class TestRepeatsAndCallouts:
         assert evaluate_summary("a", html).repeated_quantities == ()
 
     def test_specificity_is_reported_but_not_averaged(self):
-        from app.src.quality_metrics import SummaryQuality
+        from app.domain.quality_metrics import SummaryQuality
 
         assert "specificity" in SummaryQuality.DIMENSIONS
         assert "specificity" not in SummaryQuality.TUNED
