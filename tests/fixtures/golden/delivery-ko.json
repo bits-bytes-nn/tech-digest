@@ -1,0 +1,42 @@
+{
+  "ledgers": {
+    "tech-digest/deliveries/delivered-dev-2026-10-31-ko.json": {
+      "delivered": [
+        "reader.one@example.com",
+        "reader.two@example.com"
+      ],
+      "stage": "dev"
+    }
+  },
+  "messages": [
+    {
+      "destinations": [
+        "reader.one@example.com"
+      ],
+      "headers": {
+        "From": "ci@example.com",
+        "List-Unsubscribe": "<mailto:ci@example.com?subject=unsubscribe>",
+        "Subject": "[2026-10-31] Weekly AI Tech Blog Digest",
+        "To": "reader.one@example.com"
+      },
+      "source": "ci@example.com"
+    },
+    {
+      "destinations": [
+        "reader.two@example.com"
+      ],
+      "headers": {
+        "From": "ci@example.com",
+        "List-Unsubscribe": "<mailto:ci@example.com?subject=unsubscribe>",
+        "Subject": "[2026-10-31] Weekly AI Tech Blog Digest",
+        "To": "reader.two@example.com"
+      },
+      "source": "ci@example.com"
+    }
+  ],
+  "s3_keys": [
+    "tech-digest/deliveries/delivered-dev-2026-10-31-ko.json",
+    "tech-digest/newsletters/newsletter-dev-2026-10-31-ko.html",
+    "tech-digest/recipients/recipients-dev.txt"
+  ]
+}
