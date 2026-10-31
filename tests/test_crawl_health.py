@@ -319,7 +319,7 @@ class TestPagesUnreadable:
 
     def _ok(self, posts: int, unreadable: int) -> SourceHealth:
         return SourceHealth(
-            url="https://openai.com/news/rss.xml",
+            url="https://aws.amazon.com/blogs/machine-learning/feed/",
             fetcher="RssFetcher",
             status=SourceStatus.OK,
             post_count=posts,
@@ -344,7 +344,12 @@ class TestPagesUnreadable:
         duplicate = _post("https://aws.amazon.com/blogs/machine-learning/a")
         duplicate.page_unreadable = True
         collector = PostCollector(
-            [_OkFetcher("https://aws.amazon.com/blogs/machine-learning/feed/", [blocked, duplicate])]
+            [
+                _OkFetcher(
+                    "https://aws.amazon.com/blogs/machine-learning/feed/",
+                    [blocked, duplicate],
+                )
+            ]
         )
         now = datetime.now(UTC)
         collector.collect_posts(now, now)
@@ -466,5 +471,7 @@ class TestTruncatedFeeds:
         )
         with caplog.at_level("INFO"):
             main._log_run_summary(report, [], [], Language.EN)
-        line = next(r.getMessage() for r in caplog.records if "RUN_SUMMARY" in r.getMessage())
+        line = next(
+            r.getMessage() for r in caplog.records if "RUN_SUMMARY" in r.getMessage()
+        )
         assert json.loads(line.removeprefix("RUN_SUMMARY "))["sources_truncated"] == 1

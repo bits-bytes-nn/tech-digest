@@ -15,6 +15,9 @@ from feedparser.exceptions import CharacterEncodingOverride
 from app.src import feed_parser
 from app.src.feed_parser import RssFetcher, SourceFetchError, entry_date_text
 
+FEED_URL = "https://aws.amazon.com/blogs/machine-learning/feed/"
+POST_URL = "https://aws.amazon.com/blogs/machine-learning/"
+
 
 @pytest.fixture
 def window() -> tuple[datetime, datetime]:
@@ -38,7 +41,7 @@ class _FakeFeed:
 def _entry(published: str) -> feedparser.FeedParserDict:
     return feedparser.FeedParserDict(
         title="A Post",
-        link="https://openai.com/news/x",
+        link=POST_URL + "x",
         published=published,
         summary="body",
     )
@@ -69,7 +72,7 @@ class TestRssFetcherBozo:
     def test_non_encoding_bozo_with_no_entries_raises(self, monkeypatch, window):
         feed = _FakeFeed(entries=[], bozo=True, bozo_exception=ValueError("bad XML"))
         monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
-        fetcher = RssFetcher("https://openai.com/news/rss.xml")
+        fetcher = RssFetcher(FEED_URL)
         with pytest.raises(SourceFetchError):
             fetcher.fetch(*window)
 
@@ -80,21 +83,21 @@ class TestRssFetcherBozo:
             bozo_exception=CharacterEncodingOverride("encoding mismatch"),
         )
         monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
-        fetcher = RssFetcher("https://openai.com/news/rss.xml")
+        fetcher = RssFetcher(FEED_URL)
         posts = fetcher.fetch(*window)
         assert len(posts) == 1
 
     def test_unparseable_date_entry_dropped(self, monkeypatch, window):
         feed = _FakeFeed(entries=[_entry("not a date")], bozo=False)
         monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
-        fetcher = RssFetcher("https://openai.com/news/rss.xml")
+        fetcher = RssFetcher(FEED_URL)
         # Fail-closed: undated entry excluded rather than dated to "now".
         assert fetcher.fetch(*window) == []
 
     def test_out_of_window_entry_excluded(self, monkeypatch, window):
         feed = _FakeFeed(entries=[_entry("2020-01-01T10:00:00Z")], bozo=False)
         monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
-        fetcher = RssFetcher("https://openai.com/news/rss.xml")
+        fetcher = RssFetcher(FEED_URL)
         assert fetcher.fetch(*window) == []
 
 
@@ -156,7 +159,7 @@ class TestFeedDownload:
     def test_an_unreachable_feed_is_a_source_failure(self, monkeypatch, window):
         monkeypatch.setattr(feed_parser, "_try_request", lambda *a, **k: None)
         with pytest.raises(SourceFetchError):
-            RssFetcher("https://openai.com/news/rss.xml").fetch(*window)
+            RssFetcher(FEED_URL).fetch(*window)
 
     def test_bytes_and_headers_reach_feedparser(self, monkeypatch, window):
         from types import SimpleNamespace
@@ -168,7 +171,7 @@ class TestFeedDownload:
             lambda session, url, headers: SimpleNamespace(
                 content=b"<rss/>",
                 headers={"Content-Type": "application/rss+xml; charset=utf-8"},
-                url="https://openai.com/news/rss.xml",
+                url=FEED_URL,
             ),
         )
 
@@ -178,10 +181,10 @@ class TestFeedDownload:
             return _FakeFeed(entries=[], bozo=False)
 
         monkeypatch.setattr(feed_parser.feedparser, "parse", parse)
-        RssFetcher("https://openai.com/news/rss.xml").fetch(*window)
+        RssFetcher(FEED_URL).fetch(*window)
         assert seen["content"] == b"<rss/>"
         assert seen["headers"]["content-type"].startswith("application/rss+xml")
-        assert seen["headers"]["content-location"] == "https://openai.com/news/rss.xml"
+        assert seen["headers"]["content-location"] == FEED_URL
 
 
 class TestUnreadableEntries:
@@ -200,10 +203,10 @@ class TestUnreadableEntries:
         )
 
     def test_one_bad_entry_costs_only_that_entry(self, monkeypatch, window):
-        feed = self._feed(["http://[bad/x", "https://openai.com/news/ok"])
+        feed = self._feed(["http://[bad/x", POST_URL + "ok"])
         monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
-        posts = RssFetcher("https://openai.com/news/rss.xml").fetch(*window)
-        assert [p.link for p in posts] == ["https://openai.com/news/ok"]
+        posts = RssFetcher(FEED_URL).fetch(*window)
+        assert [p.link for p in posts] == [POST_URL + "ok"]
 
     def test_every_in_window_entry_failing_is_a_source_failure(
         self, monkeypatch, window
@@ -211,4 +214,4 @@ class TestUnreadableEntries:
         feed = self._feed(["http://[bad/x", "http://[bad/y"])
         monkeypatch.setattr(feed_parser.feedparser, "parse", lambda *a, **k: feed)
         with pytest.raises(SourceFetchError):
-            RssFetcher("https://openai.com/news/rss.xml").fetch(*window)
+            RssFetcher(FEED_URL).fetch(*window)

@@ -17,7 +17,7 @@ resources:
 
 scraping:
   rss_urls:
-    - "https://openai.com/news/rss.xml"
+    - "https://aws.amazon.com/blogs/machine-learning/feed/"
   days_back: 7
   min_content_length: 600
 

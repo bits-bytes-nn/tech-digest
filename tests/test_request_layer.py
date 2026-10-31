@@ -180,6 +180,30 @@ class TestSSRFGuard:
         assert _make_robust_request("http://evil.example.com/") is None
         assert session.calls == 0
 
+    def test_a_fetch_resolves_the_host_once(self, monkeypatch):
+        """The per-hop check covers the first hop, so no second check runs."""
+        lookups: list[str] = []
+
+        def fake_getaddrinfo(host, *a, **k):
+            lookups.append(host)
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+        monkeypatch.setattr(feed_parser.socket, "getaddrinfo", fake_getaddrinfo)
+        _patch_session(monkeypatch, _FakeSession([_FakeResponse(200)]))
+        assert _make_robust_request("https://example.com/post") is not None
+        assert lookups == ["example.com"]
+
+    @pytest.mark.parametrize(
+        "url", ["http://169.254.169.254/x.png", "http://2130706433/x.png"]
+    )
+    def test_an_image_on_a_blocked_host_is_never_requested(self, monkeypatch, url):
+        from app.src.feed_parser import is_email_renderable_image
+
+        session = _FakeSession([_FakeResponse(200)])
+        _patch_session(monkeypatch, session)
+        assert not is_email_renderable_image(url)
+        assert session.calls == 0
+
     def test_allows_hostname_resolving_to_public_ip(self, monkeypatch):
         def fake_getaddrinfo(host, *a, **k):
             return [(2, 1, 6, "", ("93.184.216.34", 0))]  # example.com public IP
@@ -228,7 +252,6 @@ class TestEmailRenderableImage:
                     raise raises
                 return _Resp()
 
-            monkeypatch.setattr(feed_parser, "_is_blocked_host", lambda host: False)
             monkeypatch.setattr(feed_parser, "_get_following_redirects", fake)
             return calls
 

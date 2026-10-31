@@ -78,12 +78,12 @@ def _is_blocked_host(host: str) -> bool:
       2. DNS resolution: a *hostname* is resolved and every returned A/AAAA
          address is checked, so a name that resolves to an internal address
          (e.g. attacker-controlled DNS pointing at 169.254.169.254) is blocked
-         too. This is validated again on every redirect hop in ``_try_request``.
+         too. ``_get_following_redirects`` runs this on every hop.
 
     This is not a full DNS-rebinding defense (the address that ``requests``
     ultimately connects to could differ from the one resolved here), but it
-    closes the practical gap — a source that links or redirects to an internal
-    hostname — well beyond the previous IP-literal-only guard.
+    closes the practical gap: a source that links or redirects to an internal
+    hostname.
     """
     if not host:
         return True
@@ -124,14 +124,13 @@ def _host_resolves_to_blocked(host: str) -> bool:
 
 
 # A value of ``ScraperConfig.SOURCE_MAPPING``, or "unknown". The map is the only
-# thing that produces a source, so it is the list; a Literal restating it was a
-# second copy that needed a test to keep the two in step.
+# thing that produces a source, so it is the list.
 SourceType: TypeAlias = str
 
 
 class ScraperConfig:
     # Measured across every configured host: only these two ever held the
-    # article; anything else falls back to <body> via the share rule below.
+    # article. Otherwise <body> is used, unless the feed carries its own body.
     CONTENT_SELECTORS: ClassVar[list[str]] = ["article", "main"]
     # Share of a page's visible text a CONTENT_SELECTORS match must hold before it
     # is preferred over the whole <body>. See ``Post._scrape_full_content``.
@@ -181,19 +180,15 @@ class ScraperConfig:
         "netflixtechblog.com": "netflix",
         "netflix-techblog": "netflix",  # Medium publication slug
         "developer.nvidia.com": "nvidia",
-        "openai.com": "openai",
         "blog.palantir.com": "palantir",
         "palantir": "palantir",  # Medium @-handle
         "palantir.medium.com": "palantir",  # the same feed links here too
         "pinterest-engineering": "pinterest",
         "pinterest_engineering": "pinterest",  # Medium @-handle
         "qwenlm.github.io": "qwen",
-        # Independent authors. These three are configured feeds, but were absent
-        # from this map, so all of them resolved to "unknown". That cost more than
-        # a generic logo: `max_per_source` counts by source, so three different
-        # authors were capped as if they were one publication, and any newly added
-        # unmapped feed would join the same bucket. Underscores become spaces in
-        # ``Article.source_label``, so these render as proper names.
+        # Independent authors. Each needs its own entry: ``max_per_source``
+        # counts by source, so unmapped feeds share one "unknown" cap.
+        # Underscores become spaces in ``Article.source_label``.
         "eugeneyan.com": "eugene_yan",
         "sebastianraschka.com": "sebastian_raschka",
         "magazine.sebastianraschka.com": "sebastian_raschka",
@@ -302,12 +297,14 @@ def _get_following_redirects(
     stream: bool = False,
 ) -> requests.Response | None:
     """GET ``url``, following up to ``MAX_REDIRECTS`` redirects manually and
-    SSRF-validating every hop's host before connecting. Returns the final
-    response, or None if any hop targets a blocked host or the chain is too
-    long. Raises RequestException (via session.get) so the caller's retry
-    logic still applies to transient errors.
+    SSRF-validating every hop's host, the first included, before connecting.
+    Returns the final response, or None if any hop targets a blocked host or the
+    chain is too long. Raises RequestException (via session.get) so the caller's
+    retry logic still applies to transient errors.
 
-    ``headers`` is passed per request rather than written onto the session.
+    This is the only SSRF check on the request path, so callers need none of
+    their own. ``headers`` is passed per request rather than written onto the
+    session.
     """
     current = url
     for _ in range(MAX_REDIRECTS + 1):
@@ -343,12 +340,8 @@ def _try_request(
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
-            # Follow redirects MANUALLY so every hop's host is SSRF-validated
-            # before we connect to it — allow_redirects=True would connect to an
-            # internal redirect target before we ever saw its URL. Each Location
-            # is re-checked with _is_blocked_host (which now also resolves
-            # hostnames), closing the "source redirects to the metadata endpoint"
-            # gap for intermediate hops, not just the final landing URL.
+            # Redirects are followed manually: allow_redirects=True would connect
+            # to an internal redirect target before its host could be checked.
             response = _get_following_redirects(session, url, headers)
             if response is None:
                 return None
@@ -359,9 +352,8 @@ def _try_request(
             status = getattr(resp, "status_code", None)
             transient = status in (429, 500, 502, 503, 504) or status is None
             if transient and attempt < max_attempts - 1:
-                # Exponential backoff with jitter; honor Retry-After (429) when
-                # present. An immediate re-fire against a rate limiter just earns
-                # another 429, so a real delay is required to be useful.
+                # Exponential backoff, or Retry-After (429) when present: an
+                # immediate re-fire against a rate limiter just earns another 429.
                 delay = _retry_delay(resp, attempt)
                 logger.debug(
                     "Transient error for '%s' (%s); retry %d after %.1fs",
@@ -379,25 +371,23 @@ def _try_request(
 
 def _retry_delay(response: requests.Response | None, attempt: int) -> float:
     """Backoff seconds: honor a numeric Retry-After header, else exponential
-    (1s, 2s, ...) with a small deterministic jitter derived from the attempt."""
+    (1s, 2s, ...) plus a fixed 0.1s step per attempt. Not jitter: there is no
+    randomness, and one weekly job has no herd of clients to spread out."""
     if response is not None:
         retry_after = response.headers.get("Retry-After")
         if retry_after and retry_after.isdigit():
             return min(float(retry_after), 30.0)
     base = float(2**attempt)
-    jitter = 0.1 * (attempt + 1)
-    return min(base + jitter, 30.0)
+    step = 0.1 * (attempt + 1)
+    return min(base + step, 30.0)
 
 
 def _make_robust_request(url: str) -> requests.Response | None:
     """GET an article or index page with browser headers, or None if it fails.
 
-    SSRF-checked up front and at every redirect hop; transient errors retried
+    SSRF-checked at every hop, the first included; transient errors retried
     (see ``_try_request``).
     """
-    if _is_blocked_host(urlparse(url).hostname or ""):
-        logger.warning("Refusing request to blocked host: '%s'", url)
-        return None
     if response := _try_request(requests.Session(), url, ScraperConfig.REQUEST_HEADERS):
         return response
     logger.error("Request failed for '%s'", url)
@@ -424,7 +414,7 @@ def is_email_renderable_image(url: str) -> bool:
     it can. Only the headers are read. SSRF-checked at every redirect hop like
     every other fetch.
     """
-    if not is_safe_url(url) or _is_blocked_host(urlparse(url).hostname or ""):
+    if not is_safe_url(url):
         return False
     headers = ScraperConfig.REQUEST_HEADERS | {
         "Accept": "image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1"
@@ -499,13 +489,9 @@ class Post(BaseModel):
             published_date=parse_published_date(entry_date_text(entry)),
             source=cls._determine_source(link_str),
             content=content,
-            # ``summary`` is deliberately NOT seeded from the feed's teaser.
-            # It is the slot the LLM summary lands in, and downstream code uses
-            # "summary is non-empty" as the signal that summarization SUCCEEDED
-            # (Summarizer.process_posts, Article.summary min_length=1). Seeding
-            # it with the RSS teaser made that signal always true, so a post
-            # whose summarization failed shipped its raw feed teaser as the
-            # article body while ALSO being reported as filtered-out.
+            # ``summary`` is not seeded from the feed's teaser: it is the slot
+            # the LLM summary lands in, and a teaser there could ship as the
+            # article body of a post whose summarization failed.
             images=cls._extract_images(content, link_str),
             page_unreadable=page_unreadable,
         )
@@ -706,17 +692,10 @@ def entry_date_text(entry: feedparser.FeedParserDict) -> str:
 
     Reads ``published`` first and falls back to ``updated``. Atom makes
     ``<published>`` OPTIONAL while ``<updated>`` is REQUIRED, and feedparser maps
-    the two to distinct attributes — so a perfectly valid Atom feed that carries
-    only ``<updated>`` has no ``entry.published`` at all. Reading only
-    ``published`` meant every entry of such a feed failed the fail-closed date gate
-    and was dropped, permanently and silently: the source still reported
-    candidates, so it read as a merely quiet blog rather than a broken one (§7's
-    discriminator cannot see this case either).
-
-    None of the configured feeds is shaped that way today — all 19 were checked,
-    and every entry of every one supplies a parseable ``published`` — so this
-    closes a trap on the "add new sources here" path rather than recovering posts
-    already lost.
+    the two to distinct attributes, so a valid Atom feed that carries only
+    ``<updated>`` has no ``entry.published`` at all. Without the fallback every
+    entry of such a feed would fail the fail-closed date gate, silently: the
+    source would still report candidates and read as a quiet blog.
 
     ``published`` wins when both exist. ``updated`` is a MODIFICATION time, so
     preferring it would let an old post edited this week re-enter the weekly
@@ -853,11 +832,9 @@ class RssFetcher:
         """Download the feed through the request layer, then parse the bytes.
 
         ``feedparser.parse(url)`` fetches with urllib and sets no socket timeout,
-        so a feed host that accepted the connection and then stalled held the job
-        until the 3-hour Batch timeout — and Batch then retried it twice. The
-        request layer adds the timeout, the transient-error retry and the per-hop
-        SSRF check every other fetch already had. The headers are the ones
-        feedparser sent itself, so feed hosts see the same client as before.
+        so a feed host that stalls would hold the job until the Batch timeout.
+        The request layer adds the timeout, the transient-error retry and the
+        per-hop SSRF check. The headers are the ones feedparser sends itself.
         """
         response = _try_request(requests.Session(), self.rss_url, self.FEED_HEADERS)
         if response is None:
@@ -969,11 +946,8 @@ class LinkedInBlogScraper(GenericPageScraper):
 
         return feedparser.FeedParserDict(
             title=title_link_elem.text.strip(),
-            # Resolve relative hrefs against the page URL, matching every other
-            # scraper. A bare "/blog/engineering/x" would otherwise become the
-            # Post link verbatim, resolving source to "unknown" and making the
-            # full-content scrape refuse an empty host. urljoin is a no-op on
-            # already-absolute URLs.
+            # A relative href would resolve the source to "unknown" and leave the
+            # full-content scrape an empty host.
             link=urljoin(self.page_url, str(href)),
             published=date_elem.text.strip(),
         )
@@ -1060,10 +1034,9 @@ class CrawlReport:
         any date. Distinct from a blog that was simply quiet, which offers its back
         catalogue and has the window filter it out.
 
-        Deliberately NOT a fourth ``SourceStatus``. "Fetched fine, produced no
-        posts in range" is an accurate status and stays one; what is new is the
-        evidence that separates the two reasons for it, so the inference lives here
-        instead of being baked into a state every caller has to handle.
+        Deliberately NOT a fourth ``SourceStatus``: "fetched fine, produced no
+        posts in range" is accurate for both, so the inference lives here instead
+        of in a state every caller has to handle.
 
         ``candidates is None`` (a fetcher that reports no count) is excluded —
         unknown is not zero, and guessing here would page on the unknown case.
@@ -1075,9 +1048,8 @@ class CrawlReport:
         """OK sources whose every contributed post lacked a readable article page.
 
         The feed fetched, so the source reads as healthy, yet each post carries
-        only its teaser and dies at the content gate. OpenAI's feed was in that
-        state for every run on record: the article pages answer with a
-        Cloudflare challenge. Some unreadable pages among readable ones are
+        only its teaser and dies at the content gate (e.g. article pages behind a
+        Cloudflare challenge). Some unreadable pages among readable ones are
         transient errors and are not reported.
         """
         return [
@@ -1151,8 +1123,8 @@ def normalize_title_key(title: str) -> str:
 
     Several configured feeds carry the SAME announcement under different URLs
     (deepmind.google and research.google both map to source ``google``; an AWS
-    post is also syndicated to Medium). Link-only dedup let those through as two
-    identical cards in one digest.
+    post is also syndicated to Medium), which link-only dedup would show as two
+    identical cards.
 
     This is deliberately an EXACT match after normalization — case, whitespace
     and punctuation are folded, nothing else. No fuzzy/similarity scoring, so it
@@ -1217,13 +1189,8 @@ class PostCollector:
                         # reports nothing yields None, which the report reads as
                         # "unknown" rather than "zero".
                         candidates=getattr(fetcher, "candidates", None),
-                        # Posts this source CONTRIBUTED, not posts it returned.
-                        # Reporting the fetch count let a source whose every post
-                        # was a syndicated duplicate of an earlier one appear as
-                        # "3 posts" while adding nothing to the digest, so the
-                        # health line overstated how much material the crawl
-                        # actually had. ``duplicates`` keeps the difference
-                        # visible instead of hiding it.
+                        # Posts this source CONTRIBUTED, not posts it returned,
+                        # so syndicated duplicates do not inflate the health line.
                         post_count=contributed,
                         duplicates=len(fetched) - contributed,
                         unreadable_pages=unreadable,
@@ -1234,7 +1201,9 @@ class PostCollector:
                 if not fetched:
                     logger.warning("Source produced no posts in range: '%s'", url)
                 elif not contributed:
-                    logger.warning(
+                    # INFO: overlapping feeds (the AWS category feeds) are
+                    # configured on purpose.
+                    logger.info(
                         "Source '%s' returned %d post(s), all already collected "
                         "from an earlier source.",
                         url,
@@ -1252,10 +1221,8 @@ class PostCollector:
                 )
         logger.info("Crawl health: %s", self.report.summary_line())
         if self.report.likely_broken:
-            # Named here, not only in the SNS alert. The alert carries the URLs but
-            # is suppressed for expected-flaky sources and depends on a live SNS
-            # subscription, so without this the run log knew the COUNT and not which
-            # sources — which is exactly the question the first real run raised.
+            # Named here, not only in the SNS alert, which is suppressed for
+            # expected-flaky sources and depends on a live subscription.
             logger.warning(
                 "%d source(s) offered nothing for the date window to filter — a "
                 "moved feed or a stale selector rather than a quiet blog: %s",
