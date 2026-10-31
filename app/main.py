@@ -382,6 +382,10 @@ def _log_run_summary(
         "sources_likely_broken": len(crawl_report.likely_broken),
         "sources_failed": len(crawl_report.failed),
         "sources_pages_unreadable": len(crawl_report.pages_unreadable),
+        # Feeds whose oldest entry is inside the window: posts may have scrolled
+        # off. Logged and charted only; the AWS ML main feed is in this state
+        # every week by design, which the category feeds make up for.
+        "sources_truncated": len(crawl_report.truncated),
         "posts_collected": crawl_report.total_posts,
         "posts_filtered_out": len(filtered_out_posts),
         "posts_in_digest": len(posts),
