@@ -114,9 +114,7 @@ class TestCollapseHtmlWhitespace:
     def test_shrinks_real_template_output(self, templates_dir, sample_article_data):
         renderer = NewsletterRenderer(templates_dir)
         data = NewsletterData(
-            header=Header(
-                title="T", description="d", thumbnail="p.png", publish_date="2026-06-01"
-            ),
+            header=Header(title="T", description="d", thumbnail="p.png"),
             section=Section(introduction="hi"),
             articles=[Article.model_validate(sample_article_data)],
             footer=Footer(title="f"),
@@ -148,7 +146,6 @@ class TestNewsletterRendering:
                 title="Weekly AI Tech Blog Digest",
                 description="desc",
                 thumbnail="peccy.png",
-                publish_date="2026-06-01",
             ),
             section=Section(introduction="Hello friends!"),
             articles=[Article.model_validate(article_data)],
@@ -226,11 +223,11 @@ class TestNewsletterRendering:
     def test_single_article_has_descriptive_alt(
         self, templates_dir, sample_article_data
     ):
-        sample_article_data["source"] = "openai"
+        sample_article_data["source"] = "huggingface"
         renderer = NewsletterRenderer(templates_dir)
         html = renderer.render_article(Article.model_validate(sample_article_data))
         # Standalone-article thumbnail uses the source label, not a generic alt.
-        assert 'alt="Openai logo"' in html
+        assert 'alt="Hugging Face 로고"' in html
         assert 'alt="Thumbnail"' not in html
 
     def test_score_badge_rendered(self, templates_dir, sample_article_data):
@@ -293,10 +290,10 @@ class TestNewsletterRendering:
         assert "max-width: 800px" in html
 
     def test_source_alt_text(self, templates_dir, sample_article_data):
-        sample_article_data["source"] = "openai"
+        sample_article_data["source"] = "linkedin"
         renderer = NewsletterRenderer(templates_dir)
         html = renderer.render_newsletter(self._build_data(sample_article_data))
-        assert "Openai logo" in html
+        assert "LinkedIn 로고" in html
 
     def test_blanked_link_renders_no_button(self, templates_dir, sample_article_data):
         # Article blanks an unsafe link; a button to href="" goes nowhere.
@@ -401,7 +398,6 @@ class TestClipBudget:
                 title="Weekly AI Tech Blog Digest",
                 description="d" * 200,
                 thumbnail="https://cdn.example.com/peccy.png",
-                publish_date="2026-06-01",
             ),
             section=Section(introduction="안녕 친구들! 난 Peccy야 😎 " + "글" * 120),
             articles=articles,

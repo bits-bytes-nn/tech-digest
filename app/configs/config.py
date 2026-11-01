@@ -15,7 +15,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticUndefined
 
-from app.domain.constants import EnvVars, LanguageModelId
+from app.domain.constants import EnvVars, Language, LanguageModelId
 from app.domain.summary import SummarizationOptions
 
 # AWS EventBridge cron has exactly six fields:
@@ -131,7 +131,8 @@ class Newsletter(BaseModelWithDefaults):
     header_title: str | None = Field(default=None, min_length=1)
     header_description: str | None = Field(default=None, min_length=1)
     header_thumbnail: str | None = Field(default=None, min_length=1)
-    footer_title: str | None = Field(default=None, min_length=1)
+    # One string for every language, or one per language (`ko:` / `en:`).
+    footer_title: str | dict[Language, str] | None = Field(default=None)
     logos: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")

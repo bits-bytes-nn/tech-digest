@@ -57,7 +57,7 @@ def offline_feed_download(monkeypatch):
 
     monkeypatch.setattr(
         _fp,
-        "_try_request",
+        "try_request",
         lambda session, url, headers: SimpleNamespace(content=b"", headers={}, url=url),
     )
 
@@ -65,7 +65,7 @@ def offline_feed_download(monkeypatch):
 @pytest.fixture(autouse=True)
 def no_scrape(monkeypatch):
     # post_from_entry may scrape when feed content is thin; neutralize network.
-    monkeypatch.setattr(feeds, "_make_robust_request", lambda url: None)
+    monkeypatch.setattr(feeds, "make_robust_request", lambda url: None)
 
 
 class TestRssFetcherBozo:
@@ -143,7 +143,7 @@ class TestAtomEntriesWithoutPublished:
     def test_such_a_feed_now_yields_its_post(self, monkeypatch):
         parsed = feedparser.parse(self.ATOM_UPDATED_ONLY)
         monkeypatch.setattr(feeds.feedparser, "parse", lambda *a, **k: parsed)
-        monkeypatch.setattr(feeds, "_make_robust_request", lambda url: None)
+        monkeypatch.setattr(feeds, "make_robust_request", lambda url: None)
         fetcher = RssFetcher("https://updated.example/atom")
         posts = fetcher.fetch(
             datetime(2026, 8, 1, tzinfo=UTC), datetime(2026, 8, 8, tzinfo=UTC)
@@ -157,7 +157,7 @@ class TestFeedDownload:
     """The feed is downloaded by the request layer, which carries the timeout."""
 
     def test_an_unreachable_feed_is_a_source_failure(self, monkeypatch, window):
-        monkeypatch.setattr(feeds, "_try_request", lambda *a, **k: None)
+        monkeypatch.setattr(feeds, "try_request", lambda *a, **k: None)
         with pytest.raises(SourceFetchError):
             RssFetcher(FEED_URL).fetch(*window)
 
@@ -167,7 +167,7 @@ class TestFeedDownload:
         seen = {}
         monkeypatch.setattr(
             feeds,
-            "_try_request",
+            "try_request",
             lambda session, url, headers: SimpleNamespace(
                 content=b"<rss/>",
                 headers={"Content-Type": "application/rss+xml; charset=utf-8"},

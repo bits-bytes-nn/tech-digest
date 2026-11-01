@@ -225,6 +225,13 @@ def _title_case_titles(
         post.title = title
 
 
+def _for_language(
+    value: str | dict[Language, str] | None, language: Language
+) -> str | None:
+    """A chrome text that may be set once or per language, for this issue."""
+    return value.get(language) if isinstance(value, dict) else value
+
+
 def _generate_greeting(
     posts: list[Post],
     date_suffix: str,
@@ -233,7 +240,6 @@ def _generate_greeting(
     language: Language,
     root_dir: Path,
 ) -> str:
-    greeter = Greeter(models(), config.summarization.greeting_model_id, language)
     # The summary's opening gives the model a detail beyond the card's own lede.
     lines = "\n".join(
         f"- {post.title}\n  card lede (already shown): {post.one_liner}"
@@ -242,6 +248,8 @@ def _generate_greeting(
     )
     context = f"Today is {date_suffix}. This week's articles:\n{lines}"
     try:
+        # Built inside the guard: building the model can call Bedrock too.
+        greeter = Greeter(models(), config.summarization.greeting_model_id, language)
         greeting = greeter.greet(context=context)
     except Exception as e:
         # The intro is one paragraph above the articles, and by now every summary
@@ -288,7 +296,7 @@ def _build_newsletter(
         "header_description": config.newsletter.header_description,
         "header_thumbnail": config.newsletter.header_thumbnail,
         "first_section_intro": first_section_intro,
-        "footer_title": config.newsletter.footer_title,
+        "footer_title": _for_language(config.newsletter.footer_title, language),
     }
     build_config = BuildConfiguration(
         stage=config.resources.stage,

@@ -12,7 +12,6 @@ from app.application.llm_batching import (
     BatchProcessor,
     HTMLTagOutputParser,
     measure_execution_time,
-    retry_with_backoff,
 )
 from app.application.ports import ChatModelProvider, ImageProbe
 from app.application.prompts.prompts import (
@@ -24,7 +23,7 @@ from app.domain.constants import Language, LanguageModelId
 from app.domain.content import content_html, visible_text
 from app.domain.eval_metrics import is_anchor
 from app.domain.post import Post
-from app.domain.quality_metrics import KO_LENGTH_BAND, is_korean
+from app.domain.quality_metrics import EN_LENGTH_BAND, KO_LENGTH_BAND, is_korean
 from app.domain.summary import (
     FILTER_FAILED,
     FILTER_UNPARSEABLE,
@@ -33,13 +32,13 @@ from app.domain.summary import (
     SummarizationOptions,
     SummarizerConfig,
     SummaryOutput,
-    _encode_image_srcs,
-    _image_candidates,
-    _postprocess_summary,
-    _strip_unsourced_images,
-    _unsourced_urls,
+    encode_image_srcs,
     gate_by_content_length,
+    image_candidates,
+    postprocess_summary,
     select_for_digest,
+    strip_unsourced_images,
+    unsourced_urls,
 )
 from app.logger import logger
 
@@ -74,7 +73,7 @@ def _drop_unrenderable_images(
     for img in list(soup.find_all("img")):
         src = str(img.get("src") or "")
         chosen, width = None, 0
-        for candidate in [src, *_image_candidates(src, source_html)]:
+        for candidate in [src, *image_candidates(src, source_html)]:
             if clock() >= deadline:
                 break
             if (probed := is_renderable(candidate)) is not None:
@@ -532,7 +531,7 @@ class Summarizer:
                 post.one_liner = summary_output.one_liner
                 post.tags = summary_output.tags
                 post.urls = summary_output.urls
-                if unsourced := _unsourced_urls(post.urls, post.content):
+                if unsourced := unsourced_urls(post.urls, post.content):
                     logger.warning(
                         "%d reference link(s) for '%s' are not present in the "
                         "source article (kept, but verify): %s",
@@ -555,7 +554,7 @@ class Summarizer:
     # summary may run before it is sent back once to be shortened.
     LENGTH_LIMIT: ClassVar[dict[Language, int]] = {
         Language.KO: KO_LENGTH_BAND[1],
-        Language.EN: 2000,
+        Language.EN: EN_LENGTH_BAND[1],
     }
     LENGTH_TOLERANCE: ClassVar[float] = 1.1
 
@@ -563,7 +562,8 @@ class Summarizer:
         text = visible_text(summary_html)
         return len(text) if self.language is Language.KO else len(text.split())
 
-    @retry_with_backoff("summary-length")
+    # One attempt, no retries: shortening is cosmetic, and retrying it could push
+    # the run past the Batch attempt timeout, which loses the whole issue.
     def _shorten(self, summary_html: str, measured: int) -> dict[str, Any]:
         limit = self.LENGTH_LIMIT[self.language]
         return self.shortener.invoke(
@@ -642,7 +642,7 @@ class Summarizer:
         return None
 
     def _finalize_summary(self, post: Post, summary_html: str) -> str:
-        cleaned, dropped = _strip_unsourced_images(
+        cleaned, dropped = strip_unsourced_images(
             summary_html, post.content, post.images
         )
         if dropped:
@@ -664,4 +664,4 @@ class Summarizer:
                 post.title,
                 unrenderable,
             )
-        return _postprocess_summary(_encode_image_srcs(cleaned))
+        return postprocess_summary(encode_image_srcs(cleaned))

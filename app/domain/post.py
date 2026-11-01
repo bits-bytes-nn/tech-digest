@@ -159,7 +159,7 @@ class Post(BaseModel):
             )
             return [url for url in image_urls if url.startswith("http")]
         except Exception as e:
-            logger.warning(f"Failed to extract images from '{base_url}': {e}")
+            logger.warning("Failed to extract images from '%s': %s", base_url, e)
             return []
 
 
@@ -209,7 +209,7 @@ def try_parse_published_date(date_str: str) -> datetime | None:
             return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
         except (ValueError, TypeError):
             continue
-    logger.warning(f"Failed to parse date '{date_str}' with any known format.")
+    logger.warning("Failed to parse date '%s' with any known format.", date_str)
     return None
 
 

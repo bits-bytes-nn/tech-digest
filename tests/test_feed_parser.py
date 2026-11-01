@@ -420,7 +420,7 @@ class TestContentContainerSelection:
                 "content-type": "text/html; charset=utf-8"
             }
 
-        monkeypatch.setattr(fp, "_make_robust_request", lambda url: _Response())
+        monkeypatch.setattr(fp, "make_robust_request", lambda url: _Response())
         return fp._scrape_full_content("https://x.example/post", body_fallback=True)
 
     # An <article> that is a wrapper around a heading, with the prose elsewhere.
@@ -475,7 +475,7 @@ class TestContentContainerSelection:
     def test_fetch_failure_yields_empty(self, monkeypatch):
         from app.adapters import feeds as fp
 
-        monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
+        monkeypatch.setattr(fp, "make_robust_request", lambda url: None)
         assert (
             fp._scrape_full_content("https://x.example/post", body_fallback=True)
             is None
@@ -505,7 +505,7 @@ class TestContentContainerSelection:
                 "content-type": "text/html; charset=utf-8"
             }
 
-        monkeypatch.setattr(fp, "_make_robust_request", lambda url: _Response())
+        monkeypatch.setattr(fp, "make_robust_request", lambda url: _Response())
 
     def test_a_feed_body_is_kept_over_the_whole_page_but_flagged(self, monkeypatch):
         # The page holds no article container, so the short feed body stays

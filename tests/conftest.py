@@ -121,4 +121,4 @@ def no_network(monkeypatch):
     # backoff. Tests that exercise the request layer import the function
     # directly, so this module-level stub does not reach them.
     if module := sys.modules.get("app.adapters.feeds"):
-        monkeypatch.setattr(module, "_make_robust_request", lambda url: None)
+        monkeypatch.setattr(module, "make_robust_request", lambda url: None)

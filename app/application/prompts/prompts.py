@@ -354,9 +354,10 @@ going long pushes that article below the fold.
    week's articles (see the context). BANNED, because it is what a model reaches for by default:
    the "back then X, now Y" / "we used to X, now we Y" contrast template in any wording. Also
    banned: facts unrelated to this week's topics, and vague claims ("AI is moving fast")
-3. If the articles genuinely share a theme, name it concretely. If they do not, do not invent
-   one: introduce two or three of them in a phrase each
-4. Each card already opens with its one-line summary; do not restate or paraphrase it
+3. Name a shared theme only if it holds for EVERY article; check each one against it. If any
+   article does not fit, do not group them: introduce two or three of them in a phrase each
+4. Each card already opens with its one-line summary; do not restate or paraphrase it, and do not
+   reuse a figure from it
 5. Casual, confident, technically fluent. No markdown, plain text only
 6. No praise or vague adjectives ("groundbreaking", "powerful", "amazing", "various"); say the
    specific thing instead
@@ -376,9 +377,10 @@ going long pushes that article below the fold.
    **금지** — 모델이 기본값으로 집어드는 패턴이라서입니다: "예전엔 X였는데 이제 Y야",
    "과거엔 X했지만 이제는 Y해" 같은 **과거-현재 대조 템플릿을 어떤 표현으로든** 쓰지 마세요.
    이번 주 주제와 무관한 잡지식, "AI가 빠르게 발전하고 있어" 같은 뻔한 서술도 금지
-3. 아티클끼리 실제로 겹치는 주제가 있으면 그것을 구체적으로 짚고, 없으면 억지로 묶지 말고
-   두세 편을 각각 한 구절로 소개하세요
-4. 각 카드에는 그 아티클의 한 줄 요약이 실리므로, 그 문장을 옮기거나 풀어 쓰지 마세요
+3. 공통 주제는 **모든** 아티클에 맞을 때만 쓰세요. 쓰기 전에 아티클마다 그 주제에 맞는지
+   확인하고, 하나라도 맞지 않으면 묶지 말고 두세 편을 각각 한 구절로 소개하세요
+4. 각 카드에는 그 아티클의 한 줄 요약이 실리므로, 그 문장을 옮기거나 풀어 쓰지 말고 거기 나온
+   수치도 다시 쓰지 마세요
 5. 반말, 자신감 있는 어조. 기술 용어는 필요하면 영어 그대로
 6. "혁신적인", "강력한", "놀라운", "다양한" 같은 칭찬·뭉갬 형용사와 "~라는 점이야" 같은
    맺음은 쓰지 마세요. 구체적인 것을 그냥 말하면 됩니다
@@ -644,6 +646,7 @@ avoid speculation.
 - No sub-headings (h4-h6) inside a section; a bold run-in label at the start of a paragraph is fine
 - Inline code goes in <code>, never Markdown backticks; write math as plain text or Unicode (QKᵀ), never LaTeX
 - Ensure all code uses <pre><code> blocks
+- Lists go in <ul><li> or <ol><li>; never start a line with "-" or "•"
 - Make technical explanations accessible but accurate
 - Use one name per concept throughout; do not alternate between synonyms for the same component
 - No meta-commentary about following these instructions
@@ -653,7 +656,7 @@ Knowing a rule is not the same as having followed it. These are the slips that m
 into a published issue, so look for each one in your draft and fix it before you output:
 1. Go through every number in 📊. If it also appears in 📌, 🔄 or 🛠️, keep it in 📊 and replace the
    earlier mention with words ("cuts latency"). Then delete any 📊 sentence about business
-   value, a ratio you computed, or a forecast the article does not make.
+   value, a count or ratio you computed, or a forecast the article does not make.
 2. Find sentences whose verb is "provides", "offers" or "supports" and say what the feature actually does.
 3. Find praise adjectives, "not just X, it's Y" and meta-narration (principle 5) and rewrite them. Read the
    last sentence of 📌: if it says who should read this or that it is worth noting, end on the finding instead.
@@ -805,7 +808,7 @@ points. 이 아티클만의 구체적인 이유(해결하는 문제, 새로운 �
 <h3>🔄 핵심 아키텍처와 동작 방식</h3>
 Describe the system design and workflow clearly. Cover main components, their interactions, and key design choices. 
 관련 이미지는 문맥 없이 놓이지 않도록 **캡션과 함께 figure로 감싸서** 넣으세요:
-<figure><img src="full_url" alt="descriptive text"><figcaption>이 이미지에서 독자가 얻어야 할 것을 한 문장으로</figcaption></figure>
+<figure><img src="full_url" alt="이미지 내용을 한국어로 짧게"><figcaption>이 이미지에서 독자가 얻어야 할 것을 한 문장으로</figcaption></figure>
 (완전한 URL만 사용: https://example.com/image.jpg. 캡션은 alt 텍스트를 반복하지 말고 정보를 더해야 합니다.)
 Avoid redundancy with the technical deep dive section.
 
@@ -832,6 +835,7 @@ avoid speculation.
 - No sub-headings (h4-h6) inside a section; a bold run-in label at the start of a paragraph is fine
 - Inline code goes in <code>, never Markdown backticks; write math as plain text or Unicode (QKᵀ), never LaTeX
 - Ensure all code uses <pre><code> blocks
+- 목록은 <ul><li>·<ol><li>로 쓰고, 줄 앞에 "-"·"•"를 붙이지 마세요
 - Make technical explanations accessible but accurate
 - Write content in Korean; keep a technical term in English when the Korean rendering would be awkward
 - 한 개념에는 처음 고른 용어 하나만 쓰세요. 같은 구성 요소를 "추론"과 "인퍼런스"처럼 번갈아 부르지 마세요
@@ -841,7 +845,7 @@ avoid speculation.
 규칙을 아는 것과 지킨 것은 다릅니다. 아래 여섯 가지는 지난 호들에서 실제로 가장 자주 남은
 실수이므로, 초안을 쓴 뒤 하나씩 찾아서 고치고 나서 출력하세요.
 1. 📊 섹션의 숫자를 하나씩 보세요. 📌·🔄·🛠️에도 같은 숫자가 있으면 📊에 남기고 앞쪽은 "지연을
-   줄입니다"처럼 말로 바꾸세요. 그다음 원문에 없는 비즈니스 함의, 직접 계산한 비율, 전망을 담은 📊
+   줄입니다"처럼 말로 바꾸세요. 그다음 원문에 없는 비즈니스 함의, 직접 세거나 계산한 수·비율, 전망을 담은 📊
    문장을 지우세요.
 2. "제공합니다", "지원합니다"로 끝나는 문장을 찾아 그 기능이 실제로 무엇을 하는지로 바꾸세요.
 3. "~라는/다는 점" 절, "~하는 것" 명사절, 수량 표현 뒤의 "-들"("16개 GPU들"), 칭찬 형용사와 메타

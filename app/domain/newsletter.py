@@ -22,7 +22,12 @@ GMAIL_CLIP_BYTES: int = 102_400
 # Korean is counted in characters and English in words; both are deliberately
 # conservative for dense technical prose.
 # Source keys whose display name is not their title case (logo alt text).
-SOURCE_LABELS: dict[str, str] = {"aws": "AWS"}
+SOURCE_LABELS: dict[str, str] = {
+    "aws": "AWS",
+    "huggingface": "Hugging Face",
+    "linkedin": "LinkedIn",
+    "nvidia": "NVIDIA",
+}
 READING_SPEED: dict[Language, tuple[str, int]] = {
     Language.KO: ("chars", 450),
     Language.EN: ("words", 200),
@@ -38,6 +43,7 @@ UI_LABELS: dict[Language, dict[str, str]] = {
         "resources": "함께 볼 자료",
         "reading_time": "읽는 시간 {minutes}분",
         "relevance": "관련도 점수",
+        "logo": "로고",
     },
     Language.EN: {
         "published_on": "Published on",
@@ -45,6 +51,7 @@ UI_LABELS: dict[Language, dict[str, str]] = {
         "resources": "Further reading",
         "reading_time": "{minutes} min read",
         "relevance": "Relevance score",
+        "logo": "logo",
     },
 }
 
@@ -146,10 +153,6 @@ class Header(BaseModel):
     title: str = Field(min_length=1)
     description: str
     thumbnail: str
-    publish_date: str
-    _normalize_publish_date = field_validator("publish_date", mode="before")(
-        normalize_date
-    )
 
 
 class Section(BaseModel):

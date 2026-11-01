@@ -188,25 +188,41 @@ def html_to_text(html: str) -> str:
 
     One line per block element, a blank line between paragraphs at most, and
     each link's URL after its text so a text-only reader can still open the
-    article. Hidden elements (the inbox preheader) are left out.
+    article. Hidden elements (the inbox preheader) are left out. Code keeps its
+    indentation, table cells are separated by " | " and list items are marked.
     """
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["head", "style", "script"]):
         tag.decompose()
     for tag in soup.find_all(style=_HIDDEN_STYLE):
         tag.decompose()
+    # Code is whitespace-sensitive: set it aside before spaces are collapsed.
+    code_blocks: list[str] = []
+    for pre in soup.find_all("pre"):
+        code_blocks.append(pre.get_text().strip("\n"))
+        pre.replace_with(NavigableString(f"\n\x00{len(code_blocks) - 1}\x00\n"))
     for anchor in soup.find_all("a", href=True):
         href = str(anchor["href"])
         if href and href != anchor.get_text(strip=True):
             anchor.append(f" ({href})")
     for br in soup.find_all("br"):
         br.replace_with("\n")
+    # Only the data tables inside summaries; the template's layout tables are not
+    # rows of values.
+    for table in soup.find_all("table", class_="table-bordered"):
+        for row in table.find_all("tr"):
+            for index, cell in enumerate(row.find_all(["td", "th"])):
+                if index:
+                    cell.insert_before(NavigableString(" | "))
+    for listing in soup.find_all(["ol", "ul"]):
+        for number, item in enumerate(listing.find_all("li", recursive=False), 1):
+            item.insert(0, f"{number}. " if listing.name == "ol" else "• ")
     for tag in soup.find_all(_TEXT_BLOCK_TAGS):
         tag.insert_before(NavigableString("\n"))
         tag.append("\n")
     lines = [" ".join(line.split()) for line in soup.get_text().splitlines()]
-    text = "\n".join(lines)
-    return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip() + "\n"
+    return re.sub(r"\x00(\d+)\x00", lambda m: code_blocks[int(m.group(1))], text)
 
 
 def send_email(

@@ -151,7 +151,7 @@ def _backticks_to_code(summary: str) -> str:
     return str(soup)
 
 
-def _postprocess_summary(summary: str) -> str:
+def postprocess_summary(summary: str) -> str:
     """Deterministic corrections to the model's summary HTML.
 
     The Korean terminal colon (see ``KO_TERMINAL_COLON``) and Markdown backtick
@@ -277,7 +277,7 @@ def _sanitize_html(html: str) -> str:
 _SPACES = re.compile(r"\s")
 
 
-def _strip_unsourced_images(
+def strip_unsourced_images(
     summary_html: str, source_html: str, known_images: list[str]
 ) -> tuple[str, list[str]]:
     """Remove ``<img>`` tags the source post does not actually contain.
@@ -330,7 +330,7 @@ def _strip_unsourced_images(
 _URL_SAFE_CHARS = ":/?#[]@!$&'()*+,;=%-._~"
 
 
-def _encode_image_srcs(summary_html: str) -> str:
+def encode_image_srcs(summary_html: str) -> str:
     """Percent-encode the characters a URL cannot carry raw in ``<img src>``.
 
     Source URLs are used as published, and some contain them: macOS names
@@ -356,7 +356,7 @@ def _encode_image_srcs(summary_html: str) -> str:
 MAX_IMAGE_CANDIDATE_WIDTH = 1600
 
 
-def _image_candidates(src: str, source_html: str) -> list[str]:
+def image_candidates(src: str, source_html: str) -> list[str]:
     """Other renditions of the image at ``src`` in the article, best first.
 
     The article's own markup lists them: ``srcset``/``data-srcset`` with widths,
@@ -393,7 +393,7 @@ def _image_candidates(src: str, source_html: str) -> list[str]:
     return [url for url, _ in sorted(found.items(), key=rank) if is_safe_url(url)]
 
 
-def _unsourced_urls(urls: list[str], source_html: str) -> list[str]:
+def unsourced_urls(urls: list[str], source_html: str) -> list[str]:
     """Reference links whose href does not appear verbatim in the source post.
 
     Reported (not removed): unlike an image, a slightly-rewritten but real link

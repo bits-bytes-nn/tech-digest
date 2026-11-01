@@ -9,7 +9,7 @@ from app.domain.summary import (
     SummaryOutput,
     _normalize_tags,
     _normalize_urls,
-    _postprocess_summary,
+    postprocess_summary,
 )
 
 
@@ -18,39 +18,39 @@ class TestPostprocessSummary:
         # A sentence-ending syllable + colon at a clause boundary (colon followed
         # by a closing tag) is a mistake and is corrected to a period.
         assert (
-            _postprocess_summary("<p>이것은 동작합니다:</p>")
+            postprocess_summary("<p>이것은 동작합니다:</p>")
             == "<p>이것은 동작합니다.</p>"
         )
 
     def test_terminal_colon_at_end_of_string_becomes_period(self):
-        assert _postprocess_summary("문장이 끝납니다:") == "문장이 끝납니다."
+        assert postprocess_summary("문장이 끝납니다:") == "문장이 끝납니다."
 
     def test_introducing_colon_is_preserved(self):
         # Colon followed by text introduces a list/example and must NOT be
         # rewritten (the bug a blind "다:"->"다." replace used to cause).
         text = "<p>결과는 다음과 같습니다: 첫째, 둘째</p>"
-        assert _postprocess_summary(text) == text
+        assert postprocess_summary(text) == text
 
     def test_ratio_colon_is_preserved(self):
-        assert _postprocess_summary("비율은 3:1입니다.") == "비율은 3:1입니다."
+        assert postprocess_summary("비율은 3:1입니다.") == "비율은 3:1입니다."
 
     def test_block_list_introducing_colon_preserved(self):
         # After markdown, a sentence introducing a BULLETED list renders as
         # "<p>...습니다:</p>\n<ul>...". The colon is at a tag boundary yet still
         # legitimately introduces the list, so it must NOT become a period.
         text = "<p>주요 구성 요소는 다음과 같습니다:</p>\n<ul>\n<li>A</li>\n</ul>"
-        assert _postprocess_summary(text) == text
+        assert postprocess_summary(text) == text
 
     def test_br_list_introducing_colon_preserved(self):
         # Same under nl2br: "습니다:<br>\n<ul>".
         text = "같습니다:<br>\n<ul><li>x</li></ul>"
-        assert _postprocess_summary(text) == text
+        assert postprocess_summary(text) == text
 
     def test_terminal_colon_before_paragraph_still_converted(self):
         # A genuine terminal colon before the NEXT paragraph (not a list) is
         # still corrected to a period.
         assert (
-            _postprocess_summary("<p>동작합니다:</p>\n<p>다음</p>")
+            postprocess_summary("<p>동작합니다:</p>\n<p>다음</p>")
             == "<p>동작합니다.</p>\n<p>다음</p>"
         )
 
@@ -62,10 +62,10 @@ class TestPostprocessSummary:
         site (the two use different path layouts) and also fired on visible prose.
         """
         text = "see https://magazine.sebastianraschka.com/p/x for details"
-        assert _postprocess_summary(text) == text
+        assert postprocess_summary(text) == text
 
     def test_no_change_when_clean(self):
-        assert _postprocess_summary("<p>clean</p>") == "<p>clean</p>"
+        assert postprocess_summary("<p>clean</p>") == "<p>clean</p>"
 
 
 class TestNormalizeTags:
@@ -283,10 +283,10 @@ class TestImageCaptions:
     def test_an_image_the_parser_resolved_is_kept(self):
         """The source may carry a relative src that only ``Post.images`` holds
         in its absolute form; that is still the article's own image."""
-        from app.domain.summary import _strip_unsourced_images
+        from app.domain.summary import strip_unsourced_images
 
         url = "https://blog.example.com/img/arch.png"
-        cleaned, dropped = _strip_unsourced_images(
+        cleaned, dropped = strip_unsourced_images(
             f'<p>Body</p><img src="{url}">',
             source_html='<p>Body</p><img src="/img/arch.png">',
             known_images=[url],
@@ -294,9 +294,9 @@ class TestImageCaptions:
         assert dropped == [] and url in cleaned
 
     def test_an_image_without_a_src_is_dropped(self):
-        from app.domain.summary import _strip_unsourced_images
+        from app.domain.summary import strip_unsourced_images
 
-        cleaned, dropped = _strip_unsourced_images(
+        cleaned, dropped = strip_unsourced_images(
             "<p>Body</p><img alt='x'>", source_html="<p>Body</p>", known_images=[]
         )
         assert dropped == ["(no src)"] and "<img" not in cleaned
@@ -304,9 +304,9 @@ class TestImageCaptions:
     def test_unsourced_image_is_dropped_but_its_caption_context_remains(self):
         """The provenance guard removes the <img>; the surrounding figure/caption
         must not take the rest of the summary down with it."""
-        from app.domain.summary import _strip_unsourced_images
+        from app.domain.summary import strip_unsourced_images
 
-        cleaned, dropped = _strip_unsourced_images(
+        cleaned, dropped = strip_unsourced_images(
             '<p>Body</p><figure><img src="https://cdn.example.com/invented.png">'
             "<figcaption>Caption</figcaption></figure>",
             source_html="<p>Body</p>",

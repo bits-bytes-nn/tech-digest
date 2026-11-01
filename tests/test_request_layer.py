@@ -7,7 +7,7 @@ import pytest
 import requests
 
 from app.adapters import http
-from app.adapters.http import _make_robust_request
+from app.adapters.http import make_robust_request
 
 
 @pytest.fixture(autouse=True)
@@ -71,7 +71,7 @@ class TestMakeRobustRequest:
     def test_success_first_try(self, monkeypatch):
         session = _FakeSession([_FakeResponse(200)])
         _patch_session(monkeypatch, session)
-        resp = _make_robust_request("https://example.com")
+        resp = make_robust_request("https://example.com")
         assert resp is not None
         assert session.calls == 1
 
@@ -79,7 +79,7 @@ class TestMakeRobustRequest:
         # First attempt 503 (transient) -> retry same header set -> 200.
         session = _FakeSession([_FakeResponse(503), _FakeResponse(200)])
         _patch_session(monkeypatch, session)
-        resp = _make_robust_request("https://example.com")
+        resp = make_robust_request("https://example.com")
         assert resp is not None
         assert session.calls == 2
 
@@ -89,7 +89,7 @@ class TestMakeRobustRequest:
             [_FakeResponse(429), _FakeResponse(429), _FakeResponse(200)]
         )
         _patch_session(monkeypatch, session)
-        resp = _make_robust_request("https://example.com")
+        resp = make_robust_request("https://example.com")
         assert resp is not None
         assert session.calls == 3
 
@@ -100,14 +100,14 @@ class TestMakeRobustRequest:
             [_FakeResponse(429, headers={"Retry-After": "5"}), _FakeResponse(200)]
         )
         _patch_session(monkeypatch, session)
-        _make_robust_request("https://example.com")
+        make_robust_request("https://example.com")
         assert slept and slept[0] == 5.0
 
     def test_a_403_is_not_retried(self, monkeypatch):
         # Non-transient: one call, then give up.
         session = _FakeSession([_FakeResponse(403)])
         _patch_session(monkeypatch, session)
-        assert _make_robust_request("https://example.com") is None
+        assert make_robust_request("https://example.com") is None
         assert session.calls == 1
 
 
@@ -134,7 +134,7 @@ class TestSSRFGuard:
         # A blocked host must short-circuit BEFORE any network call is made.
         session = _FakeSession([_FakeResponse(200)])
         _patch_session(monkeypatch, session)
-        assert _make_robust_request(url) is None
+        assert make_robust_request(url) is None
         assert session.calls == 0
 
     def test_blocks_redirect_to_internal_host(self, monkeypatch):
@@ -146,7 +146,7 @@ class TestSSRFGuard:
         redirect = _FakeResponse(302, headers={"location": meta}, is_redirect=True)
         session = _FakeSession([redirect] * 3)
         _patch_session(monkeypatch, session)
-        assert _make_robust_request("https://example.com") is None
+        assert make_robust_request("https://example.com") is None
 
     def test_follows_external_redirect(self, monkeypatch):
         # A redirect to another EXTERNAL host is followed to completion.
@@ -158,14 +158,14 @@ class TestSSRFGuard:
         final = _FakeResponse(200, url="https://example.org/final")
         session = _FakeSession([redirect, final])
         _patch_session(monkeypatch, session)
-        resp = _make_robust_request("https://example.com")
+        resp = make_robust_request("https://example.com")
         assert resp is not None
         assert session.calls == 2
 
     def test_allows_normal_external_host(self, monkeypatch):
         session = _FakeSession([_FakeResponse(200, url="https://example.com/post")])
         _patch_session(monkeypatch, session)
-        assert _make_robust_request("https://example.com") is not None
+        assert make_robust_request("https://example.com") is not None
 
     def test_blocks_hostname_resolving_to_internal_ip(self, monkeypatch):
         # A hostname (not an IP literal) that resolves to the metadata IP must
@@ -177,7 +177,7 @@ class TestSSRFGuard:
         monkeypatch.setattr(http.socket, "getaddrinfo", fake_getaddrinfo)
         session = _FakeSession([_FakeResponse(200)])
         _patch_session(monkeypatch, session)
-        assert _make_robust_request("http://evil.example.com/") is None
+        assert make_robust_request("http://evil.example.com/") is None
         assert session.calls == 0
 
     def test_a_fetch_resolves_the_host_once(self, monkeypatch):
@@ -190,7 +190,7 @@ class TestSSRFGuard:
 
         monkeypatch.setattr(http.socket, "getaddrinfo", fake_getaddrinfo)
         _patch_session(monkeypatch, _FakeSession([_FakeResponse(200)]))
-        assert _make_robust_request("https://example.com/post") is not None
+        assert make_robust_request("https://example.com/post") is not None
         assert lookups == ["example.com"]
 
     @pytest.mark.parametrize(
@@ -211,7 +211,7 @@ class TestSSRFGuard:
         monkeypatch.setattr(http.socket, "getaddrinfo", fake_getaddrinfo)
         session = _FakeSession([_FakeResponse(200, url="https://example.com/post")])
         _patch_session(monkeypatch, session)
-        assert _make_robust_request("https://example.com") is not None
+        assert make_robust_request("https://example.com") is not None
 
 
 class TestHeadersAreSentAsDeclared:
@@ -220,7 +220,7 @@ class TestHeadersAreSentAsDeclared:
     ):
         session = _FakeSession([_FakeResponse(200)])
         _patch_session(monkeypatch, session)
-        _make_robust_request("https://example.com")
+        make_robust_request("https://example.com")
         assert session.sent_headers == [http.REQUEST_HEADERS]
         assert session.headers == {}
 

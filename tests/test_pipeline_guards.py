@@ -447,6 +447,26 @@ class TestModelFailureAlert:
         assert publisher.published == []
 
 
+class TestChromeLanguage:
+    @pytest.mark.parametrize(
+        ("value", "language", "expected"),
+        [
+            ("Thanks", Language.KO, "Thanks"),
+            (
+                {Language.KO: "감사합니다", Language.EN: "Thanks"},
+                Language.KO,
+                "감사합니다",
+            ),
+            ({Language.EN: "Thanks"}, Language.KO, None),
+            (None, Language.EN, None),
+        ],
+    )
+    def test_a_footer_may_be_set_once_or_per_language(self, value, language, expected):
+        from app.application.pipeline import _for_language
+
+        assert _for_language(value, language) == expected
+
+
 class TestHandlerWiring:
     def test_the_summarizer_gets_the_real_image_probe(self, monkeypatch):
         # No fixture post carries an image, so a probe that dropped every image

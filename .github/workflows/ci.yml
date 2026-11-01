@@ -3,8 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every PR, stacked ones included, not only those into main.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:

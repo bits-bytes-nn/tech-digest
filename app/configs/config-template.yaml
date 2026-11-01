@@ -114,7 +114,10 @@ newsletter:
   header_title: "Weekly AI Tech Blog Digest"
   header_description: '$ cron weekly-digest | grep "AI tech" | sort -by relevance > your-inbox 🔮'
   header_thumbnail: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/peccy.png"
-  footer_title: "Thank you for becoming a subscriber to Weekly AI Tech Blog Digest.<br>If you have any questions or feedback, please send them to <a href='mailto:example@example.com' style='text-decoration: none;'>example@example.com</a>." # footer title
+  # Footer: one string for every issue, or one per language as below.
+  footer_title:
+    en: "Thank you for becoming a subscriber to Weekly AI Tech Blog Digest.<br>If you have any questions or feedback, please send them to <a href='mailto:example@example.com' style='text-decoration: none;'>example@example.com</a>."
+    ko: "Weekly AI Tech Blog Digest를 구독해 주셔서 감사합니다.<br>질문이나 의견은 <a href='mailto:example@example.com' style='text-decoration: none;'>example@example.com</a>로 보내 주세요."
   logos:
     airbnb: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/airbnb.png"
     amazon: "https://cdn.jsdelivr.net/gh/youngmki/playground@main/tech-digest-assets/images/amazon.png"

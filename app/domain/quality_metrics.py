@@ -58,6 +58,8 @@ from bs4 import BeautifulSoup
 # tests assert the prompt states the same numbers.
 # --------------------------------------------------------------------------- #
 KO_LENGTH_BAND: tuple[int, int] = (4000, 6000)
+# The English budget, in words; the summarization prompt states the same band.
+EN_LENGTH_BAND: tuple[int, int] = (1300, 2000)
 # The UPPER bound is derived from the card layout: at the lede's font size an
 # 800px card fits roughly 50 Korean characters per line, and the lede must not run
 # past two lines. The lower bound only has to reject something that is not a lede
@@ -115,7 +117,7 @@ KO_SENTENCE_END_SYLLABLES = "다요죠"
 # colon IS at a boundary yet legitimately introduces the list — so skip it when
 # a <ul>/<ol> follows past the intervening closing tags / <br>.
 #
-# ``summary._postprocess_summary`` corrects exactly what this matches, and the
+# ``summary.postprocess_summary`` corrects exactly what this matches, and the
 # ``terminal_colon`` dimension counts exactly what this matches, so the two agree
 # by construction. They did not before: the rubric ran a simpler ``[다요죠]:``
 # over the markup-stripped text, where a preserved list colon is followed by a
@@ -486,7 +488,7 @@ class SummaryQuality:
     def terminal_colon_score(self) -> float:
         """Whether any Korean sentence still ends on a colon.
 
-        ``_postprocess_summary`` corrects these deterministically before a summary
+        ``postprocess_summary`` corrects these deterministically before a summary
         is stored, so on a healthy pipeline this is 1.0 and the dimension is a
         regression guard: it fires if that corrector stops running, not on the
         model's raw output (which is not kept). All-or-nothing for that reason —

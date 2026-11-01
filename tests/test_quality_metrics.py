@@ -475,7 +475,7 @@ class TestTableCellsCarryTheirHeadersUnit:
 
 
 class TestTerminalColonAgreesWithTheCorrector:
-    """The rubric must count exactly what ``_postprocess_summary`` corrects.
+    """The rubric must count exactly what ``postprocess_summary`` corrects.
 
     They had separate patterns: the corrector deliberately preserves a colon that
     introduces a list (the prompt permits exactly that), while the rubric ran
@@ -484,14 +484,14 @@ class TestTerminalColonAgreesWithTheCorrector:
     """
 
     def test_list_introducing_colon_is_not_a_defect(self):
-        from app.domain.summary import _postprocess_summary
+        from app.domain.summary import postprocess_summary
 
         html = (
             "<h3>📌 왜</h3><p>구성 요소는 다음과 같습니다:</p><ul><li>A</li></ul>"
             "<h3>🛠️ 심층</h3><p>지연이 22% 줄었습니다.</p>"
         )
         # The corrector leaves it alone...
-        assert _postprocess_summary(html) == html
+        assert postprocess_summary(html) == html
         # ...so the rubric must not report it.
         result = evaluate_summary("a", html)
         assert result.terminal_colons == 0
