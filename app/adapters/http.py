@@ -8,6 +8,7 @@ import io
 import ipaddress
 import socket
 import time
+import warnings
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -283,18 +284,33 @@ def probe_email_image(url: str) -> int | None:
         content_type = response.headers.get("content-type", "").split(";")[0]
         if content_type.strip().lower() not in EMAIL_IMAGE_TYPES:
             return None
-        return _image_width(response)
+        return _image_width(response, time.monotonic() + IMAGE_PROBE_TIMEOUT_SECONDS)
 
 
-def _image_width(response: requests.Response) -> int:
-    """The width from the image's header bytes, or 0 if they do not say."""
+def _image_width(response: requests.Response, deadline: float) -> int:
+    """The width from the image's header bytes, or 0 if they do not say.
+
+    Only the header is parsed (``.size``), never the pixels. A header claiming a
+    huge image trips Pillow's decompression-bomb guard, which is still a
+    displayable image of unknown width, not a reason to lose the card.
+    """
     head = b""
     try:
         for chunk in response.iter_content(chunk_size=16 * 1024):
             head += chunk
-            if len(head) >= IMAGE_HEADER_BYTES:
+            # The timeout bounds each read, not the total: a host that drips
+            # bytes would otherwise hold the probe indefinitely.
+            if len(head) >= IMAGE_HEADER_BYTES or time.monotonic() >= deadline:
                 break
-        with Image.open(io.BytesIO(head)) as image:
-            return int(image.size[0])
-    except (RequestException, UnidentifiedImageError, OSError, ValueError):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(head)) as image:
+                return int(image.size[0])
+    except (
+        RequestException,
+        UnidentifiedImageError,
+        Image.DecompressionBombError,
+        OSError,
+        ValueError,
+    ):
         return 0

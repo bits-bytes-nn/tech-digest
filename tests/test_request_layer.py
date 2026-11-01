@@ -309,8 +309,8 @@ class TestEmailRenderableImage:
         response_reads = []
         original = http._image_width
 
-        def spy(response):
-            width = original(response)
+        def spy(response, deadline):
+            width = original(response, deadline)
             response_reads.append(response.read)
             return width
 
@@ -320,6 +320,23 @@ class TestEmailRenderableImage:
         finally:
             http._image_width = original
         assert response_reads == [http.IMAGE_HEADER_BYTES // (16 * 1024)]
+
+    def test_a_header_claiming_a_huge_image_is_kept_with_unknown_width(self, respond):
+        # Pillow refuses a header past its decompression-bomb limit; that must
+        # not drop the image, let alone the card around it.
+        import struct
+        import zlib
+
+        from app.adapters.http import probe_email_image
+
+        def chunk(kind: bytes, data: bytes) -> bytes:
+            crc = struct.pack(">I", zlib.crc32(kind + data))
+            return struct.pack(">I", len(data)) + kind + data + crc
+
+        ihdr = struct.pack(">IIBBBBB", 20000, 10000, 8, 2, 0, 0, 0)
+        png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", b"")
+        respond(body=png)
+        assert probe_email_image("https://cdn.example.com/a") == 0
 
     def test_one_short_header_only_attempt(self, respond):
         # A hung host used to cost 3 attempts x 30 s per image, with the body
@@ -338,4 +355,4 @@ class TestEmailRenderableImage:
     def test_an_unsafe_scheme_is_never_fetched(self):
         from app.adapters.http import probe_email_image
 
-        assert not probe_email_image("javascript:alert(1)")
+        assert probe_email_image("javascript:alert(1)") is None

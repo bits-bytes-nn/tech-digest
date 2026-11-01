@@ -906,7 +906,8 @@ class SummaryLengthPrompt(BasePrompt):
 
 Cut sentences that restate something already said, background the reader does not need, and
 the least important details first. Keep every measured number, parameter name, code block and
-table, the sections and their order, and the HTML markup. Add nothing new.
+table, the sections and their order, and the HTML markup and writing style the draft
+already follows. Add nothing new.
 
 **OUTPUT:** <summary>[the shortened summary]</summary> only.""",
         Language.KO: """아래 요약은 가시 텍스트 기준 {measured}자입니다. 상한이 {limit}자이니 그 안으로
@@ -915,8 +916,8 @@ table, the sections and their order, and the HTML markup. Add nothing new.
 <draft>{summary}</draft>
 
 앞에서 한 말을 되풀이한 문장, 독자에게 필요 없는 배경, 덜 중요한 세부부터 지우세요. 측정값,
-파라미터 이름, 코드 블록, 표는 지우지 말고 섹션 구성과 순서, HTML 마크업도 그대로 두세요. 새
-내용은 더하지 마세요.
+파라미터 이름, 코드 블록, 표는 지우지 말고 섹션 구성과 순서, HTML 마크업과 초안의 문체(합니다체,
+번역투·상투구 없이)도 그대로 두세요. 새 내용은 더하지 마세요.
 
 **OUTPUT:** <summary>[줄인 요약]</summary>만 출력.""",
     }
