@@ -451,7 +451,7 @@ class TestHandlerWiring:
     def test_the_summarizer_gets_the_real_image_probe(self, monkeypatch):
         # No fixture post carries an image, so a probe that dropped every image
         # would pass the golden snapshot; pin the wiring instead.
-        from app.adapters.http import is_email_renderable_image
+        from app.adapters.http import probe_email_image
         from app.domain.crawl import CrawlReport
 
         seen = {}
@@ -474,7 +474,7 @@ class TestHandlerWiring:
         monkeypatch.setattr(main, "log_run_summary", lambda *a: None)
         monkeypatch.setattr(main, "fetch_and_filter_posts", _fetch)
         assert main.handler({}, None)["statusCode"] == 200
-        assert seen["probe"] is is_email_renderable_image
+        assert seen["probe"] is probe_email_image
 
 
 class TestModelFailureAlertFromTheHandler:

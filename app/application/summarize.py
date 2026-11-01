@@ -25,6 +25,7 @@ from app.domain.summary import (
     SUMMARY_FAILED,
     SUMMARY_INVALID,
     SummarizationOptions,
+    SummarizerConfig,
     SummaryOutput,
     _encode_image_srcs,
     _image_candidates,
@@ -48,14 +49,15 @@ def _drop_unrenderable_images(
     budget_seconds: float = IMAGE_PROBE_BUDGET_SECONDS,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[str, list[str]]:
-    """Keep only images a mail client will display.
+    """Keep only images a mail client will display, sized to their own width.
 
     Outlook for Windows shows a WebP image's alt text instead, so the alt text
     and the caption ran together as one odd sentence ("Massive Text Embedding
     Benchmark (Code)코드 검색 부문 ... 차트입니다"). An image that fails is
     swapped for another rendition the article lists (NVIDIA serves WebP as the
-    main file and PNG in its srcset); with none, its figure goes. Returns
-    ``(cleaned_html, dropped_srcs)``.
+    main file and PNG in its srcset); with none, its figure goes. A kept image
+    narrower than the column keeps its own width instead of being stretched to
+    it. Returns ``(cleaned_html, dropped_srcs)``.
     """
     if "<img" not in summary_html.lower():
         return summary_html, []
@@ -65,18 +67,23 @@ def _drop_unrenderable_images(
     changed = False
     for img in list(soup.find_all("img")):
         src = str(img.get("src") or "")
-        chosen = None
+        chosen, width = None, 0
         for candidate in [src, *_image_candidates(src, source_html)]:
             if clock() >= deadline:
                 break
-            if is_renderable(candidate):
-                chosen = candidate
+            if (probed := is_renderable(candidate)) is not None:
+                chosen, width = candidate, probed
                 break
         if chosen is None:
             dropped.append(src)
             (img.find_parent("figure") or img).decompose()
-        elif chosen != src:
+            continue
+        if chosen != src:
             img["src"] = chosen
+            changed = True
+        if 0 < width < SummarizerConfig.SUMMARY_IMAGE_WIDTH:
+            img["width"] = str(width)
+            img["style"] = "max-width:100%;height:auto"
             changed = True
     return (str(soup), dropped) if (dropped or changed) else (summary_html, [])
 

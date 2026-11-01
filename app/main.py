@@ -21,7 +21,7 @@ from app.adapters.aws import (
 )
 from app.adapters.bedrock import BedrockLanguageModelFactory
 from app.adapters.feeds import PostCollector
-from app.adapters.http import is_email_renderable_image
+from app.adapters.http import probe_email_image
 from app.adapters.rendering import NewsletterBuilder
 from app.application.alerts import (
     maybe_send_clipped_newsletter_alert,
@@ -83,7 +83,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, int | str]:
             config,
             PostCollector.from_urls,
             models,
-            is_email_renderable_image,
+            probe_email_image,
             end_date_str=end_date_str,
             language=language,
         )

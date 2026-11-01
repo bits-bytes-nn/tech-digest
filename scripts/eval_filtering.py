@@ -68,7 +68,7 @@ def _score_live(
 
     os.environ.setdefault("CONFIG_FILE_SUFFIX", stage)
     from app.adapters.bedrock import BedrockLanguageModelFactory
-    from app.adapters.http import is_email_renderable_image
+    from app.adapters.http import probe_email_image
     from app.application.summarize import Summarizer, SummarizerSettings
     from app.configs import Config
     from app.domain.constants import FilteringCriteria
@@ -91,7 +91,7 @@ def _score_live(
             | {"filtering_criteria": FilteringCriteria(data.get("criteria", "all"))}
             | ({"filtering_model_id": model} if model else {})
         ),
-        is_email_renderable_image,
+        probe_email_image,
     )
     included = ", ".join(data.get("included_topics", []))
     excluded = ", ".join(data.get("excluded_topics", []))

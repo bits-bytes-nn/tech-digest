@@ -4,6 +4,7 @@ Every request goes through ``_get_following_redirects``, which SSRF-checks each
 redirect hop before connecting.
 """
 
+import io
 import ipaddress
 import socket
 import time
@@ -11,6 +12,7 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from PIL import Image, UnidentifiedImageError
 from requests.exceptions import RequestException
 
 from app.domain.post import is_safe_url
@@ -242,19 +244,23 @@ EMAIL_IMAGE_TYPES: frozenset[str] = frozenset({"image/png", "image/jpeg", "image
 # One short attempt per image: a static CDN either answers at once or the image
 # is not worth holding the run for (the summarizer also caps the total).
 IMAGE_PROBE_TIMEOUT_SECONDS = 10
+# Enough of the file for PNG, GIF and JPEG headers (a JPEG's size marker can sit
+# behind tens of KB of EXIF data); the rest of the image is never downloaded.
+IMAGE_HEADER_BYTES = 64 * 1024
 
 
-def is_email_renderable_image(url: str) -> bool:
-    """Whether ``url`` serves an image a mail client will display.
+def probe_email_image(url: str) -> int | None:
+    """The pixel width of the image at ``url`` if a mail client will display
+    it (0 when the width cannot be read), else None.
 
     Fetched, not guessed from the URL: CDN URLs often carry no extension, and
     the only proof an image loads is that it does. The request asks for the
     email-safe types, so a content-negotiating CDN answers with one of them if
-    it can. Only the headers are read. SSRF-checked at every redirect hop like
-    every other fetch.
+    it can. Only the first bytes are read. SSRF-checked at every redirect hop
+    like every other fetch.
     """
     if not is_safe_url(url):
-        return False
+        return None
     headers = REQUEST_HEADERS | {
         "Accept": "image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1"
     }
@@ -268,11 +274,27 @@ def is_email_renderable_image(url: str) -> bool:
         )
     except RequestException as e:
         logger.info("Image probe failed for '%s': %s", url, e)
-        return False
+        return None
     if response is None:
-        return False
+        return None
     with response:
         if not response.ok:
-            return False
+            return None
         content_type = response.headers.get("content-type", "").split(";")[0]
-        return content_type.strip().lower() in EMAIL_IMAGE_TYPES
+        if content_type.strip().lower() not in EMAIL_IMAGE_TYPES:
+            return None
+        return _image_width(response)
+
+
+def _image_width(response: requests.Response) -> int:
+    """The width from the image's header bytes, or 0 if they do not say."""
+    head = b""
+    try:
+        for chunk in response.iter_content(chunk_size=16 * 1024):
+            head += chunk
+            if len(head) >= IMAGE_HEADER_BYTES:
+                break
+        with Image.open(io.BytesIO(head)) as image:
+            return int(image.size[0])
+    except (RequestException, UnidentifiedImageError, OSError, ValueError):
+        return 0
