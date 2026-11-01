@@ -987,3 +987,56 @@ class TestBackticksBecomeCode:
 
         out = _postprocess_summary("<p>Check `a &lt; b` here.</p>")
         assert out == "<p>Check <code>a &lt; b</code> here.</p>"
+
+
+class TestFitLength:
+    """An over-long summary is sent back once; nothing about it may lose the card."""
+
+    LONG = (
+        "<p>" + "측정값과 메커니즘을 설명하는 긴 문장입니다. " * 330 + "</p>"
+    )  # ~7,600
+
+    class _Shortener:
+        def __init__(self, answer):
+            self.answer, self.calls = answer, []
+
+        def invoke(self, inputs):
+            self.calls.append(inputs)
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            return {"summary": self.answer}
+
+    def _fit(self, monkeypatch, summary, answer):
+        from app.application import llm_batching
+        from app.domain.summary import SummaryOutput
+
+        monkeypatch.setattr(llm_batching.time, "sleep", lambda _s: None)
+        s = _summarizer()
+        s.shortener = self._Shortener(answer)
+        output = SummaryOutput.model_validate({"summary": summary})
+        finalized = s._finalize_summary(_post("a"), output.summary)
+        return s, s._fit_length(_post("a"), output, finalized)
+
+    def test_a_summary_within_tolerance_is_not_sent_back(self, monkeypatch):
+        s, out = self._fit(monkeypatch, BODY, "unused")
+        assert s.shortener.calls == [] and out.startswith("<p>")
+
+    def test_an_over_long_summary_is_shortened_once(self, monkeypatch):
+        short = "<p>" + "줄인 요약 문장입니다. " * 300 + "</p>"
+        s, out = self._fit(monkeypatch, self.LONG, short)
+        assert len(s.shortener.calls) == 1
+        assert s.shortener.calls[0]["limit"] == 6000
+        assert s.shortener.calls[0]["measured"] > 6600
+        assert "줄인 요약" in out
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            ValueError("malformed"),
+            "<p>" + "더 길게 늘린 문장입니다. " * 600 + "</p>",
+            "<p>짧음</p>",  # below the usable floor
+        ],
+    )
+    def test_a_failed_or_worse_rewrite_keeps_the_original(self, monkeypatch, answer):
+        _, out = self._fit(monkeypatch, self.LONG, answer)
+        assert "측정값과 메커니즘" in out

@@ -11,9 +11,14 @@ from app.application.llm_batching import (
     BatchProcessor,
     HTMLTagOutputParser,
     measure_execution_time,
+    retry_with_backoff,
 )
 from app.application.ports import ChatModelProvider, ImageProbe
-from app.application.prompts.prompts import FilteringPrompt, SummarizationPrompt
+from app.application.prompts.prompts import (
+    FilteringPrompt,
+    SummarizationPrompt,
+    SummaryLengthPrompt,
+)
 from app.domain.constants import Language, LanguageModelId
 from app.domain.content import content_html, visible_text
 from app.domain.eval_metrics import is_anchor
@@ -257,6 +262,11 @@ class Summarizer:
             enable_prompt_cache=model_info.supports_prompt_caching
             and self._cache_can_hit(),
             use_converse=self.llm_factory.is_converse(summarization_llm),
+        )
+        self.shortener = (
+            SummaryLengthPrompt.for_language(self.language).get_prompt()
+            | summarization_llm
+            | HTMLTagOutputParser(tag_names=["summary"], required_tags=["summary"])
         )
         return prompt | summarization_llm | output_parser
 
@@ -516,7 +526,7 @@ class Summarizer:
                         (post, f"{SUMMARY_FAILED} ({problem}).")
                     )
                     continue
-                post.summary = finalized
+                post.summary = self._fit_length(post, summary_output, finalized)
                 post.one_liner = summary_output.one_liner
                 post.tags = summary_output.tags
                 post.urls = summary_output.urls
@@ -538,6 +548,67 @@ class Summarizer:
                 )
                 self.filtered_out_posts.append((post, f"{SUMMARY_INVALID}: {e}"))
         return succeeded
+
+    # The budget's upper end (KO characters, EN words), and how far past it a
+    # summary may run before it is sent back once to be shortened.
+    LENGTH_LIMIT: ClassVar[dict[Language, int]] = {
+        Language.KO: KO_LENGTH_BAND[1],
+        Language.EN: 2000,
+    }
+    LENGTH_TOLERANCE: ClassVar[float] = 1.1
+
+    def _length(self, summary_html: str) -> int:
+        text = visible_text(summary_html)
+        return len(text) if self.language is Language.KO else len(text.split())
+
+    @retry_with_backoff("summary-length")
+    def _shorten(self, summary_html: str, measured: int) -> dict[str, Any]:
+        limit = self.LENGTH_LIMIT[self.language]
+        return self.shortener.invoke(
+            {"summary": summary_html, "measured": measured, "limit": limit}
+        )
+
+    def _fit_length(self, post: Post, output: SummaryOutput, finalized: str) -> str:
+        """``finalized``, or a shortened rewrite if it runs well past the budget.
+
+        The rewrite is kept only if it is usable and shorter; any failure keeps
+        the original, since a long summary is a flaw and a lost one is not.
+        """
+        measured = self._length(finalized)
+        limit = self.LENGTH_LIMIT[self.language]
+        if measured <= limit * self.LENGTH_TOLERANCE:
+            return finalized
+        try:
+            revised = SummaryOutput.model_validate(
+                {"summary": self._shorten(output.summary, measured)["summary"]}
+            ).summary
+            shortened = self._finalize_summary(post, revised)
+        except Exception as e:
+            logger.warning(
+                "Shortening the %d-unit summary of '%s' failed (%s); keeping it.",
+                measured,
+                post.title,
+                e,
+            )
+            return finalized
+        revised_length = self._length(shortened)
+        if self._unusable_summary(shortened) or revised_length >= measured:
+            logger.warning(
+                "Shortened summary of '%s' is not usable or not shorter (%d -> %d); "
+                "keeping the original.",
+                post.title,
+                measured,
+                revised_length,
+            )
+            return finalized
+        logger.info(
+            "Summary of '%s' shortened from %d to %d (limit %d).",
+            post.title,
+            measured,
+            revised_length,
+            limit,
+        )
+        return shortened
 
     # Summary tags read as plain text. Not one_liner: _clean_one_liner already
     # decodes it once, and a second decode turned "List&lt;String&gt;" into

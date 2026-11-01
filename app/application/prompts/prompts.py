@@ -428,8 +428,8 @@ class GreetingRevisionPrompt(BasePrompt):
 <draft>{draft}</draft>
 
 Count the words rather than estimating. If it is too long, start by dropping a whole sentence
-(three sentences including the opener are enough). Keep the opener "Hey friends! I'm Peccy 😎",
-the specific observation and the hand-off to the articles, and keep the casual confident tone.
+(three sentences including the opener are enough). Keep the opener "Hey friends! I'm Peccy 😎"
+and the specific observation, and keep the casual confident tone.
 Do NOT introduce a "back then X, now Y" contrast. Plain text only.
 
 **OUTPUT:** The revised introduction only.""",
@@ -440,8 +440,8 @@ Do NOT introduce a "back then X, now Y" contrast. Plain text only.
 <draft>{draft}</draft>
 
 글자 수는 어림하지 말고 세세요. 너무 길면 문장 하나를 통째로 빼는 것부터 하세요(여는 인사
-포함 3문장이면 충분합니다). 여는 인사 "안녕 친구들! 난 Peccy야 😎"와 구체적인 관찰, 아티클로
-넘기는 마지막 문장은 유지하고, 반말·자신감 있는 어조도 그대로 두세요. "예전엔 X였는데 이제
+포함 3문장이면 충분합니다). 여는 인사 "안녕 친구들! 난 Peccy야 😎"와 구체적인 관찰은 유지하고,
+반말·자신감 있는 어조도 그대로 두세요. "예전엔 X였는데 이제
 Y야" 같은 과거-현재 대조는 넣지 마세요. 평문만 출력하세요.
 
 **OUTPUT:** 수정된 인트로만 출력.""",
@@ -883,3 +883,53 @@ English]</urls>""",
             },
         )
         return prompt_class
+
+
+class SummaryLengthPrompt(BasePrompt):
+    """Ask the summarization model to bring an over-long summary under its budget.
+
+    The budget is stated in the summarization prompt, and the model still runs a
+    long, dense article a quarter over it. Length is something code measures
+    exactly, so an over-long summary is sent back once with the measured count.
+    """
+
+    input_variables: list[str] = ["summary", "measured", "limit"]
+    output_variables: list[str] = ["summary"]
+    system_prompt_template: str = SummarizationPrompt.system_prompt_template
+    human_prompt_template: str = ""
+
+    _human_prompt_template: ClassVar[dict[Language, str]] = {
+        Language.EN: """Your summary below is {measured} words of visible text. The limit is
+{limit} words, so shorten it to fit.
+
+<draft>{summary}</draft>
+
+Cut sentences that restate something already said, background the reader does not need, and
+the least important details first. Keep every measured number, parameter name, code block and
+table, the sections and their order, and the HTML markup. Add nothing new.
+
+**OUTPUT:** <summary>[the shortened summary]</summary> only.""",
+        Language.KO: """아래 요약은 가시 텍스트 기준 {measured}자입니다. 상한이 {limit}자이니 그 안으로
+줄이세요.
+
+<draft>{summary}</draft>
+
+앞에서 한 말을 되풀이한 문장, 독자에게 필요 없는 배경, 덜 중요한 세부부터 지우세요. 측정값,
+파라미터 이름, 코드 블록, 표는 지우지 말고 섹션 구성과 순서, HTML 마크업도 그대로 두세요. 새
+내용은 더하지 마세요.
+
+**OUTPUT:** <summary>[줄인 요약]</summary>만 출력.""",
+    }
+
+    @classmethod
+    def for_language(
+        cls, language: Language = Language.KO
+    ) -> type["SummaryLengthPrompt"]:
+        return type(
+            f"{language.name.capitalize()}SummaryLengthPrompt",
+            (cls,),
+            {
+                "system_prompt_template": cls.system_prompt_template,
+                "human_prompt_template": cls._human_prompt_template[language],
+            },
+        )
