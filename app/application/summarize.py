@@ -1,3 +1,4 @@
+import functools
 import time
 from collections.abc import Callable
 from typing import Any, ClassVar
@@ -116,7 +117,8 @@ class Summarizer:
         image_probe: ImageProbe,
     ) -> None:
         self.settings = settings
-        self.image_probe = image_probe
+        # Cached per run: a shortened rewrite probes the same images again.
+        self.image_probe = functools.cache(image_probe)
         self.language = settings.language
         self.filtered_out_posts: list[tuple[Post, str]] = []
         self.batch_processor = BatchProcessor(
