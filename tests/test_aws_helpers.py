@@ -152,7 +152,18 @@ class TestSendEmail:
 class TestHtmlToText:
     def test_blocks_become_lines_and_blank_runs_collapse(self):
         html = "<div><p>One</p>\n\n\n<p>Two<br>Three</p></div><ul><li>a</li><li>b</li></ul>"
-        assert html_to_text(html) == "One\n\nTwo\nThree\n\na\n\nb\n"
+        assert html_to_text(html) == "One\n\nTwo\nThree\n\n• a\n\n• b\n"
+
+    def test_code_keeps_its_indentation_and_tables_their_cells(self):
+        html = (
+            "<pre><code>if x:\n    print(y)\n</code></pre>"
+            '<table class="table-bordered"><tr><th>Case</th><th>Time</th></tr>'
+            "<tr><td>A</td><td>48 s</td></tr></table><ol><li>first</li></ol>"
+        )
+        text = html_to_text(html)
+        assert "if x:\n    print(y)" in text
+        assert "Case | Time" in text and "A | 48 s" in text
+        assert "1. first" in text
 
     def test_link_whose_text_is_its_url_is_not_repeated(self):
         html = '<a href="https://example.com/x">https://example.com/x</a>'

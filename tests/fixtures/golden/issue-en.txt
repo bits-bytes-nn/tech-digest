@@ -1,0 +1,103 @@
+Weekly AI Tech Blog Digest
+
+A curated digest of the most impactful AI developments, research and engineering from leading tech companies and research institutions.
+
+Hello! This week brings faster SageMaker AI job starts, a new PyTorch backend for Trainium, and a deep guide to AgentCore Gateway. If the week got away from you, these three are the ones worth reading first, in that order, with a coffee.
+
+Announcing Faster SageMaker AI Jobs
+
+Published on 2026-10-28 · 3 min read ★ 0.95
+
+#SageMaker #launch-a #MLOps
+
+The gist of launch-a in one sentence.
+
+📌 개요
+
+The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-a post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+• 첫째 항목
+
+• 둘째 항목
+
+Read the original → (https://aws.amazon.com/blogs/machine-learning/launch-a/)
+
+Further reading
+
+• https://docs.aws.amazon.com/launch-a/guide.html
+
+TorchNeuron, Amazon’s New PyTorch Backend
+
+Published on 2026-10-27 · 3 min read ★ 0.90
+
+#SageMaker #launch-b #MLOps
+
+The gist of launch-b in one sentence.
+
+📌 개요
+
+The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops. The launch-b post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+• 첫째 항목
+
+• 둘째 항목
+
+Read the original → (https://aws.amazon.com/blogs/machine-learning/launch-b/)
+
+Further reading
+
+• https://docs.aws.amazon.com/launch-b/guide.html
+
+Evaluating Models with Bedrock – Part 2
+
+Published on 2026-10-29 · 3 min read ★ 0.75
+
+#SageMaker #guide-new #MLOps
+
+The gist of guide-new in one sentence.
+
+📌 개요
+
+The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops. The guide-new post walks through the design and its operation step by step, naming what each component does and where it stops.
+
+• 첫째 항목
+
+• 둘째 항목
+
+Read the original → (https://aws.amazon.com/blogs/machine-learning/guide-new/)
+
+Further reading
+
+• https://docs.aws.amazon.com/guide-new/guide.html
+
+Thank you for reading! Stay tuned for next week's AI insights and discoveries.

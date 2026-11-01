@@ -297,7 +297,7 @@ def _run_issue(
     messages = []
     for sent in ses.sent:
         message = email.message_from_string(sent["RawMessage"]["Data"])
-        [part] = [p for p in message.walk() if p.get_content_type() == "text/html"]
+        parts = {p.get_content_type(): p for p in message.walk()}
         messages.append(
             {
                 "source": sent["Source"],
@@ -310,7 +310,8 @@ def _run_issue(
                     )
                     for name in ("Subject", "From", "To", "List-Unsubscribe")
                 },
-                "html": part.get_payload(decode=True).decode("utf-8"),
+                "html": parts["text/html"].get_payload(decode=True).decode("utf-8"),
+                "text": parts["text/plain"].get_payload(decode=True).decode("utf-8"),
             }
         )
     ledgers = {
@@ -346,9 +347,12 @@ def test_the_delivered_issue_matches_its_snapshot(monkeypatch, tmp_path, languag
     assert [m["destinations"] for m in run["messages"]] == [[r] for r in RECIPIENTS]
     [html] = {m["html"] for m in run["messages"]}
     _check(f"issue-{language.value}.html", html)
+    [text] = {m["text"] for m in run["messages"]}
+    _check(f"issue-{language.value}.txt", text)
     envelope = {
         "messages": [
-            {k: v for k, v in m.items() if k != "html"} for m in run["messages"]
+            {k: v for k, v in m.items() if k not in ("html", "text")}
+            for m in run["messages"]
         ],
         "s3_keys": run["s3_keys"],
         "ledgers": run["ledgers"],

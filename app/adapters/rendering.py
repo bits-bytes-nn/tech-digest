@@ -269,7 +269,6 @@ class NewsletterBuilder:
             title=config.header_title,
             description=config.header_description,
             thumbnail=config.header_thumbnail,
-            publish_date=config.date_suffix,
         )
         section = Section(introduction=config.first_section_intro)
         footer = Footer(title=config.footer_title)

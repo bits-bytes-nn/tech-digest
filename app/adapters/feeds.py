@@ -13,9 +13,9 @@ from bs4 import BeautifulSoup, Tag
 from feedparser.exceptions import CharacterEncodingOverride
 
 from app.adapters.http import (
-    _make_robust_request,
-    _try_request,
+    make_robust_request,
     parse_page,
+    try_request,
 )
 from app.domain.content import visible_text
 from app.domain.crawl import CrawlReport, SourceHealth, SourceStatus
@@ -119,7 +119,7 @@ def _scrape_full_content(url: str, *, body_fallback: bool) -> str | None:
     selector that matches: on Hugging Face's blog ``<article>`` is a
     near-empty wrapper (82 visible characters against 21,669 on the page).
     """
-    if not url or not (response := _make_robust_request(url)):
+    if not url or not (response := make_robust_request(url)):
         return None
     try:
         soup = parse_page(response)
@@ -145,7 +145,7 @@ def _scrape_full_content(url: str, *, body_fallback: bool) -> str | None:
             return str(best)
         return str(body) if body_fallback else ""
     except Exception as e:
-        logger.error(f"Error parsing content for '{url}': {e}")
+        logger.error("Error parsing content for '%s': %s", url, e)
         return None
 
 
@@ -209,7 +209,7 @@ class RssFetcher:
         self.truncated = False
 
     def fetch(self, start_date: datetime, end_date: datetime) -> list[Post]:
-        logger.info(f"Fetching posts from RSS feed: '{self.rss_url}'")
+        logger.info("Fetching posts from RSS feed: '%s'", self.rss_url)
         # Reset first: a stale count from a previous call would describe the wrong
         # fetch if this collector is reused.
         self.candidates = None
@@ -306,7 +306,7 @@ class RssFetcher:
         The request layer adds the timeout, the transient-error retry and the
         per-hop SSRF check. The headers are the ones feedparser sends itself.
         """
-        response = _try_request(requests.Session(), self.rss_url, self.FEED_HEADERS)
+        response = try_request(requests.Session(), self.rss_url, self.FEED_HEADERS)
         if response is None:
             raise SourceFetchError(f"Could not fetch feed '{self.rss_url}'")
         headers = {key.lower(): value for key, value in response.headers.items()}
@@ -344,7 +344,7 @@ class GenericPageScraper:
         return parsed
 
     def _fetch_page(self) -> BeautifulSoup:
-        if response := _make_robust_request(self.page_url):
+        if response := make_robust_request(self.page_url):
             return parse_page(response)
         raise SourceFetchError(
             f"All request attempts failed for '{self.page_url}' "
@@ -373,7 +373,7 @@ class GenericPageScraper:
                 ):
                     posts.append(post_from_entry(entry_data))
             except Exception as e:
-                logger.error(f"Error processing item from {self.page_url}: {e}")
+                logger.error("Error processing item from %s: %s", self.page_url, e)
         self.candidates = self._dated
         return posts
 
@@ -395,7 +395,7 @@ class LinkedInBlogScraper(GenericPageScraper):
 
     @staticmethod
     def _full_title(url: str) -> str:
-        if not (response := _make_robust_request(url)):
+        if not (response := make_robust_request(url)):
             return ""
         soup = parse_page(response)
         meta = soup.find("meta", attrs={"property": "og:title"})

@@ -7,9 +7,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from langchain_core.runnables import RunnableLambda
 
 from app.application.summarize import Summarizer, SummarizerSettings
-from app.domain.constants import LanguageModelId
+from app.domain.constants import Language, LanguageModelId
 from app.domain.post import Post
 
 
@@ -52,6 +53,10 @@ def _settings(**overrides) -> SummarizerSettings:
     return SummarizerSettings.model_validate(base | overrides)
 
 
+def _unexpected_shortening(_inputs):
+    raise AssertionError("summary shortening was not expected in this test")
+
+
 def _summarizer(min_score=0.7, **overrides):
     s = Summarizer.__new__(Summarizer)
     s.settings = _settings(min_score=min_score, **overrides)
@@ -59,6 +64,9 @@ def _summarizer(min_score=0.7, **overrides):
     s.filtered_out_posts = []
     # Every image loads; tests about the mail-client check pass their own probe.
     s.image_probe = lambda url: 0
+    # A test that reaches the shortener without meaning to should fail loudly,
+    # not be absorbed by _fit_length's keep-the-original fallback.
+    s.shortener = RunnableLambda(_unexpected_shortening)
     from app.application.llm_batching import BatchProcessor
 
     s.batch_processor = BatchProcessor(max_concurrency=2, batch_size=10)
@@ -969,23 +977,23 @@ class TestBackticksBecomeCode:
     """Markdown is not processed inside HTML, so backticks would show verbatim."""
 
     def test_a_backtick_span_in_prose_becomes_code(self):
-        from app.domain.summary import _postprocess_summary
+        from app.domain.summary import postprocess_summary
 
-        out = _postprocess_summary("<p>Set `--tp 2` and `PD_BUFFER` first.</p>")
+        out = postprocess_summary("<p>Set `--tp 2` and `PD_BUFFER` first.</p>")
         assert out == (
             "<p>Set <code>--tp 2</code> and <code>PD_BUFFER</code> first.</p>"
         )
 
     def test_backticks_inside_a_code_block_are_left_alone(self):
-        from app.domain.summary import _postprocess_summary
+        from app.domain.summary import postprocess_summary
 
         html = "<pre><code>echo `date`</code></pre>"
-        assert _postprocess_summary(html) == html
+        assert postprocess_summary(html) == html
 
     def test_escaped_text_in_a_span_stays_escaped(self):
-        from app.domain.summary import _postprocess_summary
+        from app.domain.summary import postprocess_summary
 
-        out = _postprocess_summary("<p>Check `a &lt; b` here.</p>")
+        out = postprocess_summary("<p>Check `a &lt; b` here.</p>")
         assert out == "<p>Check <code>a &lt; b</code> here.</p>"
 
 
@@ -1040,3 +1048,33 @@ class TestFitLength:
     def test_a_failed_or_worse_rewrite_keeps_the_original(self, monkeypatch, answer):
         _, out = self._fit(monkeypatch, self.LONG, answer)
         assert "측정값과 메커니즘" in out
+
+
+@pytest.mark.parametrize(
+    ("language", "limit"), [(Language.KO, 6000), (Language.EN, 2000)]
+)
+def test_the_real_shortening_prompt_formats_and_parses(language, limit):
+    """The fakes above skip the prompt; a wrong input key or a stray brace in
+    it would only log a warning in production, so format the real one."""
+    from langchain_core.messages import AIMessage
+
+    from app.application.llm_batching import HTMLTagOutputParser
+    from app.application.prompts.prompts import SummaryLengthPrompt
+
+    seen = {}
+
+    def model(prompt):
+        seen["text"] = prompt.to_string()
+        return AIMessage(content="<summary><p>shorter</p></summary>")
+
+    s = _summarizer(language=language)
+    s.shortener = (
+        SummaryLengthPrompt.for_language(language).get_prompt()
+        | RunnableLambda(model)
+        | HTMLTagOutputParser(tag_names=["summary"], required_tags=["summary"])
+    )
+    assert (
+        s._shorten("<p>{literal braces} draft</p>", 7000)["summary"] == "<p>shorter</p>"
+    )
+    assert str(limit) in seen["text"] and "7000" in seen["text"]
+    assert "{literal braces} draft" in seen["text"]

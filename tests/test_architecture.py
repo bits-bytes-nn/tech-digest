@@ -61,9 +61,6 @@ ALLOWED: tuple[tuple[str, str], ...] = (
     # and connection errors unchanged. Only the exception classes are imported;
     # the application makes no AWS call.
     ("application/llm_batching.py", "botocore.exceptions"),
-    # Adapters implement the ports, so they may import them, and nothing else
-    # from the application.
-    ("adapters/*", "app.application.ports"),
 )
 
 # Top-level modules every layer imports, held to the domain's rule so that
@@ -164,15 +161,11 @@ class TestTheCheckItself:
         probe.write_text("from langchain_core.runnables import Runnable\n", "utf-8")
         assert _violations(probe, root) == ["langchain_core.runnables.Runnable"]
 
-    def test_an_adapter_may_import_the_ports_but_no_service(self, root):
+    def test_an_adapter_may_not_import_the_application(self, root):
+        # Adapters satisfy the ports structurally; they need not import them.
         probe = root / "adapters" / "probe.py"
-        probe.write_text(
-            "from app.application.ports import ObjectStore\n"
-            "from app.application import ports\n"
-            "from app.application.summarize import Summarizer\n",
-            encoding="utf-8",
-        )
-        assert _violations(probe, root) == ["app.application.summarize.Summarizer"]
+        probe.write_text("from app.application import ports\n", encoding="utf-8")
+        assert _violations(probe, root) == ["app.application.ports"]
 
     def test_the_shared_logger_is_held_to_the_domain_rule(self, root):
         probe = root / "logger.py"

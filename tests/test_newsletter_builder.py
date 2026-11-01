@@ -231,7 +231,7 @@ class TestChromeDefaultsAreReachable:
         from app.domain.newsletter import Header
 
         with pytest.raises(ValidationError):
-            Header(title="", description="d", thumbnail="t", publish_date="2026-08-19")
+            Header(title="", description="d", thumbnail="t")
 
     def test_main_omits_unset_chrome_so_defaults_apply(self, tmp_path, monkeypatch):
         """The pipeline must not pass "" for an unset field."""

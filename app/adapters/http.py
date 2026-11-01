@@ -170,7 +170,7 @@ def _get_following_redirects(
     return None
 
 
-def _try_request(
+def try_request(
     session: requests.Session, url: str, headers: dict[str, str]
 ) -> requests.Response | None:
     """GET with up to two retries for transient errors (timeout / 5xx / 429).
@@ -224,13 +224,13 @@ def _retry_delay(response: requests.Response | None, attempt: int) -> float:
     return min(base + step, 30.0)
 
 
-def _make_robust_request(url: str) -> requests.Response | None:
+def make_robust_request(url: str) -> requests.Response | None:
     """GET an article or index page with browser headers, or None if it fails.
 
     SSRF-checked at every hop, the first included; transient errors retried
-    (see ``_try_request``).
+    (see ``try_request``).
     """
-    if response := _try_request(requests.Session(), url, REQUEST_HEADERS):
+    if response := try_request(requests.Session(), url, REQUEST_HEADERS):
         return response
     logger.error("Request failed for '%s'", url)
     return None

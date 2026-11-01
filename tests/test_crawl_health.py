@@ -197,7 +197,7 @@ class TestCandidatesComeFromTheFetchers:
     def offline_feed_download(self, monkeypatch):
         monkeypatch.setattr(
             fp,
-            "_try_request",
+            "try_request",
             lambda session, url, headers: SimpleNamespace(
                 content=b"", headers={}, url=url
             ),
@@ -244,7 +244,7 @@ class TestCandidatesComeFromTheFetchers:
         monkeypatch.setattr(
             scraper, "_fetch_page", lambda: BeautifulSoup(html, "html.parser")
         )
-        monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
+        monkeypatch.setattr(fp, "make_robust_request", lambda url: None)
         return scraper
 
     @pytest.mark.parametrize(
@@ -364,12 +364,12 @@ class TestTruncatedFeeds:
     def offline(self, monkeypatch):
         monkeypatch.setattr(
             fp,
-            "_try_request",
+            "try_request",
             lambda session, url, headers: SimpleNamespace(
                 content=b"", headers={}, url=url
             ),
         )
-        monkeypatch.setattr(fp, "_make_robust_request", lambda url: None)
+        monkeypatch.setattr(fp, "make_robust_request", lambda url: None)
 
     def _fetch(self, monkeypatch, dates: list[str]) -> fp.RssFetcher:
         entries = [

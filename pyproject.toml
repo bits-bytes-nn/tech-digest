@@ -97,6 +97,7 @@ select = [
     "C4",   # flake8-comprehensions
     "SIM",  # flake8-simplify
     "RUF",  # ruff-specific
+    "G004", # logging with f-strings; arguments are interpolated lazily
 ]
 ignore = [
     "E501",   # line length handled by formatter
