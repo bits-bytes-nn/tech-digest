@@ -1131,11 +1131,12 @@ lazy-loading처럼 파서가 놓친 이미지도 두 번째 조건으로 살아�
 src(모델이 macOS 스크린샷 이름의 U+202F를 일반 공백으로 옮긴 경우)는 원문 URL로 되돌립니다.
 
 출처가 맞아도 메일에서 보이지 않는 이미지가 있습니다. `_drop_unrenderable_images`는 남은
-이미지를 하나씩 받아 보고(`http.is_email_renderable_image`, 요약기는 생성자 인자 `image_probe`로 받습니다), 응답이 PNG·JPEG·GIF가 아니거나
+이미지를 하나씩 받아 보고(`http.probe_email_image`, 요약기는 생성자 인자 `image_probe`로 받습니다), 응답이 PNG·JPEG·GIF가 아니거나
 받아지지 않으면 원문이 같은 그림에 대해 적어 둔 다른 판본(`srcset`, `data-src`, `<picture>`의
 `<source>`)을 차례로 확인해 메일에서 보이는 첫 판본으로 바꿉니다. 메일 화면에는 2배 해상도면 충분하므로
 1600px 이하 중 가장 큰 것부터 봅니다. 맞는 판본이 없으면 figure를 캡션째 지웁니다. 확인은 이미지당
-한 번, 10초 안에 헤더만 받고(`IMAGE_PROBE_TIMEOUT_SECONDS`), 요약 하나가 쓰는 확인 시간은 모두 합쳐
+한 번, 10초 안에 응답 헤더와 이미지 앞부분 64KB만 받아 너비를 읽고(`IMAGE_PROBE_TIMEOUT_SECONDS`,
+`IMAGE_HEADER_BYTES`), 요약 하나가 쓰는 확인 시간은 모두 합쳐
 120초(`IMAGE_PROBE_BUDGET_SECONDS`)입니다. 그 시간을 넘기면 아직 확인하지 못한 이미지는 보내지 않고
 지웁니다. Windows Outlook은 WebP·AVIF 자리에 alt 텍스트를
 보여 주므로, 그대로 두면 alt 텍스트와 캡션이 한 문장처럼 이어져 보입니다. URL 확장자로 추측하지
@@ -1181,7 +1182,9 @@ SSRF 검사를 거칩니다. 남은 src는 `_encode_image_srcs`가 URL에 그대
 테두리와 패딩은 템플릿 규칙이 줍니다(§14). 모든 `<img>`에는 `width="712"`와
 `width:100%;max-width:712px;height:auto` 인라인 스타일을 붙입니다(`SUMMARY_IMAGE_WIDTH`, 800px
 열에서 카드 여백과 패딩을 뺀 값). Windows Outlook은 `max-width`를 무시하므로 `width` 속성이
-없으면 2,000px 차트가 열 전체를 창 밖으로 밀어냅니다.
+없으면 2,000px 차트가 열 전체를 창 밖으로 밀어냅니다. 이미지 확인 단계가 실제 너비를 읽어
+그보다 좁은 이미지에는 자기 너비와 `max-width:100%;height:auto`를 다시 줍니다. 그래서 작은 그림이
+712px로 늘어나지 않습니다.
 
 **평문으로 읽는 태그.** 필터 응답의 `score`, `reason`과 요약의 `tags`는 평문으로
 읽습니다(`text_tags`). 태그 안의 HTML을 직렬화해 돌려주면 "Q&A"가 "Q&amp;A"로 오고,

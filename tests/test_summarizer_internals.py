@@ -58,7 +58,7 @@ def _summarizer(min_score=0.7, **overrides):
     s.language = s.settings.language
     s.filtered_out_posts = []
     # Every image loads; tests about the mail-client check pass their own probe.
-    s.image_probe = lambda url: True
+    s.image_probe = lambda url: 0
     from app.application.llm_batching import BatchProcessor
 
     s.batch_processor = BatchProcessor(max_concurrency=2, batch_size=10)
@@ -339,7 +339,7 @@ class TestSummarizePosts:
         webp = "https://cdn.example.com/chart.width-100.format-webp.webp"
         png = "https://cdn.example.com/arch.png"
         s = _summarizer()
-        s.image_probe = lambda url: url == png
+        s.image_probe = lambda url: 0 if url == png else None
         post = _post("a", content=f'<img src="{webp}"><img src="{png}">')
         post.images = [webp, png]
         s.summarizer = _FakeChain(
@@ -365,7 +365,7 @@ class TestSummarizePosts:
             f'{base}-1536.png 1536w, {base}-2048.png 2048w">'
         )
         s = _summarizer()
-        s.image_probe = lambda url: url.endswith(".png")
+        s.image_probe = lambda url: 0 if url.endswith(".png") else None
         post = _post("a", content=source)
         post.images = [f"{base}.webp"]
         s.summarizer = _FakeChain(
@@ -391,11 +391,34 @@ class TestSummarizePosts:
         html, dropped = module._drop_unrenderable_images(
             '<img src="https://x/a.png"><img src="https://x/b.png">',
             "",
-            is_renderable=lambda url: True,
+            is_renderable=lambda url: 0,
             budget_seconds=60,
             clock=lambda: next(ticks),
         )
         assert "a.png" in html and dropped == ["https://x/b.png"]
+
+    @pytest.mark.parametrize(
+        ("width", "attr", "style"),
+        [
+            (120, "120", "max-width:100%;height:auto"),
+            (2369, "712", "width:100%;max-width:712px;height:auto"),
+            (0, "712", "width:100%;max-width:712px;height:auto"),
+        ],
+    )
+    def test_a_narrow_image_keeps_its_own_width(self, width, attr, style):
+        from bs4 import BeautifulSoup
+
+        from app.application import summarize as module
+        from app.domain.summary import SummaryOutput
+
+        sanitized = SummaryOutput.model_validate(
+            {"summary": '<p>x</p><img src="https://x/a.png">', "tags": [], "urls": []}
+        ).summary
+        html, _ = module._drop_unrenderable_images(
+            sanitized, "", is_renderable=lambda url: width
+        )
+        img = BeautifulSoup(html, "html.parser").find("img")
+        assert (img["width"], img["style"]) == (attr, style)
 
     def test_an_already_encoded_image_url_is_left_alone(self):
         url = "https://cdn.example.com/a%20b.png?w=1200&q=90"

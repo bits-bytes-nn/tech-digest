@@ -113,5 +113,6 @@ class ChatModelProvider(Protocol):
         differs from the native request body's."""
 
 
-#: Whether an image URL serves a type every mail client displays.
-ImageProbe = Callable[[str], bool]
+#: The pixel width of a mail-displayable image at a URL (0 if unknown), or None
+#: if mail clients would not display it.
+ImageProbe = Callable[[str], int | None]

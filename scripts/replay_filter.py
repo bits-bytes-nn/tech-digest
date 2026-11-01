@@ -121,7 +121,7 @@ def score(
     import boto3
 
     from app.adapters.bedrock import BedrockLanguageModelFactory
-    from app.adapters.http import is_email_renderable_image
+    from app.adapters.http import probe_email_image
     from app.application.summarize import Summarizer, SummarizerSettings
     from app.domain.post import Post
     from app.domain.summary import MODEL_FAILURE_PREFIXES
@@ -151,7 +151,7 @@ def score(
     summarizer = Summarizer(
         BedrockLanguageModelFactory(boto_session=session),
         settings,
-        is_email_renderable_image,
+        probe_email_image,
     )
     posts = [
         Post(

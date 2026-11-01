@@ -197,11 +197,11 @@ class TestSSRFGuard:
         "url", ["http://169.254.169.254/x.png", "http://2130706433/x.png"]
     )
     def test_an_image_on_a_blocked_host_is_never_requested(self, monkeypatch, url):
-        from app.adapters.http import is_email_renderable_image
+        from app.adapters.http import probe_email_image
 
         session = _FakeSession([_FakeResponse(200)])
         _patch_session(monkeypatch, session)
-        assert not is_email_renderable_image(url)
+        assert probe_email_image(url) is None
         assert session.calls == 0
 
     def test_allows_hostname_resolving_to_public_ip(self, monkeypatch):
@@ -234,11 +234,17 @@ class TestEmailRenderableImage:
 
         calls: list[dict] = []
 
-        def install(content_type="image/png", ok=True, raises=None):
+        def install(content_type="image/png", ok=True, raises=None, body=b""):
             class _Resp:
                 def __init__(self):
                     self.ok = ok
                     self.headers = {"content-type": content_type}
+                    self.read = 0
+
+                def iter_content(self, chunk_size):
+                    for start in range(0, len(body), chunk_size):
+                        self.read += 1
+                        yield body[start : start + chunk_size]
 
                 def __enter__(self):
                     return self
@@ -261,26 +267,59 @@ class TestEmailRenderableImage:
         "content_type", ["image/png", "image/jpeg; q=1", "image/gif"]
     )
     def test_email_safe_types_are_kept(self, respond, content_type):
-        from app.adapters.http import is_email_renderable_image
+        from app.adapters.http import probe_email_image
 
         respond(content_type)
-        assert is_email_renderable_image("https://cdn.example.com/a")
+        # Kept, with an unknown width: the fake serves no image bytes.
+        assert probe_email_image("https://cdn.example.com/a") == 0
+
+    @pytest.mark.parametrize("fmt", ["PNG", "JPEG", "GIF"])
+    def test_the_width_comes_from_the_image_header(self, respond, fmt):
+        import io
+
+        from PIL import Image
+
+        from app.adapters.http import probe_email_image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (120, 40)).save(buffer, format=fmt)
+        respond(f"image/{fmt.lower()}", body=buffer.getvalue())
+        assert probe_email_image("https://cdn.example.com/a") == 120
 
     @pytest.mark.parametrize(
         "content_type",
         ["image/webp", "image/avif", "image/svg+xml", "application/octet-stream"],
     )
     def test_types_mail_clients_do_not_show_are_dropped(self, respond, content_type):
-        from app.adapters.http import is_email_renderable_image
+        from app.adapters.http import probe_email_image
 
         respond(content_type)
-        assert not is_email_renderable_image("https://cdn.example.com/a")
+        assert probe_email_image("https://cdn.example.com/a") is None
 
     def test_an_image_that_does_not_load_is_dropped(self, respond):
-        from app.adapters.http import is_email_renderable_image
+        from app.adapters.http import probe_email_image
 
         respond(ok=False)
-        assert not is_email_renderable_image("https://cdn.example.com/a")
+        assert probe_email_image("https://cdn.example.com/a") is None
+
+    def test_only_the_header_bytes_are_read(self, respond):
+        from app.adapters import http
+
+        respond(body=b"\x00" * (10 * http.IMAGE_HEADER_BYTES))
+        response_reads = []
+        original = http._image_width
+
+        def spy(response):
+            width = original(response)
+            response_reads.append(response.read)
+            return width
+
+        http._image_width = spy
+        try:
+            assert http.probe_email_image("https://cdn.example.com/a") == 0
+        finally:
+            http._image_width = original
+        assert response_reads == [http.IMAGE_HEADER_BYTES // (16 * 1024)]
 
     def test_one_short_header_only_attempt(self, respond):
         # A hung host used to cost 3 attempts x 30 s per image, with the body
@@ -289,14 +328,14 @@ class TestEmailRenderableImage:
 
         from app.adapters.http import (
             IMAGE_PROBE_TIMEOUT_SECONDS,
-            is_email_renderable_image,
+            probe_email_image,
         )
 
         calls = respond(raises=requests.exceptions.ConnectTimeout("hung"))
-        assert not is_email_renderable_image("https://cdn.example.com/a")
+        assert probe_email_image("https://cdn.example.com/a") is None
         assert calls == [{"timeout": IMAGE_PROBE_TIMEOUT_SECONDS, "stream": True}]
 
     def test_an_unsafe_scheme_is_never_fetched(self):
-        from app.adapters.http import is_email_renderable_image
+        from app.adapters.http import probe_email_image
 
-        assert not is_email_renderable_image("javascript:alert(1)")
+        assert not probe_email_image("javascript:alert(1)")

@@ -150,7 +150,7 @@ def regenerate(date: str, stage: str, profile: str | None, suffix: str) -> str:
 
     os.environ.setdefault("CONFIG_FILE_SUFFIX", stage)
     from app.adapters.bedrock import BedrockLanguageModelFactory
-    from app.adapters.http import is_email_renderable_image
+    from app.adapters.http import probe_email_image
     from app.application.summarize import Summarizer, SummarizerSettings
     from app.configs import Config
     from app.domain.post import Post
@@ -174,7 +174,7 @@ def regenerate(date: str, stage: str, profile: str | None, suffix: str) -> str:
     summarizer = Summarizer(
         BedrockLanguageModelFactory(boto_session=session),
         SummarizerSettings.model_validate(config.summarization.model_dump()),
-        is_email_renderable_image,
+        probe_email_image,
     )
     posts = [
         Post(
