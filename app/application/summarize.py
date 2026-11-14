@@ -1,4 +1,5 @@
 import functools
+import re
 import time
 from collections.abc import Callable
 from typing import Any, ClassVar
@@ -22,7 +23,7 @@ from app.application.prompts.prompts import (
 from app.domain.constants import Language, LanguageModelId
 from app.domain.content import content_html, visible_text
 from app.domain.eval_metrics import is_anchor
-from app.domain.post import Post
+from app.domain.post import Post, product_key
 from app.domain.quality_metrics import EN_LENGTH_BAND, KO_LENGTH_BAND, is_korean
 from app.domain.summary import (
     FILTER_FAILED,
@@ -264,9 +265,20 @@ class Summarizer:
             and self._cache_can_hit(),
             use_converse=self.llm_factory.is_converse(summarization_llm),
         )
+        # Same model, no thinking: cutting a finished draft to length needs no
+        # analysis, and with thinking on, one shortening call produced 11,643 and
+        # 15,751 output tokens in two prod runs — more than any summary. Its own
+        # stage keeps those tokens apart from summarization's in the usage log.
+        shortening_llm = self.llm_factory.get_model(
+            model_id=model_id,
+            temperature=0.0,
+            stage="summary-shortening",
+            enable_thinking=False,
+            max_tokens=max_tokens,
+        )
         self.shortener = (
             SummaryLengthPrompt.for_language(self.language).get_prompt()
-            | summarization_llm
+            | shortening_llm
             | HTMLTagOutputParser(tag_names=["summary"], required_tags=["summary"])
         )
         return prompt | summarization_llm | output_parser
@@ -301,7 +313,8 @@ class Summarizer:
         But a post whose summary then failed simply vanished: the issue went out
         a card short even when other posts had passed the filter, and the post
         lost was usually the top-ranked one. Each round re-selects from the
-        eligible posts minus the failures — so the per-source cap still holds —
+        eligible posts minus the failures — so the source and product caps still
+        hold —
         and summarizes only the posts not yet done.
         """
         pool = list(eligible)
@@ -335,7 +348,10 @@ class Summarizer:
 
     def _select_for_digest(self, posts: list[Post]) -> list[Post]:
         return select_for_digest(
-            posts, self.settings.max_posts, self.settings.max_per_source
+            posts,
+            self.settings.max_posts,
+            self.settings.max_per_source,
+            self.settings.max_per_product,
         )
 
     def _gate_by_content_length(self, posts: list[Post]) -> list[Post]:
@@ -448,10 +464,20 @@ class Summarizer:
                     )
                 reason = response.get("reason", "No reason provided.")
                 post.score = score
+                product = str(response.get("product") or "").strip()
+                post.product = product if product_key(product) else ""
+                post.impact = _impact(response.get("impact"), post.title)
                 if score >= self.settings.min_score:
                     filtered_posts.append(post)
+                    # The reason too: a pick is audited as often as a rejection.
                     logger.info(
-                        "Post '%s' passed filter with score %.2f.", post.title, score
+                        "Post '%s' passed filter with score %.2f (impact %d, "
+                        "product: %s). Reason: %s",
+                        post.title,
+                        score,
+                        post.impact,
+                        post.product or "-",
+                        reason,
                     )
                 else:
                     self.filtered_out_posts.append((post, reason))
@@ -665,3 +691,18 @@ class Summarizer:
                 unrenderable,
             )
         return postprocess_summary(encode_image_srcs(cleaned))
+
+
+def _impact(value: Any, title: str) -> int:
+    """The filter's 1-3 impact, or 0 when it gave none or something else.
+
+    Only a tie-break, so an unreadable value ranks last among equal scores
+    rather than failing the post; it is logged, since a format slip on every
+    call would otherwise switch the tie-break off unnoticed.
+    """
+    text = str(value or "").strip()
+    if match := re.match(r"([123])\b", text):
+        return int(match.group(1))
+    if text:
+        logger.info("Unreadable filter impact %r for '%s'; using 0.", text, title)
+    return 0

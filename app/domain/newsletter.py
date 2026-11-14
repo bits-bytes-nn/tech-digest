@@ -115,6 +115,7 @@ class Article(BaseModel):
     tags: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
     score: float = Field(default=1.0, ge=0.0, le=1.0)
+    impact: int = Field(default=0, ge=0, le=3)
     _normalize_date = field_validator("published_date", mode="before")(normalize_date)
 
     @field_validator("link", mode="before")
