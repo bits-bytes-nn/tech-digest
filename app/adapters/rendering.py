@@ -25,6 +25,7 @@ from app.domain.newsletter import (
     collapse_html_whitespace,
     estimate_reading_minutes,
 )
+from app.domain.post import relevance_key
 from app.logger import logger
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -314,9 +315,9 @@ class NewsletterBuilder:
         # away the ranking the filtering stage paid for: a weekly window puts
         # nearly every post on the same day or two, so ties fell back to glob
         # order (i.e. filename), which routinely buried the top-scored piece
-        # below weaker ones. Score first, recency as the tie-break — the same key
-        # the summarizer selects with, so selection and presentation agree.
-        return sorted(articles, key=lambda a: (a.score, a.published_date), reverse=True)
+        # below weaker ones. The same key the summarizer selects with; the saved
+        # date has no time of day, so only same-day full ties can differ.
+        return sorted(articles, key=relevance_key, reverse=True)
 
     def _save_individual_articles(
         self, articles: list[Article], config: BuildConfiguration

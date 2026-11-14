@@ -588,6 +588,92 @@ class TestSelectForDigest:
         )
         assert [p.title for p in s._select_for_digest(posts)] == ["aws1", "aws2"]
 
+    def _with_products(self, spec: list[tuple[str, str, float]]) -> list[Post]:
+        posts = self._scored([(t, "aws", score) for t, _, score in spec])
+        for post, (_, product, _) in zip(posts, spec, strict=True):
+            post.product = product
+            # Same publish time, so ties keep the listed order.
+            post.published_date = posts[0].published_date
+        return posts
+
+    def test_product_cap_spreads_tied_launches_of_one_source(self):
+        s = _summarizer(max_posts=3, max_per_product=1)
+        posts = self._with_products(
+            [
+                ("runtime", "Amazon Bedrock AgentCore", 0.95),
+                ("search", "amazon bedrock agentcore ", 0.95),
+                ("trainium", "AWS Trainium", 0.95),
+                ("hyperpod", "Amazon SageMaker HyperPod", 0.95),
+            ]
+        )
+        # Names compare case- and whitespace-insensitively.
+        chosen = [p.title for p in s._select_for_digest(posts)]
+        assert chosen == ["runtime", "trainium", "hyperpod"]
+
+    def test_a_post_without_a_product_is_never_capped_by_it(self):
+        # Two slots: if "" were one capped bucket, b would give way to c.
+        s = _summarizer(max_posts=2, max_per_product=1)
+        posts = self._with_products(
+            [("a", "", 0.95), ("b", "N/A", 0.95), ("c", "Amazon Bedrock", 0.90)]
+        )
+        assert [p.title for p in s._select_for_digest(posts)] == ["a", "b"]
+
+    def test_product_names_compare_without_case_punctuation_or_vendor(self):
+        s = _summarizer(max_posts=2, max_per_product=1)
+        posts = self._with_products(
+            [
+                ("a", "Amazon Bedrock AgentCore", 0.95),
+                ("b", "Bedrock AgentCore.", 0.95),
+                ("c", "AWS Trainium", 0.90),
+            ]
+        )
+        assert [p.title for p in s._select_for_digest(posts)] == ["a", "c"]
+
+    def test_product_cap_backfills_rather_than_shrinking_the_issue(self):
+        s = _summarizer(max_posts=3, max_per_product=1)
+        posts = self._with_products(
+            [
+                ("a", "Amazon Bedrock", 0.95),
+                ("b", "Amazon Bedrock", 0.90),
+                ("c", "Amazon Bedrock", 0.85),
+            ]
+        )
+        assert [p.title for p in s._select_for_digest(posts)] == ["a", "b", "c"]
+
+    def test_source_and_product_caps_both_apply(self):
+        s = _summarizer(max_posts=2, max_per_source=1, max_per_product=1)
+        posts = self._scored(
+            [
+                ("aws1", "aws", 0.95),
+                ("meta1", "meta", 0.95),
+                ("aws2", "aws", 0.90),
+                ("meta2", "meta", 0.85),
+            ]
+        )
+        for post, product in zip(posts, ("Llama", "Llama", "", "Other"), strict=True):
+            post.product = product
+            post.published_date = posts[0].published_date
+        # meta1 shares aws1's product, aws2 shares its source; dropping either
+        # cap would let one of them in ahead of meta2.
+        assert [p.title for p in s._select_for_digest(posts)] == ["aws1", "meta2"]
+
+
+class TestFilterProductLabel:
+    @pytest.mark.parametrize(
+        ("raw", "stored"),
+        [
+            (" Amazon Bedrock AgentCore ", "Amazon Bedrock AgentCore"),
+            ("None", ""),
+            ("N/A", ""),
+            ("-", ""),
+        ],
+    )
+    def test_the_filter_product_is_stored_on_the_post(self, raw, stored):
+        s = _summarizer(min_score=0.5)
+        s.filter = _FakeChain([{"score": "0.95", "reason": "r", "product": raw}])
+        (post,) = s._filter_posts([_post("a")])
+        assert post.product == stored
+
 
 class TestFilterInputIsProseNotMarkup:
     """Filtering is ~74% of this pipeline's Bedrock cost and its input was raw
@@ -1078,3 +1164,71 @@ def test_the_real_shortening_prompt_formats_and_parses(language, limit):
     )
     assert str(limit) in seen["text"] and "7000" in seen["text"]
     assert "{literal braces} draft" in seen["text"]
+
+
+class TestShortenerModel:
+    """Cutting a finished draft to length needs no analysis: with thinking on,
+    one shortening call cost more output tokens than any summary in prod."""
+
+    def test_the_shortener_runs_without_thinking_under_its_own_stage(self):
+        from app.adapters.bedrock import BedrockLanguageModelFactory
+
+        s = _summarizer(summarization_enable_thinking=True)
+        requested: list[dict] = []
+        factory = BedrockLanguageModelFactory.__new__(BedrockLanguageModelFactory)
+
+        def get_model(**kwargs):
+            requested.append(kwargs)
+            return RunnableLambda(lambda x: x)
+
+        factory.get_model = get_model
+        s.llm_factory = factory
+        model = s.settings.summarization_model_id
+        s._create_summarizer(model, model, use_thinking=True)
+        by_stage = {kwargs["stage"]: kwargs for kwargs in requested}
+        assert by_stage["summarization"]["enable_thinking"] is True
+        assert by_stage["summary-shortening"]["enable_thinking"] is False
+        assert by_stage["summary-shortening"]["model_id"] == model
+
+
+class TestImpactTieBreak:
+    """The rubric's anchors tie often; the filter's impact decides among equal
+    scores before recency does."""
+
+    def test_equal_scores_rank_the_bigger_news_first(self):
+        s = _summarizer(max_posts=2)
+        newer, bigger, older = (_post(t) for t in ("newer", "bigger", "older"))
+        for post, impact, days in ((newer, 1, 0), (bigger, 3, 2), (older, 2, 3)):
+            post.score = 0.95
+            post.impact = impact
+            post.published_date -= timedelta(days=days)
+        assert [p.title for p in s._select_for_digest([newer, bigger, older])] == [
+            "bigger",
+            "older",
+        ]
+
+    def test_impact_never_outranks_a_higher_score(self):
+        s = _summarizer()
+        low, high = _post("low"), _post("high")
+        low.score, low.impact = 0.90, 3
+        high.score, high.impact = 0.95, 1
+        assert [p.title for p in s._select_for_digest([low, high])] == ["high", "low"]
+
+    @pytest.mark.parametrize(
+        ("raw", "stored"),
+        [
+            ("3", 3),
+            (" 2 ", 2),
+            ("3.", 3),
+            ("2 (a good share)", 2),
+            ("5", 0),
+            ("12", 0),
+            ("high", 0),
+            (None, 0),
+        ],
+    )
+    def test_an_unreadable_impact_ranks_last_instead_of_failing(self, raw, stored):
+        s = _summarizer(min_score=0.5)
+        s.filter = _FakeChain([{"score": "0.95", "reason": "r", "impact": raw}])
+        (post,) = s._filter_posts([_post("a")])
+        assert post.impact == stored

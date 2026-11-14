@@ -3,7 +3,7 @@
 import re
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from typing import TypeAlias
+from typing import Any, Protocol, TypeAlias
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -95,6 +95,13 @@ class Post(BaseModel):
     tags: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
     score: float = 0.0
+    # The product the filter names as the post's subject; the per-product cap
+    # groups by it. Run state, not part of the saved post.
+    product: str = Field(default="", exclude=True)
+    # The filter's 1-3 read of how many readers want this news this week (0 =
+    # not given). It breaks ties between equal scores, so it is saved with the
+    # post: the renderer orders the issue by the same key the selection used.
+    impact: int = Field(default=0, ge=0, le=3)
     # The feed carried only a teaser and the article page could not be read
     # (blocked, failed or unparseable). Crawl health counts these per source; it
     # is run state, not part of the saved post.
@@ -259,3 +266,31 @@ def normalize_title_key(title: str) -> str:
     """
     folded = re.sub(r"[^\w\s]", " ", title.casefold())
     return " ".join(folded.split())
+
+
+_NO_PRODUCT = frozenset({"none", "n a", "na", "not applicable"})
+
+
+def product_key(name: str) -> str:
+    """The product name as the per-product cap compares it ("" = no product).
+
+    Independent filter calls name the same service with small drift ("Amazon
+    Bedrock AgentCore", "Bedrock AgentCore.", "N/A" for none), so case,
+    punctuation and the vendor prefix are ignored.
+    """
+    text = " ".join(re.sub(r"[^\w\s]", " ", name.casefold()).split())
+    text = re.sub(r"^(?:amazon|aws) ", "", text)
+    return "" if text in _NO_PRODUCT else text
+
+
+class _Ranked(Protocol):
+    score: float
+    impact: int
+    published_date: Any
+
+
+def relevance_key(item: _Ranked) -> tuple[float, int, Any]:
+    """Rank order for posts and article cards: score, then the filter's impact,
+    then recency. The rubric's few anchors tie often; impact separates a major
+    launch from a minor one, and recency keeps the order deterministic."""
+    return (item.score, item.impact, item.published_date)

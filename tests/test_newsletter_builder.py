@@ -21,7 +21,9 @@ LOGOS = {
 }
 
 
-def _write_post(directory, *, title, source, score, published, summary=None):
+def _write_post(
+    directory, *, title, source, score, published, summary=None, impact=None
+):
     payload = {
         "title": title,
         "link": f"https://example.com/{title.replace(' ', '-')}",
@@ -33,6 +35,8 @@ def _write_post(directory, *, title, source, score, published, summary=None):
         "urls": [],
         "score": score,
     }
+    if impact is not None:
+        payload["impact"] = impact
     path = directory / f"{source}-{title.replace(' ', '_')}.json"
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
@@ -131,6 +135,30 @@ class TestArticleOrdering:
         builder = _builder(inputs, outputs, templates_dir)
         articles = builder._load_articles("2026-06-01", Language.KO)
         assert [a.title for a in articles] == ["Newer", "Older"]
+
+    def test_impact_breaks_score_ties_before_recency(self, digest_dirs, templates_dir):
+        # The same key the selection ranks with, saved with the post.
+        inputs, outputs = digest_dirs
+        day = inputs / "2026-06-01"
+        _write_post(
+            day,
+            title="Minor",
+            source="aws",
+            score=0.95,
+            published="2026-06-01",
+            impact=1,
+        )
+        _write_post(
+            day,
+            title="Major",
+            source="aws",
+            score=0.95,
+            published="2026-05-28",
+            impact=3,
+        )
+        builder = _builder(inputs, outputs, templates_dir)
+        articles = builder._load_articles("2026-06-01", Language.KO)
+        assert [a.title for a in articles] == ["Major", "Minor"]
 
     def test_rendered_issue_shows_the_lead_article_first(
         self, digest_dirs, templates_dir

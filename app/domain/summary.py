@@ -28,7 +28,7 @@ from app.domain.constants import (
     FilteringCriteria,
     LanguageModelId,
 )
-from app.domain.post import Post, is_safe_url
+from app.domain.post import Post, is_safe_url, product_key, relevance_key
 
 # The terminal-colon rule lives in ``quality_metrics`` so the corrector below and
 # the rubric that scores it share one pattern and cannot disagree.
@@ -490,6 +490,10 @@ class SummarizationOptions(BaseModel):
     # backfilled in rank order, so it changes which posts ship, never how many.
     # Leave unset for a single-vendor digest, where concentration is the point.
     max_per_source: int | None = Field(default=None, ge=1)
+    # The same cap per product (the filter names each post's), for a digest whose
+    # posts share one source: the rubric's coarse anchors tie often, and without
+    # it the newest launches of one busy product could take every slot.
+    max_per_product: int | None = Field(default=None, ge=1)
     # The filter scores prose, so it gets visible text rather than HTML (§10).
     filter_on_visible_text: bool = True
     # The summarizer needs markup (code, tables, images) but not site furniture.
@@ -542,51 +546,65 @@ def gate_by_content_length(
 
 
 def select_for_digest(
-    posts: list[Post], max_posts: int | None, max_per_source: int | None
+    posts: list[Post],
+    max_posts: int | None,
+    max_per_source: int | None,
+    max_per_product: int | None = None,
 ) -> list[Post]:
     """Rank by relevance and pick the issue's line-up.
 
-    Ordering is ``(score desc, published_date desc)``: the rubric's few anchors
-    produce frequent ties, and recency breaks them deterministically so
-    the same inputs always yield the same issue.
+    Ordering is ``relevance_key``: score, then the filter's impact, then
+    recency, so the rubric's frequent ties go to the bigger news and the same
+    inputs always yield the same issue.
 
-    When ``max_per_source`` is set, the cap is applied in a first pass and any
-    remaining slots are then BACKFILLED from the leftovers in rank order. A
-    cap that shrank the digest would trade a real loss (fewer articles) for a
-    cosmetic gain, so the cap only ever changes *which* posts fill the slots,
-    never *how many*. Leaving it unset keeps pure score ranking — the right
-    default for a single-vendor digest (``filtering_criteria: amazon``), where
-    source concentration is the point rather than a defect.
+    ``max_per_source`` and ``max_per_product`` cap how many picks share a source
+    or a product (a post the filter named no product for is never capped by
+    it). The caps apply in a first pass and any remaining slots are then
+    BACKFILLED from the leftovers in rank order. A cap that shrank the digest
+    would trade a real loss (fewer articles) for a cosmetic gain, so a cap only
+    ever changes *which* posts fill the slots, never *how many*.
     """
-    ranked = sorted(posts, key=lambda p: (p.score, p.published_date), reverse=True)
+    ranked = sorted(posts, key=relevance_key, reverse=True)
     limit = max_posts or len(ranked)
-    cap = max_per_source
+    caps = [
+        (cap, key)
+        for cap, key in (
+            (max_per_source, lambda p: p.source),
+            (max_per_product, lambda p: product_key(p.product)),
+        )
+        if cap
+    ]
 
-    if cap:
-        per_source: dict[str, int] = {}
+    if caps:
+        counts: list[dict[str, int]] = [{} for _ in caps]
         selected: list[Post] = []
         overflow: list[Post] = []
         for post in ranked:
             if len(selected) >= limit:
                 break
-            if per_source.get(post.source, 0) < cap:
-                per_source[post.source] = per_source.get(post.source, 0) + 1
+            keys = [key(post) for _, key in caps]
+            if all(
+                not k or seen.get(k, 0) < cap
+                for (cap, _), k, seen in zip(caps, keys, counts, strict=True)
+            ):
+                for k, seen in zip(keys, counts, strict=True):
+                    if k:
+                        seen[k] = seen.get(k, 0) + 1
                 selected.append(post)
             else:
                 overflow.append(post)
         if len(selected) < limit and overflow:
             backfilled = overflow[: limit - len(selected)]
             logger.info(
-                "Source cap (%d/source) left %d slot(s) unfilled; "
-                "backfilling in rank order: %s",
-                cap,
+                "Diversity caps left %d slot(s) unfilled; backfilling in rank "
+                "order: %s",
                 len(backfilled),
                 [p.title for p in backfilled],
             )
             selected.extend(backfilled)
             # Re-rank so the backfilled posts sit in relevance order rather
             # than being appended after lower-scoring capped picks.
-            selected.sort(key=lambda p: (p.score, p.published_date), reverse=True)
+            selected.sort(key=relevance_key, reverse=True)
         ranked = selected
     elif len(ranked) > limit:
         ranked = ranked[:limit]
@@ -596,10 +614,21 @@ def select_for_digest(
             "Selected top %d of %d posts for the digest%s.",
             len(ranked),
             len(posts),
-            f" (max {cap} per source)" if cap else "",
+            "".join(
+                f" (max {cap} per {name})"
+                for cap, name in (
+                    (max_per_source, "source"),
+                    (max_per_product, "product"),
+                )
+                if cap
+            ),
         )
     logger.info(
         "Digest line-up (relevance order): %s",
-        [f"{p.source}:{p.title} ({p.score:.2f})" for p in ranked],
+        [
+            f"{p.source}:{p.title} ({p.score:.2f}, impact {p.impact}"
+            f"{', ' + p.product if p.product else ''})"
+            for p in ranked
+        ],
     )
     return ranked

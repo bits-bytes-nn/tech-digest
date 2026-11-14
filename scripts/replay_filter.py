@@ -169,6 +169,8 @@ def score(
             "link": post.link,
             "score": None if reason.startswith(MODEL_FAILURE_PREFIXES) else post.score,
             "reason": reason,
+            "product": post.product,
+            "impact": post.impact,
         }
         for post, reason in summarizer.filtered_out_posts
     ]
@@ -193,7 +195,8 @@ def _lineup(candidates: list[dict[str, Any]], scores: dict, settings: Any) -> li
 
     posts = []
     for c in candidates:
-        s = scores.get(c["link"], {}).get("score")
+        scored = scores.get(c["link"], {})
+        s = scored.get("score")
         if s is None or s < settings.min_score:
             continue
         post = Post(
@@ -203,8 +206,17 @@ def _lineup(candidates: list[dict[str, Any]], scores: dict, settings: Any) -> li
             published_date=datetime.fromisoformat(c["published"]),
         )
         post.score = s
+        post.product = scored.get("product", "")
+        post.impact = scored.get("impact", 0)
         posts.append(post)
-    return select_for_digest(posts, settings.max_posts, settings.max_per_source)
+    if settings.max_per_product and not any("product" in r for r in scores.values()):
+        logger.warning(
+            "These scores predate the product label: the line-up ignores "
+            "max_per_product and impact, unlike the pipeline's."
+        )
+    return select_for_digest(
+        posts, settings.max_posts, settings.max_per_source, settings.max_per_product
+    )
 
 
 def compare(stage: str, before: str, after: str) -> int:

@@ -119,7 +119,7 @@ class FilteringPrompt(BasePrompt):
         "included_topics",
         "excluded_topics",
     ]
-    output_variables: list[str] = ["score", "reason"]
+    output_variables: list[str] = ["score", "reason", "product", "impact"]
     system_prompt_template: str = ""
     human_prompt_template: str = ""
     # Everything from this marker onward is the static rubric; caching moves it
@@ -225,7 +225,12 @@ mixing or poor organisation is a reason to choose the lower anchor, never to adj
 **OUTPUT FORMAT:**
 <reason>[Explain concisely: (1) Topic validation — does the content SUBSTANTIALLY cover (>30%
 primary focus) an included topic? If so, name it. (2) Which anchor score you chose and why.]</reason>
-<score>[The chosen anchor exactly, two decimals, e.g. 0.90, 0.70, 0.15]</score>""",
+<score>[The chosen anchor exactly, two decimals, e.g. 0.90, 0.70, 0.15]</score>
+<product>[The one product, model or system the post is mainly about, by its official name without
+the feature or version (e.g. Gemini, vLLM, Llama); "none" if it has no single subject]</product>
+<impact>[How many readers of this digest would want to hear about it this week, regardless of the
+score: 3 = most of them (a result or release the field will talk about), 2 = a good share, 1 = a
+narrow audience. One digit]</impact>""",
         FilteringCriteria.AMAZON: """Evaluate this content for ML technical quality with focus on Amazon/AWS ML
 implementations.
 
@@ -308,7 +313,15 @@ mixing or poor organisation is a reason to choose the lower anchor, never to adj
 <reason>[Explain concisely: (1) Topic validation — does the content SUBSTANTIALLY cover (>30%
 primary focus) an included topic with AWS context? If so, name it. (2) Which anchor score you
 chose and why.]</reason>
-<score>[The chosen anchor exactly, two decimals, e.g. 0.90, 0.70, 0.15]</score>""",
+<score>[The chosen anchor exactly, two decimals, e.g. 0.90, 0.70, 0.15]</score>
+<product>[The one AWS service the post is mainly about, by its official name without the feature
+(e.g. Amazon Bedrock AgentCore, Amazon SageMaker HyperPod, AWS Trainium). For a post about one model
+or model family, name the model family instead of the service that hosts it (e.g. Claude, Kimi,
+Amazon Nova, Nemotron). "none" if it has no single subject]</product>
+<impact>[How many readers of this digest would want to hear about it this week, regardless of the
+score: 3 = most of them (a new model, a new service or a major capability), 2 = a good share (a
+significant feature of an existing service), 1 = a narrow audience (pricing, regions, a small
+integration, or not news). One digit]</impact>""",
     }
 
     @classmethod
@@ -585,8 +598,11 @@ explanations that make complex technical concepts accessible without sacrificing
 - Carry over EVERY measured number the article reports, WITH its unit ("22-66% lower", "8,000 tokens",
   "3,200 Gbps", "16 GPUs across 2 nodes"). Never replace a number with an adjective like "significantly
   faster" — once the figures are gone the summary is useless to a practitioner
-- If the article contains code, configuration, CLI or a schema, include at least the most load-bearing
-  snippet in `<pre><code>` (never invent one that is not in the source)
+- If the article contains code, configuration, CLI or a schema, include the one or two most
+  load-bearing snippets in `<pre><code>` — the calls specific to what the article introduces (never
+  invent one that is not in the source). Setup any reader already knows (installs, IAM policies,
+  network or endpoint configuration) gets one sentence, not a code block: it counts against the
+  length budget and crowds out the explanation
 - When three or more numbers are being compared, put them in a TABLE rather than in prose, and do not
   repeat the table's values in the surrounding text
 - When you shorten a code snippet, mark each omitted span with `...` rather than silently splicing lines
@@ -624,8 +640,8 @@ add information, not repeat the alt text). Avoid redundancy
 with the technical deep dive section.
 
 <h3>🛠️ Technical Deep Dive</h3>
-Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 
-with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
+Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, the one or two critical code sections 
+(per the specificity rules) with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
 scalability considerations, edge cases, and known limitations. Use <pre><code> for code blocks. Write 
 as a cohesive narrative. Be detailed but avoid repeating information already covered in other 
 sections.
@@ -655,8 +671,9 @@ avoid speculation.
 Knowing a rule is not the same as having followed it. These are the slips that most often survive
 into a published issue, so look for each one in your draft and fix it before you output:
 1. Go through every number in 📊. If it also appears in 📌, 🔄 or 🛠️, keep it in 📊 and replace the
-   earlier mention with words ("cuts latency"). Then delete any 📊 sentence about business
-   value, a count or ratio you computed, or a forecast the article does not make.
+   earlier mention with words ("cuts latency"). A value that is in a 📊 table is not repeated in
+   the prose around it either. Then delete any 📊 sentence about business value, a count or ratio
+   you computed, or a forecast the article does not make.
 2. Find sentences whose verb is "provides", "offers" or "supports" and say what the feature actually does.
 3. Find praise adjectives, "not just X, it's Y" and meta-narration (principle 5) and rewrite them. Read the
    last sentence of 📌: if it says who should read this or that it is worth noting, end on the finding instead.
@@ -666,6 +683,11 @@ into a published issue, so look for each one in your draft and fix it before you
    given, "these are the only figures reported"), every sentence about how you built the summary ("I left
    out"), every reason or intention the article does not state ("likely because", "this suggests"), and
    every causal link it does not make ("based on this").
+7. Read each 🔮 sentence: keep it only if it states a plan, upcoming capability or direction the article
+   itself names. Advice to the reader ("measure it on your own workload") and restated features are not
+   future directions; if nothing is left, delete the section.
+8. Find industry surveys and customer or partner testimonials. They are not findings about the
+   technology: a figure they measured goes in 📊 with whose figure it is, anything else is deleted.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation following the structure above]</summary>
@@ -768,7 +790,7 @@ Korean:
      "지연이 줄었다는 점이 핵심입니다" → "지연이 22% 줄었습니다"
 
    **원칙 6·7은 문체 규칙이고, 우선순위는 원칙 3보다 낮습니다.** 표현을 다듬느라 메커니즘·
-   파라미터·측정값·코드를 빼지 마세요. 번역투를 피하려고 문장을 짧게 끊는 것도, 강조하려고 앞
+   파라미터·측정값·기능을 보여 주는 코드를 빼지 마세요. 번역투를 피하려고 문장을 짧게 끊는 것도, 강조하려고 앞
    섹션의 수치를 뒤 섹션에서 다시 꺼내는 것도 금지입니다. **고칠 것은 문장이고, 줄일 것은
    중복 서술뿐입니다.**
 
@@ -776,8 +798,10 @@ Korean:
 - 원문이 보고하는 **측정값은 단위와 함께 빠짐없이** 옮기세요("22~66% 감소", "8,000토큰",
   "3,200Gbps", "2노드 16 GPU"). 숫자를 "크게 개선"처럼 형용사로 바꾸지 마세요 — 수치가
   사라지면 이 요약은 실무자에게 쓸모가 없어집니다
-- 원문에 **코드·설정·CLI·스키마가 있으면**, 가장 핵심적인 조각을 최소 하나
-  `<pre><code>`로 실으세요(원문에 없으면 만들어내지 마세요)
+- 원문에 **코드·설정·CLI·스키마가 있으면**, 이 글이 소개하는 기능 고유의 호출을 보여 주는
+  핵심 조각 한두 개를 `<pre><code>`로 실으세요(원문에 없으면 만들어내지 마세요). 설치 명령,
+  IAM 정책, 네트워크·엔드포인트 설정처럼 독자가 이미 아는 준비 단계는 코드 대신 한 문장으로
+  쓰세요. 코드도 분량 예산에 들어가므로 설명할 자리를 빼앗습니다
 - 수치가 3개 이상 비교되면 산문으로 늘어놓지 말고 **표**로 만드세요. 표에 넣은 값은 본문에서 다시 쓰지 마세요
 - 코드 조각을 줄일 때는 생략한 부분을 `...`로 표시하세요. 떨어진 줄을 말없이 이어 붙이지 마세요
 - 파라미터·플래그·임계값의 **이름을 그대로** 쓰세요(`routingThreshold`, `PD_BUFFER_SIZE`)
@@ -813,8 +837,8 @@ Describe the system design and workflow clearly. Cover main components, their in
 Avoid redundancy with the technical deep dive section.
 
 <h3>🛠️ 기술적 심층 분석</h3>
-Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, critical code sections 
-with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
+Provide a comprehensive technical walkthrough covering: core technical concepts, key terminology, the one or two critical code sections 
+(per the specificity rules) with explanations, technical decisions, tools and frameworks used, optimization strategies, performance characteristics, 
 scalability considerations, edge cases, and known limitations. Use <pre><code> for code blocks. Write 
 as a cohesive narrative. Be detailed but avoid repeating information already covered in other 
 sections.
@@ -842,11 +866,11 @@ avoid speculation.
 - No meta-commentary about following these instructions
 
 **마지막 점검 (답을 내기 전에 초안을 다시 읽고 고치세요):**
-규칙을 아는 것과 지킨 것은 다릅니다. 아래 여섯 가지는 지난 호들에서 실제로 가장 자주 남은
+규칙을 아는 것과 지킨 것은 다릅니다. 아래 여덟 가지는 지난 호들에서 실제로 가장 자주 남은
 실수이므로, 초안을 쓴 뒤 하나씩 찾아서 고치고 나서 출력하세요.
 1. 📊 섹션의 숫자를 하나씩 보세요. 📌·🔄·🛠️에도 같은 숫자가 있으면 📊에 남기고 앞쪽은 "지연을
-   줄입니다"처럼 말로 바꾸세요. 그다음 원문에 없는 비즈니스 함의, 직접 세거나 계산한 수·비율, 전망을 담은 📊
-   문장을 지우세요.
+   줄입니다"처럼 말로 바꾸세요. 📊 표에 넣은 값은 표 앞뒤 문장에서도 다시 쓰지 마세요. 그다음 원문에 없는
+   비즈니스 함의, 직접 세거나 계산한 수·비율, 전망을 담은 📊 문장을 지우세요.
 2. "제공합니다", "지원합니다"로 끝나는 문장을 찾아 그 기능이 실제로 무엇을 하는지로 바꾸세요.
 3. "~라는/다는 점" 절, "~하는 것" 명사절, 수량 표현 뒤의 "-들"("16개 GPU들"), 칭찬 형용사와 메타
    서술을 찾아 원칙 6·7대로 고치세요. 📌의 마지막 문장이 누가 읽으면 좋은지, 주목할 만하다는 말로
@@ -858,6 +882,11 @@ avoid speculation.
    요약을 어떻게 만들었는지 밝히는 문장("~는 제외했습니다")도 지우세요. 원문이 밝히지 않은
    이유·의도("~때문으로 보입니다", "~라고 볼 수 있습니다")와 원문에 없는 인과 연결("이를 근거로")도
    지우세요. 원문이 스스로 밝힌 한계만 남깁니다.
+7. 🔮의 문장을 하나씩 보세요. 원문이 직접 밝힌 계획, 출시 예정 기능, 확장 방향만 남기세요. 독자에게
+   건네는 조언("자기 워크로드로 측정해 볼 수 있습니다")이나 이미 설명한 기능의 재서술은 향후 방향이
+   아닙니다. 남는 문장이 없으면 섹션을 지우세요.
+8. 업계 설문과 고객·파트너 추천사를 찾으세요. 기술에 대한 사실이 아니므로, 그들이 측정한 수치는
+   누구의 수치인지 밝혀 📊에 두고 나머지는 지우세요.
 
 **OUTPUT FORMAT:**
 <summary>[Your comprehensive technical explanation in Korean following the structure above]</summary>
@@ -909,9 +938,10 @@ class SummaryLengthPrompt(BasePrompt):
 <draft>{summary}</draft>
 
 Cut sentences that restate something already said, background the reader does not need, and
-the least important details first. Keep every measured number, parameter name, code block and
-table, the sections and their order, and the HTML markup and writing style the draft
-already follows. Add nothing new.
+the least important details first; a code block that shows only setup (installs, IAM policies,
+network configuration) goes before any explanation does. Keep every measured number, parameter
+name, the code that shows the feature itself, every table, the sections and their order, and the
+HTML markup and writing style the draft already follows. Add nothing new.
 
 **OUTPUT:** <summary>[the shortened summary]</summary> only.""",
         Language.KO: """아래 요약은 가시 텍스트 기준 {measured}자입니다. 상한이 {limit}자이니 그 안으로
@@ -919,9 +949,10 @@ already follows. Add nothing new.
 
 <draft>{summary}</draft>
 
-앞에서 한 말을 되풀이한 문장, 독자에게 필요 없는 배경, 덜 중요한 세부부터 지우세요. 측정값,
-파라미터 이름, 코드 블록, 표는 지우지 말고 섹션 구성과 순서, HTML 마크업과 초안의 문체(합니다체,
-번역투·상투구 없이)도 그대로 두세요. 새 내용은 더하지 마세요.
+앞에서 한 말을 되풀이한 문장, 독자에게 필요 없는 배경, 덜 중요한 세부부터 지우세요. 설치 명령,
+IAM 정책, 네트워크 설정처럼 준비 단계만 보여 주는 코드 블록은 설명보다 먼저 지우세요. 측정값,
+파라미터 이름, 기능 자체를 보여 주는 코드, 표는 지우지 말고 섹션 구성과 순서, HTML 마크업과 초안의
+문체(합니다체, 번역투·상투구 없이)도 그대로 두세요. 새 내용은 더하지 마세요.
 
 **OUTPUT:** <summary>[줄인 요약]</summary>만 출력.""",
     }
