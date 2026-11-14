@@ -16,11 +16,11 @@ scraping:
     - "https://medium.com/feed/airbnb-engineering"
     - "https://www.amazon.science/index.rss"
     # Lists only the newest 20 posts (a few days' worth), so it does not
-    # reach back a full week and crawl health logs it as truncated. Add the
-    # blog's category feeds for the topics you need, e.g.
-    # .../blogs/machine-learning/category/artificial-intelligence/generative-ai/feed/
-    # or .../category/artificial-intelligence/amazon-machine-learning/amazon-bedrock/feed/;
-    # a post carried by several feeds is collected once.
+    # reach back a full week and crawl health logs it as truncated. To cover
+    # the whole week, add the blog's five post-type feeds, which together
+    # carry every post: .../blogs/machine-learning/category/post-types/<type>/feed/
+    # for announcements, technical-how-to, customer-solutions, best-practices
+    # and thought-leadership. A post carried by several feeds is collected once.
     - "https://aws.amazon.com/blogs/machine-learning/feed/"
     - "https://deepmind.google/blog/rss.xml" # was www.deepmind.com/blog/rss.xml (302 redirect)
     - "https://research.google/blog/rss/" # the index-page scraper stopped dating posts; the article body is fetched from each post page
