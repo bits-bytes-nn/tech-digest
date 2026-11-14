@@ -65,6 +65,19 @@ class TestCrawlHealthClassification:
         assert report.empty and not report.failed
         assert report.empty[0].status is SourceStatus.EMPTY
 
+    @pytest.mark.parametrize(
+        ("candidates", "level"),
+        [(20, "INFO"), (0, "WARNING"), (None, "WARNING")],
+    )
+    def test_only_a_source_that_listed_nothing_warns(self, caplog, candidates, level):
+        # A feed with posts, none this week, is quiet; one with none is suspect.
+        fetcher = _EmptyFetcher("https://b.com/feed")
+        fetcher.candidates = candidates
+        with caplog.at_level("INFO", logger="app"):
+            self._collect([fetcher])
+        (record,) = [r for r in caplog.records if "no posts in range" in r.message]
+        assert record.levelname == level
+
     def test_failed_source_classified(self):
         _, report = self._collect([_FailingFetcher("https://meta.com/blog")])
         assert report.failed

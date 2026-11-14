@@ -1,5 +1,6 @@
 # NOTE: If there is no RSS feed available, you need to create a custom scraper here
 
+import logging
 import socket
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -491,6 +492,7 @@ class PostCollector:
                     if title_key:
                         seen_titles.add(title_key)
                 status = SourceStatus.OK if fetched else SourceStatus.EMPTY
+                candidates = getattr(fetcher, "candidates", None)
                 self.report.sources.append(
                     SourceHealth(
                         url=url,
@@ -499,7 +501,7 @@ class PostCollector:
                         # Read defensively, as ``source_url`` is: a fetcher that
                         # reports nothing yields None, which the report reads as
                         # "unknown" rather than "zero".
-                        candidates=getattr(fetcher, "candidates", None),
+                        candidates=candidates,
                         # Posts this source CONTRIBUTED, not posts it returned,
                         # so syndicated duplicates do not inflate the health line.
                         post_count=contributed,
@@ -510,7 +512,15 @@ class PostCollector:
                     )
                 )
                 if not fetched:
-                    logger.warning("Source produced no posts in range: '%s'", url)
+                    # A feed that listed posts, none of them this week, is a
+                    # quiet source: several of the configured category feeds are
+                    # every week. Only a source that listed nothing is suspect.
+                    logger.log(
+                        logging.INFO if candidates else logging.WARNING,
+                        "Source produced no posts in range: '%s' (%s candidate(s))",
+                        url,
+                        candidates,
+                    )
                 elif not contributed:
                     # INFO: overlapping feeds (the AWS category feeds) are
                     # configured on purpose.
