@@ -145,6 +145,8 @@ summarization:
   max_posts: 3                           # 5로 올리려면 KO 예산을 약 4,000자로 조여야 함(design.md §9)
   max_per_source: 2                      # 소스 다양성 캡(선택). 빈 자리는 랭크 순으로
                                          # 다시 채우므로 발행 편수는 줄지 않음
+  # max_per_product: 1                   # 필터가 붙인 제품별 같은 캡(선택). 모든 글이
+                                         # 한 소스에서 오는 다이제스트용
 
 newsletter:
   sender: "your-verified-sender@example.com"
@@ -212,7 +214,7 @@ pip install -e ".[dev]"
 # 린트, 포맷 검사, 타입 검사, 테스트
 ruff check .
 ruff format --check .
-mypy app                     # main.py / run_batch.py를 포함한 패키지 전체
+mypy app scripts             # main.py·run_batch.py를 포함한 패키지와 도구 스크립트
 pytest                       # 빠른 오프라인 단위/통합 스위트
 
 # 생성된 실행 결과에 대한 출력 품질 루브릭. 채점은 결정적이고 오프라인이며 무료입니다.

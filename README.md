@@ -150,6 +150,8 @@ summarization:
   max_posts: 3                           # 5 needs the KO budget tightened to ~4,000 chars (design.md §9)
   max_per_source: 2                      # optional diversity cap; unfilled slots are
                                          # backfilled, so it never shrinks the issue
+  # max_per_product: 1                   # the same cap per product the filter names;
+                                         # for a digest whose posts share one source
 
 newsletter:
   sender: "your-verified-sender@example.com"
@@ -220,7 +222,7 @@ pip install -e ".[dev]"
 # Lint, format-check, type-check, and test
 ruff check .
 ruff format --check .
-mypy app                     # the whole package, main.py / run_batch.py included
+mypy app scripts             # the package (main.py / run_batch.py included) and the tools
 pytest                       # fast, offline unit/integration suite
 
 # Output-quality rubric over a generated run. Scoring is deterministic, offline

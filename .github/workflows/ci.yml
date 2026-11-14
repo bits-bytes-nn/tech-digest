@@ -49,7 +49,7 @@ jobs:
       - name: Mypy type-check
         # The whole `app` package, entry points main.py / run_batch.py included,
         # under the one `app.*` import root the images also use.
-        run: mypy app
+        run: mypy app scripts
 
       - name: Run tests
         # --cov-fail-under is a ratchet, not a target: keep it within a point or
